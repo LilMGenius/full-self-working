@@ -115,8 +115,12 @@ export async function loadAdapter(id) {
   return typeof open === 'function' ? open : null;
 }
 
-const needsWork = (ref, row) => {
-  if (!row || ref.unread) return true;
+// Whether a listed item needs a pass this tick: new to the ledger, unread, or newer than what the ledger
+// holds. An item parked as skipped at the list time it still shows waits for a newer message.
+export const needsWork = (ref, row) => {
+  if (!row) return true;
+  if (row.meta?.skipped && row.meta.skipped.at === (ref.at ?? null)) return false;
+  if (ref.unread) return true;
   if (!ref.at) return false;
   const seen = Math.max(Date.parse(row.lastInboundAt ?? 0) || 0, Date.parse(row.lastOutboundAt ?? 0) || 0);
   return Date.parse(ref.at) > seen;
@@ -168,7 +172,7 @@ export async function runPlatform(id, ctx) {
       } catch (err) {
         result.errors.push({ ref: String(threadRef.id), code: err.code ?? null, message: err.message });
         ledger.addEvent({ kind: 'thread.error', platform: id, ref: threadRef.id, payload: { code: err.code ?? null, message: err.message } });
-        if (err.code === 'FSW_PACING_LIMIT') break;
+        if (err.code === 'FSW_PACING_LIMIT' || err.code === 'FSW_CONFIG_MISSING') break;
       }
     }
     if (mode !== 'observe' && sendingHours) result.approvalsSent = (await flushApprovals({ platform: id, adapter, ledger, instance, descriptor })).length;
@@ -361,8 +365,20 @@ export async function runSupervisor(ctx = {}) {
   process.on('exit', cleanup);
   try {
     const state = readState(instance);
+    let current = instance;
     while (!stopping) {
-      const summary = await runTick({ instance, ledger, state, keeper, log, forceMode: ctx.forceMode });
+      // The config is read again every tick, so an operator edit (a mode, a budget) applies at the next
+      // mark without a restart. A config that no longer parses keeps the last good one and tells the
+      // operator, since stopping would end every platform's replies over one typo.
+      if (!ctx.instance) {
+        try {
+          current = loadInstance();
+        } catch (err) {
+          log('config reload failed, keeping the last good config: ' + err.message);
+          await notifyOperator(instance, { kind: 'supervisor', title: 'The instance config did not load', body: err.message, dedupeKey: 'config:' + dayKey() });
+        }
+      }
+      const summary = await runTick({ instance: current, ledger, state, keeper, log, forceMode: ctx.forceMode });
       if (summary.jobs.length) log('tick ' + summary.jobs.map((j) => j.job + ':' + j.status).join(' ') + ' failures=' + summary.failures);
       if (stopping || ctx.once) break;
       const ms = Math.max(0, nextWake(new Date()).getTime() - Date.now());

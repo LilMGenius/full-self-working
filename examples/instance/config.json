@@ -6,6 +6,13 @@
       "23:00"
     ]
   },
+  "pipeline": {
+    "replyWindowHours": {
+      "message": 72,
+      "request": 48
+    },
+    "minAutoConfidence": 0.7
+  },
   "platforms": {
     "kmong": {
       "enabled": true,

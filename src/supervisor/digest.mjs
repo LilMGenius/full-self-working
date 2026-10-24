@@ -44,6 +44,7 @@ export function digestNumbers({ instance, ledger, now = new Date() }) {
   const payments = q('SELECT amount_krw, received_at FROM payments').filter((p) => inDay(p.received_at, day));
   const events = q('SELECT kind, platform, ref, payload, at FROM events').filter((e) => inDay(e.at, day));
   const errors = {};
+  const parked = {};
   const bump = (platform, what) => {
     const k = platform ?? 'supervisor';
     errors[k] ??= {};
@@ -52,6 +53,7 @@ export function digestNumbers({ instance, ledger, now = new Date() }) {
   for (const e of events) {
     const payload = e.payload ? JSON.parse(e.payload) : {};
     if (e.kind === 'thread.error') bump(e.platform, 'thread error');
+    else if (e.kind === 'thread.operator') parked[e.platform] = (parked[e.platform] ?? 0) + 1;
     else if (e.kind === 'send.unobserved') bump(e.platform, 'unobserved send');
     else if (e.kind === 'supervisor.platform' && payload.status === 'failed') bump(e.platform, payload.error ?? 'failed');
     else if (e.kind === 'supervisor.job' && payload.status === 'failed') bump(null, e.ref + ' job failed');
@@ -64,6 +66,7 @@ export function digestNumbers({ instance, ledger, now = new Date() }) {
     repliesSent: { total: outbound.length, byPlatform: byPlatform(outbound) },
     quotesSent: { total: quotes.length, amountKRW: quotes.reduce((s, x) => s + (x.amount_krw ?? 0), 0), cashSpentKRW: quotes.reduce((s, x) => s + (x.cost_krw ?? 0), 0) },
     approvalsWaiting: listApprovals(instance, { status: 'open' }).length,
+    leftForOperator: { total: Object.values(parked).reduce((a, b) => a + b, 0), byPlatform: parked },
     ordersStarted: orders.length,
     payments: { count: payments.length, amountKRW: payments.reduce((s, p) => s + p.amount_krw, 0) },
     prices: priceChanges(instance.paths.pricing),
@@ -83,6 +86,7 @@ export function renderDigest(n) {
     '- replies sent: ' + n.repliesSent.total + (n.repliesSent.total ? ' (' + counts(n.repliesSent.byPlatform) + ')' : ''),
     '- quotes sent: ' + n.quotesSent.total + ', quoted ' + krw(n.quotesSent.amountKRW) + ', cash spent ' + krw(n.quotesSent.cashSpentKRW),
     '- approvals waiting now: ' + n.approvalsWaiting,
+    '- left unread for you (service outside the catalog): ' + n.leftForOperator.total + (n.leftForOperator.total ? ' (' + counts(n.leftForOperator.byPlatform) + ')' : ''),
     '- orders started: ' + n.ordersStarted,
     '- payments recorded: ' + n.payments.count + ', ' + krw(n.payments.amountKRW),
     '- lessons: ' + n.lessons,

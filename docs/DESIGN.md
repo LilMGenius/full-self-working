@@ -27,6 +27,8 @@ Every tick the supervisor runs one pipeline per enabled platform: confirm the lo
 
 Each platform runs in one mode: `observe` reads only, `draft` writes every outbound item to `operator/approvals/` and sends it once approved, `auto` sends when the gate passes. A kind can override the mode, for example `soomgo.profileEdits: "approval"`.
 
+Before anything is opened, an item is parked from its list row alone when the platform closed it, when its newest message is older than `pipeline.replyWindowHours` for its kind, or when the platform labels it with a service the catalog does not hold (숨고 lessons stay unread for the operator, and the digest counts them). A parked item waits until a newer message arrives. In auto mode a decision below `pipeline.minAutoConfidence`, or one naming a different service than the platform's label, goes to the operator.
+
 ## Modules
 
 | Module | Exports | Notes |

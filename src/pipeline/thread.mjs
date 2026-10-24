@@ -7,12 +7,47 @@
 import { createHash } from 'node:crypto';
 import { dayKey } from '../core/clock.mjs';
 import { gateOutbound } from '../policy/gate.mjs';
+import { CATEGORY_FIELD } from '../economics/pricing.mjs';
 import { decide as defaultDecide, isSystemNotice, loadGateRules } from '../brain/respond.mjs';
 import { closeApproval, listApprovals, openApprovalFor, queueApproval } from '../brain/approvals.mjs';
+import catalog from '../economics/services.json' with { type: 'json' };
 
 export const MODES = ['observe', 'draft', 'auto'];
 
 export const spendsCash = (descriptor, kind) => kind === 'request' && descriptor.bidCost?.unit !== 'none';
+
+// The catalog service a platform's own service label names (숨고 labels requests and chats with the
+// names its price guide uses). undefined: the platform gave no label, so there is nothing to check;
+// null: the platform labelled it and the catalog has no such service.
+export function catalogServiceFor(platform, label, services = catalog) {
+  const field = CATEGORY_FIELD[platform];
+  if (!field || !label) return undefined;
+  const hit = Object.entries(services).find(([id, def]) => !id.startsWith('_') && def[field] === label);
+  return hit ? hit[0] : null;
+}
+
+// pipeline settings every non-observe pass needs: hours after which an item is too old to answer, per
+// kind, and the decision confidence below which auto mode asks the operator instead of sending. A missing
+// value is a config error raised before anything is opened, never a default that answers any age.
+export function pipelineSettings(config) {
+  const p = config?.pipeline ?? {};
+  const windows = p.replyWindowHours ?? {};
+  for (const [path, v] of [['replyWindowHours.message', windows.message], ['replyWindowHours.request', windows.request], ['minAutoConfidence', p.minAutoConfidence]]) {
+    if (typeof v !== 'number' || !(v >= 0)) throw Object.assign(new Error('config pipeline.' + path + ' must be a number'), { code: 'FSW_CONFIG_MISSING' });
+  }
+  return { replyWindowHours: windows, minAutoConfidence: p.minAutoConfidence };
+}
+
+// Why a listed item gets no answer, read from the list alone so nothing is opened: the platform closed
+// the request, or its newest message is older than the reply window, where an answer reads as a bot
+// waking up.
+export function skipReason(threadRef, kind, now, settings) {
+  if (kind === 'request' && (threadRef.quotable === false || (threadRef.expiresAt && Date.parse(threadRef.expiresAt) <= now.getTime()))) return 'expired';
+  const windowHours = settings.replyWindowHours[kind === 'request' ? 'request' : 'message'];
+  if (!threadRef.at) return null;
+  const ageHours = (now.getTime() - Date.parse(threadRef.at)) / 3_600_000;
+  return ageHours > windowHours ? 'stale: newest message is ' + Math.round(ageHours) + ' hours old, window ' + windowHours : null;
+}
 
 // Quotes and cash for one platform on the Seoul day of now, counted from the ledger.
 export function quotaUsage(ledger, platform, now = new Date()) {
@@ -76,6 +111,7 @@ export async function processThread({ platform, threadRef, adapter, ledger, inst
   const ref = String(threadRef.id ?? threadRef.externalId);
   const kind = threadRef.kind ?? 'message';
   const unread = threadRef.unread !== false;
+  const settings = mode === 'observe' ? null : pipelineSettings(instance.config);
   const row = ledger.upsertThread({ platform, externalId: ref, kind, customer: threadRef.customer });
   const event = (k, payload = {}) => ledger.addEvent({ kind: k, platform, ref, payload });
 
@@ -88,6 +124,20 @@ export async function processThread({ platform, threadRef, adapter, ledger, inst
     event('thread.system', { preview: threadRef.preview });
     return { action: 'system', opened: false };
   }
+  // A skipped item is remembered with the list time it was skipped at, so the supervisor leaves it alone
+  // until a newer message arrives.
+  const park = (action, reason) => {
+    ledger.upsertThread({ platform, externalId: ref, kind, meta: { skipped: { at: threadRef.at ?? null, reason } } });
+    event('thread.' + action, { reason, service: threadRef.service ?? null });
+    return { action, opened: false, reason };
+  };
+  const skip = settings && skipReason(threadRef, kind, now, settings);
+  if (skip) return park('skipped', skip);
+  const expected = catalogServiceFor(platform, threadRef.service);
+  // A request or conversation in a service outside the catalog (숨고 lessons, for one) is the operator's
+  // own business, and the platform's app already alerts the operator: it stays unread instead of being
+  // opened, marked read and left unanswered, no model call is spent on it, and the digest counts it.
+  if (expected === null && mode !== 'observe') return park('operator', 'service ' + threadRef.service + ' is not in the catalog');
   if (mode === 'observe' && unread) {
     event('thread.observed', { unread: true, preview: threadRef.preview ?? null });
     return { action: 'observed', opened: false };
@@ -125,8 +175,10 @@ export async function processThread({ platform, threadRef, adapter, ledger, inst
 
   if (result.action === 'approval') return queue(result.reason);
   if (d.intent === 'unsupported') return queue('unsupported service: ' + (d.operatorReason ?? 'not in the catalog or profile'));
+  if (expected && d.service !== expected) return queue('the decision names ' + d.service + ' but the platform labels this ' + threadRef.service + ' (' + expected + ')');
   if (d.needsOperator) return queue('operator needed: ' + (d.operatorReason ?? 'no reason given'));
   if (mode === 'draft') return queue('draft mode');
+  if (d.confidence < settings.minAutoConfidence) return queue('confidence ' + d.confidence + ' is below ' + settings.minAutoConfidence);
 
   if (d.quote && (!result.priceRow || result.priceRow.viable === false)) return queue('quote without a viable price row for ' + (d.service ?? 'unknown service'));
   let costKRW = null;

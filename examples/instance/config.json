@@ -46,7 +46,8 @@
     ]
   },
   "yield": {
-    "minNetKRWPerAgentHour": 20000,
+    "agentHourCostKRW": 3000,
+    "humanHourValueKRW": 30000,
     "humanHourWeight": 4,
     "explorationFloor": 0.05,
     "exploreUntilLeads": 10

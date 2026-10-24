@@ -21,12 +21,17 @@ export function tierBase({ reviews, p25, median, p75 }) {
   return p75 == null ? median : median + 0.5 * (p75 - median);
 }
 
-// Smallest gross on the 1,000 KRW grid whose seller net per standard agent hour reaches the minimum.
-// Net grows with gross on every descriptor (no marginal fee reaches 100%), so binary search applies.
-export function costFloor({ agentHours, minNetPerAgentHour, descriptor }) {
+// Smallest gross on the 1,000 KRW grid whose seller net covers what the standard package costs the
+// operator: agent hours at their compute cost and operator review minutes at the operator's hourly
+// value. Agent hours run in parallel at compute cost, so charging them like labour put every
+// entry-level market under the floor. Net grows with gross on every descriptor (no marginal fee
+// reaches 100%), so binary search applies.
+export function costFloor({ agentHours, humanMinutes, agentHourCostKRW, humanHourValueKRW, descriptor }) {
   requireNumber(agentHours, 'agentHours.standard', 'FSW_SERVICE_INVALID');
-  requireNumber(minNetPerAgentHour, 'config.yield.minNetKRWPerAgentHour');
-  const target = agentHours * minNetPerAgentHour;
+  requireNumber(humanMinutes, 'humanMinutes.standard', 'FSW_SERVICE_INVALID');
+  requireNumber(agentHourCostKRW, 'config.yield.agentHourCostKRW');
+  requireNumber(humanHourValueKRW, 'config.yield.humanHourValueKRW');
+  const target = agentHours * agentHourCostKRW + (humanMinutes / 60) * humanHourValueKRW;
   let lo = 0;
   let hi = Math.max(1000, Math.ceil(target));
   while (sellerNet(hi, descriptor).net < target) hi *= 2;
@@ -58,7 +63,8 @@ const CATEGORY_FIELD = { kmong: 'kmongCategory', soomgo: 'soomgoGuide' };
 export function buildPriceTable({ summary, services, profile, sellerStats, config, descriptors }) {
   const entries = summary?.entries;
   if (!Array.isArray(entries)) throw new EconomicsError('FSW_MARKET_SUMMARY_INVALID', 'summary.entries must be an array');
-  const minNet = requireNumber(config?.yield?.minNetKRWPerAgentHour, 'config.yield.minNetKRWPerAgentHour');
+  const agentHourCostKRW = requireNumber(config?.yield?.agentHourCostKRW, 'config.yield.agentHourCostKRW');
+  const humanHourValueKRW = requireNumber(config?.yield?.humanHourValueKRW, 'config.yield.humanHourValueKRW');
   const rows = [];
   for (const [platform, descriptor] of Object.entries(descriptors)) {
     const field = CATEGORY_FIELD[platform];
@@ -75,26 +81,32 @@ export function buildPriceTable({ summary, services, profile, sellerStats, confi
       const fitStrength = listed?.strength ?? 'none';
       const fit = FIT_MULTIPLIER[fitStrength];
       if (fit == null) throw new EconomicsError('FSW_PROFILE_INVALID', `serviceFit.${service}.strength is ${fitStrength}`, { service });
-      const base = roundTo1000(tierBase({ reviews, ...market }) * fit);
+      const marketBase = roundTo1000(tierBase({ reviews, ...market }) * fit);
+      const costFloorKRW = costFloor({ agentHours: def.agentHours?.standard, humanMinutes: def.humanMinutes?.standard, agentHourCostKRW, humanHourValueKRW, descriptor });
+      const marketCeilingKRW = roundTo1000(market.high);
+      // A market entry price under the cost floor is raised to the floor, which buyers above the
+      // median still pay; a floor above the market's ceiling means nobody does, and the row is out.
+      const base = Math.max(marketBase, costFloorKRW);
       const packages = Object.fromEntries(Object.entries(PACKAGE_FACTORS).map(([k, f]) => [k, roundTo1000(base * f)]));
-      const costFloorKRW = costFloor({ agentHours: def.agentHours?.standard, minNetPerAgentHour: minNet, descriptor });
       const row = {
         platform,
         service,
         category,
         baseKRW: base,
+        marketBaseKRW: marketBase,
+        pricedAtFloor: base > marketBase,
         baseNetKRW: sellerNet(base, descriptor).net,
         packages,
         floorKRW: Math.max(costFloorKRW, roundTo1000(market.low)),
-        ceilingKRW: Math.max(roundTo1000(market.high), packages.premium),
+        ceilingKRW: Math.max(marketCeilingKRW, packages.premium),
         costFloorKRW,
         basis: { n: market.n, p25: market.p25, median: market.median, p75: market.p75, source: market.source, observedAt: summary.observedAt ?? null, reviews },
         fitStrength,
         fitListed: Boolean(listed),
-        viable: base >= costFloorKRW,
+        viable: costFloorKRW <= marketCeilingKRW,
       };
       if (!row.viable) {
-        row.reason = `base ${base} KRW is under the cost floor ${costFloorKRW} KRW (${def.agentHours.standard} agent hours at ${minNet} KRW net per hour)`;
+        row.reason = `cost floor ${costFloorKRW} KRW is above the market ceiling ${marketCeilingKRW} KRW (${def.agentHours.standard} agent hours and ${def.humanMinutes.standard} operator minutes)`;
       }
       rows.push(row);
     }

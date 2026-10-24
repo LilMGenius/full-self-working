@@ -23,7 +23,7 @@ const tiered = {
   },
 };
 const free = { id: 'free', name: '무료마켓', milestones: 'multi_pay', bidCost: { unit: 'cash per quote' }, fees: { seller: 0, paymentNetworkRate: 0, vatOnFees: 0 } };
-const config = { yield: { minNetKRWPerAgentHour: 20000 }, payment: { depositRatio: 0.5, milestoneThresholdKRW: 1000000, milestones: [0.3, 0.4, 0.3] } };
+const config = { yield: { agentHourCostKRW: 2000, humanHourValueKRW: 30000 }, payment: { depositRatio: 0.5, milestoneThresholdKRW: 1000000, milestones: [0.3, 0.4, 0.3] } };
 
 test('summarize interpolates quantiles linearly and weights the median by reviews', () => {
   const row = (priceKRW, reviews) => ({ platform: 'p', category: 'c', priceKRW, reviews });
@@ -73,12 +73,14 @@ const services = {
   _notes: { a: 'ignored' },
   svc: { kmongCategory: 'cat', soomgoGuide: null, agentHours: { standard: 1, deluxe: 2, premium: 4 }, humanMinutes: { standard: 15 } },
   slow: { kmongCategory: 'cheap', soomgoGuide: null, agentHours: { standard: 3, deluxe: 6, premium: 12 }, humanMinutes: { standard: 30 } },
+  mid: { kmongCategory: 'mid', soomgoGuide: null, agentHours: { standard: 2, deluxe: 4, premium: 8 }, humanMinutes: { standard: 20 } },
 };
 const summary = {
   observedAt: '2026-01-01',
   entries: [
     { platform: 'kmong', category: 'cat', n: 30, p25: 10000, median: 20000, p75: 40000 },
     { platform: 'kmong', category: 'cheap', n: 30, p25: 5000, median: 5000, p75: 9000 },
+    { platform: 'kmong', category: 'mid', n: 30, p25: 6000, median: 8000, p75: 20000 },
   ],
 };
 const table = (reviews, strength = 'some', descriptor = free) =>
@@ -99,24 +101,42 @@ test('price tiers switch at 5 and 30 reviews and round to 1,000 KRW', () => {
   assert.equal(table(5, 'some', tiered).find((r) => r.service === 'svc').baseNetKRW, 20000 - 4334);
 });
 
-test('cost floor is the smallest 1,000 KRW gross reaching the net per agent hour', () => {
-  assert.equal(costFloor({ agentHours: 3, minNetPerAgentHour: 20000, descriptor: free }), 60000);
-  // Fees take 21.67% of 26,000 (5,634), leaving 20,366; 25,000 leaves 19,582.
-  assert.equal(costFloor({ agentHours: 1, minNetPerAgentHour: 20000, descriptor: tiered }), 26000);
-  const svc = table(5, 'some', tiered).find((r) => r.service === 'svc');
-  assert.equal(svc.costFloorKRW, 26000);
-  assert.equal(svc.floorKRW, 26000);
-  assert.equal(svc.viable, false);
+const floorArgs = { agentHourCostKRW: 2000, humanHourValueKRW: 30000 };
+
+test('cost floor is the smallest 1,000 KRW gross whose net covers agent hours and operator minutes', () => {
+  // 3 agent hours at 2,000 plus 30 operator minutes at 30,000 per hour is 21,000 KRW of net.
+  assert.equal(costFloor({ agentHours: 3, humanMinutes: 30, ...floorArgs, descriptor: free }), 21000);
+  // 1 agent hour plus 15 operator minutes is 9,500 KRW of net; fees decide the gross.
+  const gross = costFloor({ agentHours: 1, humanMinutes: 15, ...floorArgs, descriptor: tiered });
+  assert.ok(sellerNet(gross, tiered).net >= 9500);
+  assert.ok(sellerNet(gross - 1000, tiered).net < 9500);
+  assert.equal(gross % 1000, 0);
+  assert.throws(() => costFloor({ agentHours: 1, humanMinutes: 15, descriptor: free }), { code: 'FSW_CONFIG_MISSING' });
 });
 
-test('a row under its cost floor stays in the table as not viable with a reason', () => {
+test('a market entry price under the cost floor is raised to the floor and stays offerable', () => {
+  const mid = table(5).find((r) => r.service === 'mid');
+  // The 5 to 29 tier asks the 8,000 median at fit none (0.9), 7,000; 2 agent hours and 20 operator minutes cost 14,000.
+  assert.equal(mid.marketBaseKRW, 7000);
+  assert.equal(mid.costFloorKRW, 14000);
+  assert.equal(mid.baseKRW, 14000);
+  assert.equal(mid.pricedAtFloor, true);
+  assert.deepEqual(mid.packages, { standard: 14000, deluxe: 31000, premium: 56000 });
+  assert.equal(mid.viable, true);
+  const svc = table(5).find((r) => r.service === 'svc');
+  assert.equal(svc.pricedAtFloor, false);
+  assert.equal(svc.viable, true);
+});
+
+test('a service whose cost floor is above the market ceiling is priced out, with a reason and a quotable range', () => {
   const slow = table(5).find((r) => r.service === 'slow');
-  assert.equal(slow.baseKRW, 5000);
-  assert.equal(slow.costFloorKRW, 60000);
+  // The market tops out at p75 x 1.5 = 13,500, rounded to 14,000; the floor is 21,000.
+  assert.equal(slow.costFloorKRW, 21000);
   assert.equal(slow.viable, false);
-  assert.match(slow.reason, /cost floor 60000/);
-  assert.equal(table(5).find((r) => r.service === 'svc').viable, true);
+  assert.match(slow.reason, /cost floor 21000 KRW is above the market ceiling 14000 KRW/);
+  for (const row of table(5)) assert.ok(row.ceilingKRW >= row.floorKRW, row.service + ': ceiling ' + row.ceilingKRW + ' under floor ' + row.floorKRW);
   assert.throws(() => buildPriceTable({ summary, services, profile: {}, sellerStats: {}, config, descriptors: { kmong: free } }), { code: 'FSW_SELLER_STATS_MISSING' });
+  assert.throws(() => buildPriceTable({ summary, services, profile: {}, sellerStats: { kmong: { reviews: 5 } }, config: { yield: { humanHourValueKRW: 30000 } }, descriptors: { kmong: free } }), { code: 'FSW_CONFIG_MISSING' });
 });
 
 test('request quotes scale the guide average, clamp to the guide and respect the cost floor plus quote cost', () => {

@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
 import { acquireLock, effectiveMode, pidAlive, readLock, releaseLock, runTick } from '../src/supervisor/run.mjs';
+import { writeDigest } from '../src/supervisor/digest.mjs';
 import { seoulParts } from '../src/core/clock.mjs';
 import { dueJobs, JOBS, nextWake, periodKey } from '../src/supervisor/schedule.mjs';
 
@@ -156,4 +157,29 @@ test('a job that throws is recorded as failed and the next job still runs', asyn
   assert.equal(state.lastRuns.hourly, '2026102511');
   const again = await runTick({ instance, ledger, now: new Date('2026-10-25T02:04:00Z'), state, only: ['hourly', 'poll'], handlers, persist: false });
   assert.deepEqual(again.jobs, []);
+});
+
+// ---- digest ----
+
+test('the digest counts only the previous Seoul day from the ledger', async () => {
+  const instance = makeInstance();
+  const ledger = openLedger(':memory:');
+  const now = new Date('2026-10-26T00:00:00Z'); // 09:00 Seoul on 2026-10-26, digest covers 2026-10-25
+  const t = ledger.upsertThread({ platform: 'kmong', externalId: 'a', kind: 'message' });
+  ledger.db.prepare('UPDATE threads SET created_at = ? WHERE id = ?').run('2026-10-24T15:30:00Z', t.id); // 00:30 Seoul on the 25th
+  const old = ledger.upsertThread({ platform: 'kmong', externalId: 'b', kind: 'message' });
+  ledger.db.prepare('UPDATE threads SET created_at = ? WHERE id = ?').run('2026-10-24T14:30:00Z', old.id); // 23:30 Seoul on the 24th
+  ledger.addMessage({ threadId: t.id, direction: 'out', body: 'hi', at: '2026-10-25T05:00:00Z' });
+  ledger.addQuote({ platform: 'soomgo', amountKRW: 300000, costKRW: 4000, at: '2026-10-25T06:00:00Z' });
+  ledger.addEvent({ kind: 'supervisor.platform', platform: 'soomgo', payload: { status: 'failed', error: 'adapter missing' }, at: '2026-10-25T07:00:00Z' });
+  const notes = [];
+  const d = await writeDigest({ instance, ledger, now, notify: async (_, n) => (notes.push(n), { written: true }) });
+  assert.equal(d.numbers.day, '20261025');
+  assert.equal(d.numbers.leads.total, 1);
+  assert.equal(d.numbers.repliesSent.total, 1);
+  assert.equal(d.numbers.quotesSent.cashSpentKRW, 4000);
+  assert.deepEqual(d.numbers.errors, { soomgo: { 'adapter missing': 1 } });
+  assert.match(readFileSync(d.file, 'utf8'), /- leads: 1 \(kmong 1\)/);
+  assert.match(d.file, /digest-20261026\.md$/);
+  assert.equal(notes[0].dedupeKey, 'digest:20261026');
 });

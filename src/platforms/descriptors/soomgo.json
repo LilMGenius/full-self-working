@@ -76,6 +76,23 @@
     "고수찾기 needs a photo and profile completeness of at least 50%",
     "reviews"
   ],
+  "serviceLabels": {
+    "웹 개발": [
+      "landing_page_web"
+    ],
+    "웹 디자인": [
+      "detail_page_design"
+    ],
+    "소프트웨어 개발": [
+      "web_app_dev",
+      "ai_automation_chatbot",
+      "data_crawling",
+      "excel_macro"
+    ],
+    "인공지능(AI) 개발": [
+      "ai_automation_chatbot"
+    ]
+  },
   "sources": [
     "https://help.soomgo.com/hc/ko/articles/360045385831",
     "https://help.soomgo.com/hc/ko/articles/360046778211",

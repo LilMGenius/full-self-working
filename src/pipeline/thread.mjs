@@ -16,14 +16,15 @@ export const MODES = ['observe', 'draft', 'auto'];
 
 export const spendsCash = (descriptor, kind) => kind === 'request' && descriptor.bidCost?.unit !== 'none';
 
-// The catalog service a platform's own service label names (숨고 labels requests and chats with the
-// names its price guide uses). undefined: the platform gave no label, so there is nothing to check;
-// null: the platform labelled it and the catalog has no such service.
-export function catalogServiceFor(platform, label, services = catalog) {
-  const field = CATEGORY_FIELD[platform];
+// The catalog services a platform's own service label can become: those whose market category is the
+// label, plus the ones the descriptor's serviceLabels adds for a coarse label (숨고 files a cafe homepage
+// under 웹 개발). undefined: the platform gave no label, so there is nothing to check; an empty list: the
+// label is a service the catalog does not hold.
+export function catalogServicesFor(descriptor, label, services = catalog) {
+  const field = CATEGORY_FIELD[descriptor.id];
   if (!field || !label) return undefined;
-  const hit = Object.entries(services).find(([id, def]) => !id.startsWith('_') && def[field] === label);
-  return hit ? hit[0] : null;
+  const ids = Object.entries(services).filter(([id, def]) => !id.startsWith('_') && def[field] === label).map(([id]) => id);
+  return [...new Set([...ids, ...(descriptor.serviceLabels?.[label] ?? [])])];
 }
 
 // pipeline settings every non-observe pass needs: hours after which an item is too old to answer, per
@@ -80,7 +81,7 @@ function threadFromRead(full, { platform, ref, kind, stage, threadRef }) {
   const messages = kind === 'request'
     ? [{ direction: 'in', text: [full.title, full.text ?? full.body, ...(full.answers ?? []).map((a) => (a.q ? a.q + ': ' : '') + (a.a ?? a))].filter(Boolean).join('\n'), externalId: 'request', at: full.at }]
     : (full.messages ?? []);
-  return { platform, externalId: ref, kind, stage, customer: full.customer ?? threadRef.customer ?? null, title: full.title ?? threadRef.title ?? null, language: full.language ?? null, messages };
+  return { platform, externalId: ref, kind, stage, customer: full.customer ?? threadRef.customer ?? null, title: full.title ?? threadRef.title ?? null, language: full.language ?? null, quoteCostKRW: full.quoteCostKRW ?? threadRef.quoteCostKRW ?? null, messages };
 }
 
 function splitAmounts(quote) {
@@ -133,11 +134,11 @@ export async function processThread({ platform, threadRef, adapter, ledger, inst
   };
   const skip = settings && skipReason(threadRef, kind, now, settings);
   if (skip) return park('skipped', skip);
-  const expected = catalogServiceFor(platform, threadRef.service);
+  const allowed = catalogServicesFor(descriptor, threadRef.service);
   // A request or conversation in a service outside the catalog (숨고 lessons, for one) is the operator's
   // own business, and the platform's app already alerts the operator: it stays unread instead of being
   // opened, marked read and left unanswered, no model call is spent on it, and the digest counts it.
-  if (expected === null && mode !== 'observe') return park('operator', 'service ' + threadRef.service + ' is not in the catalog');
+  if (allowed?.length === 0 && mode !== 'observe') return park('operator', 'service ' + threadRef.service + ' is not in the catalog');
   if (mode === 'observe' && unread) {
     event('thread.observed', { unread: true, preview: threadRef.preview ?? null });
     return { action: 'observed', opened: false };
@@ -175,7 +176,7 @@ export async function processThread({ platform, threadRef, adapter, ledger, inst
 
   if (result.action === 'approval') return queue(result.reason);
   if (d.intent === 'unsupported') return queue('unsupported service: ' + (d.operatorReason ?? 'not in the catalog or profile'));
-  if (expected && d.service !== expected) return queue('the decision names ' + d.service + ' but the platform labels this ' + threadRef.service + ' (' + expected + ')');
+  if (allowed && !allowed.includes(d.service)) return queue('the decision names ' + d.service + ' but the platform labels this ' + threadRef.service + ' (' + allowed.join(', ') + ')');
   if (d.needsOperator) return queue('operator needed: ' + (d.operatorReason ?? 'no reason given'));
   if (mode === 'draft') return queue('draft mode');
   if (d.confidence < settings.minAutoConfidence) return queue('confidence ' + d.confidence + ' is below ' + settings.minAutoConfidence);

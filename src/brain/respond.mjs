@@ -4,7 +4,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { gateOutbound } from '../policy/gate.mjs';
-import { priceRowFor, splitPayment } from '../economics/pricing.mjs';
+import { COMPLEXITY_RANGE, guideOf, priceRowFor, quoteForRequest, splitPayment } from '../economics/pricing.mjs';
 import { runCodex as defaultRunCodex } from './codex.mjs';
 import { INTENTS, buildDecisionPrompt, catalogIds, loadCatalog, loadLessons, loadPlaybook } from './prompts.mjs';
 
@@ -66,12 +66,13 @@ export const DECISION_SCHEMA = (ids) => ({
         {
           type: 'object',
           additionalProperties: false,
-          required: ['amountKRW', 'scope', 'deliveryDays', 'priceType'],
+          required: ['amountKRW', 'scope', 'deliveryDays', 'priceType', 'complexity'],
           properties: {
             amountKRW: { type: 'integer' },
             scope: { type: 'array', items: { type: 'string' } },
             deliveryDays: { type: 'integer' },
             priceType: { type: 'string', enum: ['fixed', 'hourly'] },
+            complexity: { type: 'number', minimum: COMPLEXITY_RANGE[0], maximum: COMPLEXITY_RANGE[1] },
           },
         },
       ],
@@ -101,13 +102,14 @@ export function parseDecision(data, ids) {
     if (!Array.isArray(q.scope) || !q.scope.every((s) => typeof s === 'string')) throw bad('quote.scope');
     if (!Number.isInteger(q.deliveryDays) || q.deliveryDays <= 0) throw bad('quote.deliveryDays');
     if (!['fixed', 'hourly'].includes(q.priceType)) throw bad('quote.priceType');
+    if (typeof q.complexity !== 'number' || q.complexity < COMPLEXITY_RANGE[0] || q.complexity > COMPLEXITY_RANGE[1]) throw bad('quote.complexity');
   }
   return {
     intent: data.intent,
     service: data.service,
     language: data.language,
     reply: data.reply && data.reply.trim() ? data.reply.trim() : null,
-    quote: q === null ? null : { amountKRW: q.amountKRW, scope: q.scope, deliveryDays: q.deliveryDays, priceType: q.priceType },
+    quote: q === null ? null : { amountKRW: q.amountKRW, scope: q.scope, deliveryDays: q.deliveryDays, priceType: q.priceType, complexity: q.complexity },
     needsOperator: data.needsOperator,
     operatorReason: data.operatorReason,
     confidence: data.confidence,
@@ -168,7 +170,19 @@ export async function decide(thread, ctx) {
       timeoutMs: ctx.timeoutMs ?? brain.timeoutMs,
     });
     const decision = parseDecision(data, ids);
-    if (decision.quote) decision.quote.split = splitPayment(decision.quote.amountKRW, instance.config, descriptor);
+    if (decision.quote) {
+      // A buyer request on a platform with a price guide is priced here, not by the model: the guide
+      // average times the model's complexity, clamped to the guide and kept above the cost floor plus
+      // what sending the quote costs. The reply text carries no amount, since the form shows it.
+      const row = thread.kind === 'request' && decision.service ? priceRowFor(priceTable, descriptor.id, decision.service) : null;
+      const guide = guideOf(row);
+      if (guide && decision.quote.priceType === 'fixed') {
+        const priced = quoteForRequest({ guide, complexity: decision.quote.complexity, row, descriptor, config: instance.config, quoteCostKRW: thread.quoteCostKRW });
+        decision.quote.amountKRW = priced.amountKRW;
+        decision.quote.pricing = priced.basis;
+      }
+      decision.quote.split = splitPayment(decision.quote.amountKRW, instance.config, descriptor);
+    }
     return decision;
   };
   const gate = (decision) => {

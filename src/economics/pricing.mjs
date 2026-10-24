@@ -101,7 +101,7 @@ export function buildPriceTable({ summary, services, profile, sellerStats, confi
         floorKRW: Math.max(costFloorKRW, roundTo1000(market.low)),
         ceilingKRW: Math.max(marketCeilingKRW, packages.premium),
         costFloorKRW,
-        basis: { n: market.n, p25: market.p25, median: market.median, p75: market.p75, source: market.source, observedAt: summary.observedAt ?? null, reviews },
+        basis: { n: market.n, p25: market.p25, median: market.median, p75: market.p75, high: market.high, source: market.source, observedAt: summary.observedAt ?? null, reviews },
         fitStrength,
         fitListed: Boolean(listed),
         viable: costFloorKRW <= marketCeilingKRW,
@@ -116,6 +116,10 @@ export function buildPriceTable({ summary, services, profile, sellerStats, confi
 }
 
 export const priceRowFor = (table, platform, service) => table.find((r) => r.platform === platform && r.service === service) ?? null;
+
+// The guide a price-guide row was built from: average, minimum and maximum (median, p25 and high in its
+// basis). null for a row priced from listing quantiles.
+export const guideOf = (row) => (row?.basis?.source === 'price-guide' ? { avgKRW: row.basis.median, minKRW: row.basis.p25, maxKRW: row.basis.high } : null);
 
 // Quote for a request on a guide platform. quoteCostKRW is what sending the quote costs (숨고캐시);
 // it is required wherever the descriptor says quotes are paid, since the descriptor holds no number.

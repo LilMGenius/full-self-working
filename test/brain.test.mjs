@@ -87,12 +87,33 @@ test('a retry that fixes the violation is sent as a reply', async () => {
 test('a quote gets the platform split from economics and is gated against the price row', async () => {
   const instance = makeInstance();
   const row = { platform: 'kmong', service: 'landing_page_web', baseKRW: 300000, packages: { standard: 300000, deluxe: 660000, premium: 1200000 }, floorKRW: 200000, ceilingKRW: 1500000, viable: true };
-  const quote = { amountKRW: 2000000, scope: ['3개 섹션'], deliveryDays: 7, priceType: 'fixed' };
+  const quote = { amountKRW: 2000000, scope: ['3개 섹션'], deliveryDays: 7, priceType: 'fixed', complexity: 1 };
   const codex = fakeCodex([decision({ intent: 'quote_request', quote, reply: '총 200만 원으로 진행 가능합니다.' }), decision({ intent: 'quote_request', quote: { ...quote, amountKRW: 600000 }, reply: '총 60만 원으로 진행 가능합니다.' })]);
   const r = await decide(thread([{ direction: 'in', text: '견적 부탁드립니다' }]), ctx(instance, 'kmong', codex, { priceTable: [row] }));
   assert.match(codex.calls[1].prompt, /price\.range/);
   assert.equal(r.action, 'reply');
   assert.equal(r.decision.quote.split.mechanism, 'reorder');
+});
+
+test('a request quote on a price-guide platform is priced from the guide and the model complexity', async () => {
+  const instance = makeInstance();
+  const row = { platform: 'soomgo', service: 'landing_page_web', baseKRW: 500000, floorKRW: 100000, ceilingKRW: 2500000, costFloorKRW: 48000, viable: true, basis: { source: 'price-guide', p25: 100000, median: 500000, high: 2500000 } };
+  const asked = { amountKRW: 9999999, scope: ['5개 섹션', '문의 폼'], deliveryDays: 10, priceType: 'fixed', complexity: 1.2 };
+  const codex = fakeCodex([decision({ intent: 'quote_request', quote: asked, reply: '요청하신 5개 섹션과 문의 폼을 포함해 진행합니다. 결제는 착수금과 잔금으로 나누어 받습니다.' })]);
+  const t = thread([{ direction: 'in', text: '웹 디자인\n랜딩 페이지 5개 섹션과 문의 폼이 필요합니다.' }], { platform: 'soomgo', kind: 'request', quoteCostKRW: 1990 });
+  const r = await decide(t, ctx(instance, 'soomgo', codex, { priceTable: [row] }));
+  assert.equal(r.action, 'reply');
+  assert.equal(r.decision.quote.amountKRW, 600000);
+  assert.deepEqual([r.decision.quote.pricing.guideAvg, r.decision.quote.pricing.complexity], [500000, 1.2]);
+  assert.match(codex.calls[0].prompt, /This is a buyer request/);
+  assert.equal(r.decision.quote.split.parts.length, 2);
+});
+
+test('a quote with no amount is blocked before any send', async () => {
+  const { gateOutbound } = await import('../src/policy/gate.mjs');
+  const g = gateOutbound({ platform: 'soomgo', kind: 'quote', text: '요청하신 범위로 진행합니다.' }, { descriptor: loadDescriptor('soomgo'), instance: makeInstance() });
+  assert.equal(g.ok, false);
+  assert.ok(g.violations.some((v) => v.rule === 'price.missing'));
 });
 
 test('a model answer naming a service outside the catalog is rejected', () => {

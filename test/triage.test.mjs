@@ -8,6 +8,7 @@ import { openLedger } from '../src/core/ledger.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { listApprovals } from '../src/brain/approvals.mjs';
 import { processThread } from '../src/pipeline/thread.mjs';
+import { catalogIds, loadCatalog } from '../src/brain/prompts.mjs';
 import { needsWork } from '../src/supervisor/run.mjs';
 import { digestNumbers } from '../src/supervisor/digest.mjs';
 
@@ -97,14 +98,24 @@ test('a request outside the catalog stays unread for the operator, costs no mode
   assert.deepEqual(n.leftForOperator, { total: 1, byPlatform: { soomgo: 1 } });
 });
 
-test('a decision naming another service than the platform label goes to the operator', async () => {
+test('a decision must name a service the platform label allows, and a coarse label allows several', async () => {
   const s = setup('soomgo');
   const adapter = spyAdapter();
   const ref = { id: 'c1', unread: true, at: '2026-10-25T02:00:00Z', service: '웹 개발' };
   const r = await processThread({ ...s, threadRef: ref, adapter, mode: 'auto', decide: decideWith({ service: 'logo_brand' }) });
   assert.equal(r.action, 'queued');
-  assert.match(r.reason, /labels this 웹 개발 \(web_app_dev\)/);
+  assert.match(r.reason, /labels this 웹 개발 \(web_app_dev, landing_page_web\)/);
   assert.equal(adapter.calls.send, 0);
+  const cafe = spyAdapter();
+  const ok = await processThread({ ...s, threadRef: { ...ref, id: 'c2' }, adapter: cafe, mode: 'auto', decide: decideWith({ service: 'landing_page_web' }) });
+  assert.deepEqual([ok.action, cafe.calls.send], ['sent', 1]);
+});
+
+test('every service a descriptor label adds is a catalog service', () => {
+  const ids = new Set(catalogIds(loadCatalog()));
+  for (const [label, services] of Object.entries(loadDescriptor('soomgo').serviceLabels)) {
+    for (const id of services) assert.ok(ids.has(id), label + ' names ' + id + ', which the catalog does not hold');
+  }
 });
 
 test('auto mode sends a confident decision and asks the operator about an unsure one', async () => {

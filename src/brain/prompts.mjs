@@ -116,6 +116,8 @@ export function buildDecisionPrompt({ thread, instance, descriptor, priceRows = 
     '1. Answer fast and specifically; one short greeting at most.',
     '2. Ask only the two or three questions that decide the scope and price (see the playbook for the service family).',
     '3. When the scope is clear enough, propose a package from the price rows or a scoped quote inside the allowed range, with scope items and delivery days. Put the same numbers in the quote field.',
+    '   quote.complexity rates the work against a typical job in its service, from 0.6 (much smaller) through 1.0 (typical) to 1.6 (much larger).',
+    '   Every package and quote includes one revision round, which the catalog hours assume; offer further rounds as extra paid work, never as included.',
     '4. Offer the platform split mechanism above for larger amounts (deposit and balance, or phase orders on 크몽), never an off-platform transfer.',
     '5. Never promise what my profile cannot back: no invented numbers, clients, reviews, guarantees or timelines you cannot keep. List every profile claim you used in claimsUsed.',
     '6. If the service is not in the catalog or its fit is "not offered" or "none", set intent "unsupported", needsOperator true and say why in operatorReason; you may still write a polite holding reply that promises nothing.',
@@ -129,6 +131,13 @@ export function buildDecisionPrompt({ thread, instance, descriptor, priceRows = 
     sections.push('', '# Newest lessons', ...lessons.map((l) => '- [' + (l.class ?? 'lesson') + '] ' + l.rule));
   }
   sections.push('', '# Conversation (' + (thread.kind ?? 'message') + ', customer: ' + (thread.customer ?? 'unknown') + (thread.title ? ', title: ' + thread.title : '') + ')', threadHistory(thread));
+  if (thread.kind === 'request') {
+    sections.push(
+      '',
+      '# This is a buyer request',
+      'The reply goes out through the platform quote form, which shows the price beside your text, so quote is required: scope, deliveryDays, priceType "fixed" and complexity. On a platform with a price guide the amount is computed from the guide and your complexity, so write no price in the reply and set amountKRW to your best estimate. Use the reply to show you read the request: restate the need in one line, say what is included, ask the one or two questions that remain, and mention the deposit and balance split.',
+    );
+  }
   if (violations.length) {
     sections.push(
       '',

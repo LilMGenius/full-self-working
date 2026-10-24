@@ -119,7 +119,8 @@ export function gateOutbound(item, ctx = {}) {
 
   // price
   if (item.kind === 'quote') {
-    if (priceRow && typeof item.amountKRW === 'number') {
+    if (typeof item.amountKRW !== 'number') add(violations, 'price.missing', 'a quote goes out through a form that needs an amount, and this one has none');
+    else if (priceRow) {
       const { floorKRW, ceilingKRW } = priceRow;
       if ((floorKRW != null && item.amountKRW < floorKRW) || (ceilingKRW != null && item.amountKRW > ceilingKRW)) {
         add(violations, 'price.range', `${item.amountKRW} KRW is outside [${floorKRW}, ${ceilingKRW}]`);

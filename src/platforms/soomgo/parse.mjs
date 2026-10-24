@@ -1,0 +1,151 @@
+// Pure parsers for 숨고 pro pages. The request list and chat list expose structured records through
+// their components (Vue props on request cards, React props on chat rows); the adapter projects a
+// whitelist of fields in the page and these parsers turn them into records with redacted snippets.
+import { lines, redactDigits, seoulIso, snippet, squash, toInt } from '../kit.mjs';
+
+// Requests: rows projected from RequestItemCard.request plus the card's questionnaire summary text.
+export function parseRequests(rows) {
+  return rows.map((r) => ({
+    id: String(r.id),
+    kind: 'request',
+    customer: squash(r.customer) || null,
+    customerRequestCount: r.customerRequestCount ?? null,
+    service: r.service ?? null,
+    serviceId: r.serviceId ?? null,
+    category: r.category ?? [],
+    region: r.address ?? null,
+    at: r.createdAt ? r.createdAt.replace(/(\.\d{3})\d*$/, '$1') + 'Z' : null,
+    expiresAt: r.expiredAt ? r.expiredAt.replace(/(\.\d{3})\d*$/, '$1') + 'Z' : null,
+    quoteCount: r.quoteCount ?? null,
+    quotable: r.isQuotable !== false,
+    unread: r.isRead === false,
+    preview: snippet(r.summary, 200),
+    url: `https://soomgo.com/requests/received/${r.id}?from=request_list`,
+  }));
+}
+
+// The request detail: questionnaire label/value pairs, customer block lines and the quote form.
+export function parseRequestDetail({ id, url, pairs = [], customerText = '', service = null, form = {} }) {
+  const answers = [];
+  for (let i = 0; i + 1 < pairs.length; i += 2) answers.push({ q: squash(pairs[i]), a: redactDigits(squash(pairs[i + 1])) });
+  const cl = lines(customerText);
+  const joined = cl.find((l) => /가입/.test(l)) ?? null;
+  const used = cl.find((l) => /숨고 \d+회 이용/.test(l)) ?? null;
+  const cost = form.sendLabel?.match(/([\d,]+)\s*캐시로 견적 보내기/);
+  return {
+    id: String(id),
+    url,
+    service,
+    answers,
+    customer: { joined, uses: used ? toInt(used.match(/(\d+)회/)[1]) : null },
+    quoteCostKRW: cost ? toInt(cost[1]) : null,
+    quoteForm: {
+      priceInput: form.priceInput === true,
+      priceTypes: form.priceTypes ?? [],
+      selectedPriceType: form.selectedPriceType ?? null,
+      textarea: form.textarea === true,
+      textMaxChars: form.textMaxChars ?? null,
+      fileInput: form.fileInput === true,
+      sendButton: !!form.sendLabel,
+      sendDisabled: form.sendDisabled === true,
+    },
+  };
+}
+
+// Chat rows projected from the chat list's chatItem props.
+export function parseChats(rows) {
+  return rows.map((c) => ({
+    id: String(c.id),
+    kind: 'message',
+    customer: squash(c.customer) || null,
+    service: c.service ?? null,
+    region: c.region ?? null,
+    at: c.updatedAt ? c.updatedAt.replace(/(\.\d{3})\d*$/, '$1') + 'Z' : null,
+    preview: snippet(c.lastMessage),
+    system: c.lastType === 'SYSTEM',
+    unread: (c.newMessages ?? 0) > 0,
+    unreadCount: c.newMessages ?? 0,
+    status: c.status ?? null,
+    hired: c.hireStatus ?? null,
+    otherProHired: c.otherProHireStatus ?? null,
+    quote: c.quotePrice == null ? null : { priceKRW: c.quotePrice, unit: c.quoteUnit === 'H' ? 'hour' : 'total', opened: c.quoteOpened ?? null },
+    requestId: c.requestObjectId ?? null,
+  }));
+}
+
+const KO_TIME = /^(오전|오후) (\d{1,2}):(\d{2})$/;
+
+// items: {date} separators ("2026년 09월 23일 수요일") set the day for the "오후 10:42" times after
+// them; message items carry kind (text, quote, system), outbound and time.
+export function parseChatThread({ id, url, customer, items = [], composer = {} }) {
+  let day = null;
+  const messages = [];
+  for (const it of items) {
+    if (it.date) {
+      const m = it.date.match(/(\d{4})년 (\d{1,2})월 (\d{1,2})일/);
+      if (m) day = [Number(m[1]), Number(m[2]), Number(m[3])];
+      continue;
+    }
+    const t = squash(it.time).match(KO_TIME);
+    let at = null;
+    if (t && day) {
+      const h = (Number(t[2]) % 12) + (t[1] === '오후' ? 12 : 0);
+      at = seoulIso(day[0], day[1], day[2], h, Number(t[3]));
+    }
+    const direction = it.kind === 'system' ? 'system' : it.outbound ? 'out' : 'in';
+    messages.push({ externalId: `${id}:${messages.length}`, direction, type: it.kind ?? 'text', text: redactDigits(String(it.text ?? '').trim()), at });
+  }
+  return {
+    id: String(id),
+    url,
+    customer: squash(customer) || null,
+    messages: messages.filter((m) => m.direction !== 'system'),
+    systemMessages: messages.filter((m) => m.direction === 'system').length,
+    canReply: composer.found === true && composer.disabled !== true,
+    composer: { found: composer.found === true, disabled: composer.disabled === true, maxChars: composer.maxChars ?? null, fileInput: composer.fileInput === true },
+  };
+}
+
+const after = (ls, label) => {
+  const i = ls.indexOf(label);
+  return i >= 0 ? ls[i + 1] ?? null : null;
+};
+
+// /profile body text. The completion cards repeat the field labels near the top, so each value is read
+// after the label's last occurrence. Business registration, address and payout lines are never returned.
+export function parseProfile(text) {
+  const ls = lines(text);
+  const last = (label) => {
+    const i = ls.lastIndexOf(label);
+    return i >= 0 ? ls[i + 1] ?? null : null;
+  };
+  const nameAt = ls.findIndex((l, i) => ls[i + 2] === '리뷰 평점' || ls[i + 1] === '리뷰 평점');
+  const headline = nameAt >= 0 && ls[nameAt + 1] !== '리뷰 평점' ? ls[nameAt + 1] : null;
+  return {
+    nickname: nameAt >= 0 ? ls[nameAt] : null,
+    headline,
+    rating: Number(after(ls, '리뷰 평점')) || null,
+    reviews: toInt(after(ls, '리뷰수')),
+    hires: toInt(after(ls, '고용수')),
+    completion: ls.find((l) => /^\d+% 완성$/.test(l))?.replace(' 완성', '') ?? null,
+    range: last('활동 가능 범위'),
+    mainService: last('대표 서비스'),
+    services: last('제공 서비스'),
+    businessVerified: last('사업자등록증') === '인증',
+    identityVerified: last('본인인증') === '인증',
+    taxInvoice: last('세금 계산서 발행'),
+    paymentMethods: last('결제 수단'),
+    media: toInt(last('사진 및 동영상')),
+    qna: toInt(last('질문답변')),
+  };
+}
+
+// /mypage body text: the cash balance sits after 스토어, the payback after 이번 달 페이백.
+export function parseCash(text) {
+  const ls = lines(text);
+  const cash = (label) => {
+    const v = after(ls, label);
+    return v && /^[\d,]+캐시$/.test(v) ? toInt(v) : null;
+  };
+  return { balance: cash('스토어'), paybackThisMonth: cash('이번 달 페이백') };
+}

@@ -7,8 +7,9 @@ import { join } from 'node:path';
 
 const ADAPTERS = {
   kmong: async () => (await import('../src/platforms/kmong/adapter.mjs')).openKmong(),
+  soomgo: async () => (await import('../src/platforms/soomgo/adapter.mjs')).openSoomgo(),
 };
-const READ_OPS = ['login', 'inbox', 'readThread', 'listings', 'orders', 'profile', 'listingForm', 'requests', 'readRequest', 'dryRunSend'];
+const READ_OPS = ['login', 'inbox', 'readThread', 'listings', 'orders', 'profile', 'listingForm', 'requests', 'readRequest', 'dryRunSend', 'dryRunQuote'];
 
 // Keeps the shape and drops the words: strings become their presence and length, arrays their count
 // plus the field presence of their first rows.
@@ -42,6 +43,7 @@ async function main() {
   try {
     let result;
     if (op === 'dryRunSend') result = await adapter.send(arg, { text: 'fsw composer check', gate: { ok: true }, dryRun: true });
+    else if (op === 'dryRunQuote') result = await adapter.quote(arg, { amountKRW: 10000, priceType: 'fixed', text: 'fsw quote form check', gate: { ok: true }, dryRun: true });
     else if (op === 'readThread') result = await adapter.readThread(arg, { willReply: false });
     else result = await adapter[op](arg);
     summary = { platform, op, arg: arg ?? null, ok: true, seconds: Math.round((Date.now() - started) / 1000), loads: adapter.session.loads, result: summarize(result) };

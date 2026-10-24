@@ -6,6 +6,29 @@ import { join } from 'node:path';
 import { createPacingGuard, resolveOmowrightScript } from '../src/browser/driver.mjs';
 import { redactDigits, snippet } from '../src/platforms/kit.mjs';
 import * as kmong from '../src/platforms/kmong/parse.mjs';
+import * as soomgo from '../src/platforms/soomgo/parse.mjs';
+import { openKmong } from '../src/platforms/kmong/adapter.mjs';
+import { openSoomgo } from '../src/platforms/soomgo/adapter.mjs';
+
+// A stand-in driver session: page extractors are answered by function name, and every action is logged
+// so a test can prove a refusal happened before anything touched the page.
+function fakeSession(answers) {
+  const log = [];
+  const s = {
+    loads: 0,
+    log,
+    guard: { beforeMessage: () => log.push('message') },
+    navigate: async (url) => { log.push('navigate ' + url); s.loads += 1; return url; },
+    evaluate: async (fn, arg) => { log.push('evaluate ' + (fn.name || 'inline')); const a = answers[fn.name]; return typeof a === 'function' ? a(arg) : a; },
+    click: async (t) => log.push('click ' + t),
+    fill: async (t) => log.push('fill ' + t),
+    typeKeys: async (t) => log.push('type ' + t),
+    setFiles: async (t) => log.push('files ' + t),
+    stop: async () => {},
+  };
+  return s;
+}
+const acted = (log) => log.filter((l) => /^(click|fill|type|files|message)/.test(l));
 
 const NOW = new Date('2026-10-25T03:00:00Z');
 
@@ -155,4 +178,117 @@ test('kmong listing form maps counters, packages, prices and limits', () => {
   assert.deepEqual(f.packages[1], { tier: 'DELUXE', title: '표준', description: '시안 2개', priceKRW: 66000 });
   assert.deepEqual(f.keywords, { count: 3, max: 5 });
   assert.equal(f.limits.packageDescription, 60);
+});
+
+test('soomgo requests map card props, unread from isRead and redacted summaries', () => {
+  const r = soomgo.parseRequests([
+    { id: 'abc123', createdAt: '2026-10-25T01:13:34.6230', expiredAt: '2026-10-27T01:13:34.6230', quoteCount: 4, isQuotable: true, isRead: false, customer: '고객A', customerRequestCount: 2, service: '웹 개발', serviceId: 1, category: ['외주', '개발 외주'], address: '서울 강남구', summary: '랜딩 페이지, 연락은 010 1111 2222' },
+    { id: 'def456', createdAt: null, isRead: true, isQuotable: false, customer: '', summary: '' },
+  ]);
+  assert.equal(r[0].unread, true);
+  assert.equal(r[0].at, '2026-10-25T01:13:34.623Z');
+  assert.equal(r[0].preview, '랜딩 페이지, 연락은 [number]');
+  assert.equal(r[0].url, 'https://soomgo.com/requests/received/abc123?from=request_list');
+  assert.deepEqual([r[1].unread, r[1].quotable, r[1].customer, r[1].at], [false, false, null, null]);
+});
+
+test('soomgo request detail pairs questions with answers and reads the cash cost from the send label', () => {
+  const d = soomgo.parseRequestDetail({
+    id: 'abc123',
+    pairs: ['레슨 목적', '취업 준비', '연락처', '010-3333-4444'],
+    customerText: '고객A\n가입일 2026.10.01\n숨고 3회 이용',
+    form: { priceInput: true, priceTypes: ['총 비용', '시간 당'], selectedPriceType: '총 비용', textarea: true, textMaxChars: 1000, fileInput: true, sendLabel: '2,490캐시로 견적 보내기', sendDisabled: true },
+  });
+  assert.deepEqual(d.answers, [{ q: '레슨 목적', a: '취업 준비' }, { q: '연락처', a: '[number]' }]);
+  assert.equal(d.customer.uses, 3);
+  assert.equal(d.quoteCostKRW, 2490);
+  assert.equal(d.quoteForm.sendButton, true);
+  assert.equal(soomgo.parseRequestDetail({ id: 'x', form: {} }).quoteCostKRW, null);
+});
+
+test('soomgo chats: unread from new_message_count, quotes and system rows flagged', () => {
+  const c = soomgo.parseChats([
+    { id: 1, customer: '고객A', service: '웹 개발', region: '서울 강남구', updatedAt: '2026-10-24T10:00:00.123456', lastMessage: '견적 확인했어요', lastType: 'TEXT', newMessages: 2, status: 'negotiating', quotePrice: 99999, quoteUnit: 'H', quoteOpened: true, requestObjectId: 'r1' },
+    { id: 2, customer: '고객B', lastMessage: '고객이 48시간 동안 견적을 읽지 않아서', lastType: 'SYSTEM', newMessages: 0, status: 'before_nego', quotePrice: null },
+  ]);
+  assert.deepEqual([c[0].unread, c[0].unreadCount, c[0].quote], [true, 2, { priceKRW: 99999, unit: 'hour', opened: true }]);
+  assert.deepEqual([c[1].unread, c[1].system, c[1].quote], [false, true, null]);
+});
+
+test('soomgo chat thread dates its messages from the day separators and drops system rows', () => {
+  const t = soomgo.parseChatThread({
+    id: '9',
+    customer: '고객A',
+    items: [
+      { date: '2026년 09월 23일 수요일' },
+      { kind: 'quote', outbound: true, text: '서비스 견적', time: '오후 10:42' },
+      { kind: 'system', text: '숨고 알리미', time: '오후 10:43' },
+      { date: '2026년 09월 24일 목요일' },
+      { kind: 'text', outbound: false, text: '전화 010-5555-6666 주세요', time: '오전 9:05' },
+      { kind: 'text', outbound: true, text: '네 확인했습니다', time: '오후 12:30' },
+    ],
+    composer: { found: true, disabled: false, maxChars: 1000 },
+  });
+  assert.deepEqual(t.messages.map((m) => [m.direction, m.type, m.at]), [
+    ['out', 'quote', '2026-09-23T22:42:00+09:00'],
+    ['in', 'text', '2026-09-24T09:05:00+09:00'],
+    ['out', 'text', '2026-09-24T12:30:00+09:00'],
+  ]);
+  assert.equal(t.messages[1].text, '전화 [number] 주세요');
+  assert.equal(t.systemMessages, 1);
+  assert.equal(t.canReply, true);
+});
+
+test('soomgo profile reads values after the last label and never returns registration lines', () => {
+  const text = ['예시고수', '한 줄 소개 문장', '리뷰 평점', '4.9', '리뷰수', '12', '고용수', '30', '90% 완성', '대표 서비스', '사진 및 동영상', '질문답변', '본인인증',
+    '활동 가능 범위', '전국 이동 가능', '대표 서비스', '웹 개발', '제공 서비스', '웹 개발 외 3개', '사진 및 동영상', '4', '질문답변', '2', '본인인증', '인증', '사업자등록증', '인증', '사업자등록번호', '000-00-00000', '세금 계산서 발행', '네, 가능합니다', '결제 수단', '숨고페이 외 3개'].join('\n');
+  const p = soomgo.parseProfile(text);
+  assert.deepEqual([p.nickname, p.headline, p.rating, p.reviews, p.hires, p.completion], ['예시고수', '한 줄 소개 문장', 4.9, 12, 30, '90%']);
+  assert.deepEqual([p.mainService, p.media, p.qna, p.identityVerified, p.businessVerified], ['웹 개발', 4, 2, true, true]);
+  assert.ok(!JSON.stringify(p).includes('000-00-00000'));
+});
+
+test('soomgo cash reads the balance and payback only when they are cash amounts', () => {
+  assert.deepEqual(soomgo.parseCash('숨고 캐시\n스토어\n12,345캐시\n충전/사용 내역\n이번 달 페이백\n100캐시'), { balance: 12345, paybackThisMonth: 100 });
+  assert.deepEqual(soomgo.parseCash('스토어\n바로가기'), { balance: null, paybackThisMonth: null });
+});
+
+test('kmong readThread refuses an unread thread unless the caller will reply, before opening it', async () => {
+  const row = { href: '?inbox_group_id=111&partner_id=9', nickname: '의뢰인A', time: '10.20', preview: '문의' };
+  const s = fakeSession({ pageInboxRows: [row], pageSelectTab: { ok: true, empty: false }, pageOpenRow: true, pageThread: { url: 'u', gigHrefs: [], bubbles: [], composer: { found: true } } });
+  const k = await openKmong({ session: s });
+  await assert.rejects(k.readThread('111'), { code: 'FSW_UNREAD_REFUSED' });
+  assert.ok(!s.log.includes('evaluate pageOpenRow'));
+});
+
+test('kmong send refuses a missing or failed gate and an unreachable composer without typing', async () => {
+  const s = fakeSession({ pageInboxRows: [{ href: '?inbox_group_id=111&partner_id=9' }], pageSelectTab: { ok: true, empty: true }, pageOpenRow: true, pageThread: { url: 'u', bubbles: [], composer: { found: true, disabled: true, placeholder: '대화할 수 없는 회원입니다', sendButton: true } } });
+  const k = await openKmong({ session: s });
+  assert.equal((await k.send('111', { text: '안녕하세요' })).sent, false);
+  assert.equal((await k.send('111', { text: '안녕하세요', gate: { ok: false } })).sent, false);
+  const r = await k.send('111', { text: '안녕하세요', gate: { ok: true } });
+  assert.match(r.reason, /composer unavailable/);
+  assert.deepEqual(acted(s.log), []);
+});
+
+test('soomgo readThread refuses a chat with new messages, and quote refuses without allowSpendCash', async () => {
+  const chat = { id: 5, customer: '고객A', newMessages: 2 };
+  const s = fakeSession({ pageChats: [chat], pageOpenChat: true, pageScrollChats: 1 });
+  const g = await openSoomgo({ session: s });
+  await assert.rejects(g.readThread('5'), { code: 'FSW_UNREAD_REFUSED' });
+  assert.ok(!s.log.includes('evaluate pageOpenChat'));
+  const q = await g.quote('req1', { amountKRW: 50000, text: '견적 드립니다', gate: { ok: true } });
+  assert.equal(q.sent, false);
+  assert.match(q.reason, /allowSpendCash/);
+  assert.equal((await g.quote('req1', { amountKRW: 50000, text: '견적', gate: { ok: false }, allowSpendCash: true })).sent, false);
+  assert.deepEqual(acted(s.log), []);
+});
+
+test('soomgo quote refuses when the cost cannot be read from the send button', async () => {
+  const form = { priceInput: true, priceTypes: ['총 비용', '시간 당'], selectedPriceType: '총 비용', textarea: true, fileInput: true, sendLabel: '견적 보내기', sendDisabled: true, saveTemplateChecked: false, priceValue: '', textValue: '' };
+  const s = fakeSession({ pageRequestDetail: { url: 'u', pairs: [], customerText: '', form } });
+  const g = await openSoomgo({ session: s });
+  const q = await g.quote('req1', { amountKRW: 50000, text: '견적 드립니다', gate: { ok: true }, allowSpendCash: true });
+  assert.match(q.reason, /cost not readable/);
+  assert.deepEqual(acted(s.log), []);
 });

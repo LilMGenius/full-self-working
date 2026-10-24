@@ -17,11 +17,12 @@ const VERBS = {
   learn: 'turn finished outcomes into lessons',
   approve: 'approve a drafted outbound item',
   decide: 'decide <platform> <thread.json>: run the brain on a thread file without sending',
+  job: 'job run|check <id>: run a paid job through its recipe, or re-run its acceptance checks',
   schedule: 'schedule install|status|uninstall: the logon and hourly task that keeps the supervisor running',
   help: 'show this help',
 };
 
-const HANDLERS = { tick: 'tick', run: 'run', schedule: 'schedule', market: 'market', price: 'price', approve: 'approvals', learn: 'learn', decide: 'decide' };
+const HANDLERS = { tick: 'tick', run: 'run', schedule: 'schedule', market: 'market', price: 'price', approve: 'approvals', learn: 'learn', decide: 'decide', job: 'job' };
 
 function help() {
   console.log('usage: fsw <verb> [args]\n');

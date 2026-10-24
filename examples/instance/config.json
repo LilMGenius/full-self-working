@@ -1,0 +1,66 @@
+{
+  "timezone": "Asia/Seoul",
+  "activeHours": {
+    "outbound": [
+      "08:00",
+      "23:00"
+    ]
+  },
+  "platforms": {
+    "kmong": {
+      "enabled": true,
+      "mode": "auto",
+      "profileEdits": "auto"
+    },
+    "soomgo": {
+      "enabled": true,
+      "mode": "draft",
+      "profileEdits": "approval",
+      "maxQuotesPerDay": 5,
+      "maxCashPerDay": 0
+    },
+    "wishket": {
+      "enabled": false,
+      "mode": "observe"
+    },
+    "fiverr": {
+      "enabled": false,
+      "mode": "observe"
+    },
+    "upwork": {
+      "enabled": false,
+      "mode": "draft"
+    },
+    "freelancer": {
+      "enabled": false,
+      "mode": "observe"
+    }
+  },
+  "payment": {
+    "depositRatio": 0.5,
+    "milestoneThresholdKRW": 1000000,
+    "milestones": [
+      0.3,
+      0.4,
+      0.3
+    ]
+  },
+  "yield": {
+    "minNetKRWPerAgentHour": 20000,
+    "humanHourWeight": 4,
+    "explorationFloor": 0.05,
+    "exploreUntilLeads": 10
+  },
+  "notify": {
+    "toast": true,
+    "webhookUrl": null
+  },
+  "brain": {
+    "model": "gpt-6.1-sol",
+    "effort": "medium",
+    "timeoutMs": 240000
+  },
+  "jobs": {
+    "maxParallel": 3
+  }
+}

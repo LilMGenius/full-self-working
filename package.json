@@ -1,0 +1,16 @@
+{
+  "name": "full-self-working",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "fsw": "bin/fsw.mjs"
+  },
+  "scripts": {
+    "test": "node --test",
+    "check": "node --test && node scripts/check-privacy.mjs && node scripts/check-slop.mjs && node scripts/check-descriptors.mjs",
+    "check:privacy": "node scripts/check-privacy.mjs"
+  }
+}

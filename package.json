@@ -10,7 +10,7 @@
   },
   "scripts": {
     "test": "node --test",
-    "check": "node --test && node scripts/check-privacy.mjs && node scripts/check-slop.mjs && node scripts/check-descriptors.mjs",
+    "check": "node --test && node scripts/check-privacy.mjs && node scripts/check-slop.mjs && node scripts/check-descriptors.mjs && node scripts/check-recipes.mjs",
     "check:privacy": "node scripts/check-privacy.mjs"
   }
 }

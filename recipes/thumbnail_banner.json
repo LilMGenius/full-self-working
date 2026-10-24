@@ -1,0 +1,82 @@
+{
+  "service": "thumbnail_banner",
+  "version": 1,
+  "hours": {
+    "standard": 1,
+    "deluxe": 2.5,
+    "premium": 5
+  },
+  "steps": [
+    {
+      "id": "direction",
+      "skill": "noslopdesign:noslop-uiux",
+      "type": "invoke-model-skill",
+      "input": "brief.md",
+      "output": "notes/direction.md",
+      "does": "Choose the layout, type and palette for each requested size."
+    },
+    {
+      "id": "build",
+      "skill": "omo:frontend",
+      "type": "invoke-model-skill",
+      "input": "notes/direction.md, ../inputs/",
+      "output": "banners/",
+      "does": "Build one HTML file per requested size, each declaring its size in a fsw-size meta tag such as 1280x720."
+    },
+    {
+      "id": "export",
+      "type": "script",
+      "run": "render",
+      "input": "banners/*.html",
+      "output": "export/{stem}.png",
+      "args": {
+        "size": "page",
+        "format": "png"
+      }
+    },
+    {
+      "id": "accept",
+      "type": "script",
+      "run": "accept",
+      "input": "work/",
+      "output": "qa/"
+    },
+    {
+      "id": "review",
+      "type": "user-handoff",
+      "input": "export/",
+      "output": "operator decision",
+      "ask": "The operator checks the text and the look of every image against the brief; the agent cannot judge taste here."
+    }
+  ],
+  "deliverables": [
+    {
+      "path": "banners/*.html",
+      "format": "html"
+    },
+    {
+      "path": "export/*.png",
+      "format": "png",
+      "constraints": {
+        "minWidth": 100,
+        "maxWidth": 4096,
+        "maxHeight": 4096
+      }
+    }
+  ],
+  "acceptance": [
+    {
+      "check": "files"
+    },
+    {
+      "check": "image"
+    },
+    {
+      "check": "sloplint"
+    }
+  ],
+  "payment": {
+    "beforeStart": "deposit",
+    "beforeDelivery": "full"
+  }
+}

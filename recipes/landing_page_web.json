@@ -1,0 +1,94 @@
+{
+  "service": "landing_page_web",
+  "version": 1,
+  "hours": {
+    "standard": 6,
+    "deluxe": 14,
+    "premium": 28
+  },
+  "steps": [
+    {
+      "id": "direction",
+      "skill": "noslopdesign:noslop-uiux",
+      "type": "invoke-model-skill",
+      "input": "brief.md",
+      "output": "notes/direction.md",
+      "does": "Choose the page direction (structure, type, palette, imagery) from the brief and the customer business."
+    },
+    {
+      "id": "build",
+      "skill": "noslopdesign:noslop-frontend",
+      "type": "invoke-model-skill",
+      "input": "brief.md, notes/direction.md",
+      "output": "site/index.html",
+      "does": "Build one responsive page with self-contained CSS, real copy from the brief and no external font or script requests."
+    },
+    {
+      "id": "copy",
+      "skill": "codexclaw:cxc-kwrite",
+      "type": "invoke-model-skill",
+      "input": "site/index.html",
+      "output": "site/index.html",
+      "does": "Polish the Korean copy for natural register; keep every fact the brief states and add none."
+    },
+    {
+      "id": "visual-qa",
+      "skill": "omo:visual-qa",
+      "type": "invoke-model-skill",
+      "input": "site/index.html",
+      "output": "notes/qa.md",
+      "does": "Check the page at phone and desktop widths and fix what the checklist fails."
+    },
+    {
+      "id": "hosting",
+      "type": "invoke-model-skill",
+      "input": "site/",
+      "output": "site/HOSTING.md",
+      "does": "Write a short hosting guide in the brief language: which files to upload and two static hosting options."
+    },
+    {
+      "id": "accept",
+      "type": "script",
+      "run": "accept",
+      "input": "work/",
+      "output": "qa/"
+    },
+    {
+      "id": "review",
+      "type": "user-handoff",
+      "input": "qa/",
+      "output": "operator decision",
+      "ask": "The operator looks at the 390 and 1440 captures and checks every claim on the page against the brief before delivery."
+    }
+  ],
+  "deliverables": [
+    {
+      "path": "site/index.html",
+      "format": "html"
+    },
+    {
+      "path": "site/HOSTING.md",
+      "format": "md"
+    }
+  ],
+  "acceptance": [
+    {
+      "check": "files"
+    },
+    {
+      "check": "sloplint"
+    },
+    {
+      "check": "viewports",
+      "widths": [
+        390,
+        768,
+        1440
+      ]
+    }
+  ],
+  "payment": {
+    "beforeStart": "deposit",
+    "beforeDelivery": "full"
+  }
+}

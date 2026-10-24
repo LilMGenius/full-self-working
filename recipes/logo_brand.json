@@ -1,0 +1,105 @@
+{
+  "service": "logo_brand",
+  "version": 1,
+  "hours": {
+    "standard": 4,
+    "deluxe": 9,
+    "premium": 18
+  },
+  "steps": [
+    {
+      "id": "concepts",
+      "skill": "noslopdesign:noslop-uiux",
+      "type": "invoke-model-skill",
+      "input": "brief.md",
+      "output": "notes/concepts.md",
+      "does": "Write three distinct logo concepts with the meaning each one carries for the customer."
+    },
+    {
+      "id": "draw",
+      "skill": "omo:frontend",
+      "type": "invoke-model-skill",
+      "input": "notes/concepts.md",
+      "output": "logo/",
+      "does": "Draw each concept as a square SVG with a 1024 viewBox and text converted to paths or set in a system font."
+    },
+    {
+      "id": "export",
+      "type": "script",
+      "run": "render",
+      "input": "logo/*.svg",
+      "output": "logo/{stem}.png",
+      "args": {
+        "width": 1024,
+        "height": 1024,
+        "format": "png"
+      }
+    },
+    {
+      "id": "sheet",
+      "skill": "omo:frontend",
+      "type": "invoke-model-skill",
+      "input": "logo/",
+      "output": "brand/sheet.html",
+      "does": "Build a one page color and type sheet with the hex values and the type choices for the concepts."
+    },
+    {
+      "id": "accept",
+      "type": "script",
+      "run": "accept",
+      "input": "work/",
+      "output": "qa/"
+    },
+    {
+      "id": "pick",
+      "type": "user-handoff",
+      "input": "logo/, brand/sheet.html",
+      "output": "operator decision",
+      "ask": "The operator picks the concept to refine and writes the critique; taste is a human call."
+    }
+  ],
+  "deliverables": [
+    {
+      "path": "logo/*.svg",
+      "format": "svg"
+    },
+    {
+      "path": "logo/*.png",
+      "format": "png",
+      "constraints": {
+        "width": 1024,
+        "height": 1024
+      }
+    },
+    {
+      "path": "brand/sheet.html",
+      "format": "html"
+    }
+  ],
+  "acceptance": [
+    {
+      "check": "files"
+    },
+    {
+      "check": "image"
+    },
+    {
+      "check": "sloplint",
+      "paths": [
+        "brand/sheet.html",
+        "notes/concepts.md"
+      ]
+    },
+    {
+      "check": "viewports",
+      "widths": [
+        390,
+        1440
+      ]
+    }
+  ],
+  "payment": {
+    "beforeStart": "deposit",
+    "beforeDelivery": "full"
+  }
+}

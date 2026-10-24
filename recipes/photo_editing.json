@@ -1,0 +1,65 @@
+{
+  "service": "photo_editing",
+  "version": 1,
+  "hours": {
+    "standard": 0.5,
+    "deluxe": 1.5,
+    "premium": 3
+  },
+  "steps": [
+    {
+      "id": "plan",
+      "type": "invoke-model-skill",
+      "input": "brief.md, ../inputs/",
+      "output": "notes/plan.md",
+      "does": "List every supplied image with the edit the customer asked for and whether a local tool can make it."
+    },
+    {
+      "id": "edit",
+      "type": "invoke-model-skill",
+      "input": "notes/plan.md, ../inputs/",
+      "output": "edited/",
+      "does": "Make the crops, resizes, exposure and color fixes with ffmpeg; leave cutouts and retouching to the person."
+    },
+    {
+      "id": "accept",
+      "type": "script",
+      "run": "accept",
+      "input": "work/",
+      "output": "qa/"
+    },
+    {
+      "id": "retouch",
+      "type": "user-handoff",
+      "input": "edited/, notes/plan.md",
+      "output": "operator decision",
+      "ask": "A person makes the cutouts and retouching and judges every image before delivery."
+    }
+  ],
+  "deliverables": [
+    {
+      "path": "edited/*",
+      "format": "image",
+      "constraints": {
+        "maxWidth": 8000,
+        "maxHeight": 8000
+      }
+    },
+    {
+      "path": "notes/plan.md",
+      "format": "md"
+    }
+  ],
+  "acceptance": [
+    {
+      "check": "files"
+    },
+    {
+      "check": "image"
+    }
+  ],
+  "payment": {
+    "beforeStart": "deposit",
+    "beforeDelivery": "full"
+  }
+}

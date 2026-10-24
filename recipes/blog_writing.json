@@ -1,0 +1,83 @@
+{
+  "service": "blog_writing",
+  "version": 1,
+  "hours": {
+    "standard": 1.5,
+    "deluxe": 4,
+    "premium": 8
+  },
+  "steps": [
+    {
+      "id": "research",
+      "skill": "codexclaw:cxc-search",
+      "type": "invoke-model-skill",
+      "input": "brief.md",
+      "output": "notes/sources.md",
+      "does": "Collect sources for the topic with the URL and the fact each one supports."
+    },
+    {
+      "id": "draft",
+      "skill": "codexclaw:cxc-kwrite",
+      "type": "invoke-model-skill",
+      "input": "notes/sources.md",
+      "output": "post/post.md",
+      "does": "Write the post in Korean, about 2,000 characters, citing the sources inline."
+    },
+    {
+      "id": "factcheck",
+      "skill": "paperthin:factchk",
+      "type": "invoke-model-skill",
+      "input": "post/post.md, notes/sources.md",
+      "output": "post/post.md",
+      "does": "Check every factual sentence against its source and fix or cut what fails."
+    },
+    {
+      "id": "tighten",
+      "skill": "paperthin:debloat",
+      "type": "invoke-model-skill",
+      "input": "post/post.md",
+      "output": "post/post.md",
+      "does": "Remove padding and repetition without dropping a sourced fact."
+    },
+    {
+      "id": "accept",
+      "type": "script",
+      "run": "accept",
+      "input": "work/",
+      "output": "qa/"
+    },
+    {
+      "id": "review",
+      "type": "user-handoff",
+      "input": "post/post.md",
+      "output": "operator decision",
+      "ask": "The operator reads the post once for tone before delivery."
+    }
+  ],
+  "deliverables": [
+    {
+      "path": "post/post.md",
+      "format": "md"
+    },
+    {
+      "path": "notes/sources.md",
+      "format": "md"
+    }
+  ],
+  "acceptance": [
+    {
+      "check": "files"
+    },
+    {
+      "check": "sloplint",
+      "lang": "ko",
+      "paths": [
+        "post/post.md"
+      ]
+    }
+  ],
+  "payment": {
+    "beforeStart": "deposit",
+    "beforeDelivery": "full"
+  }
+}

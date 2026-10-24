@@ -1,0 +1,69 @@
+{
+  "service": "video_editing",
+  "version": 1,
+  "hours": {
+    "standard": 4,
+    "deluxe": 10,
+    "premium": 20
+  },
+  "steps": [
+    {
+      "id": "plan",
+      "type": "invoke-model-skill",
+      "input": "brief.md, ../inputs/",
+      "output": "notes/cuts.md",
+      "does": "Write the cut list with timecodes, captions and music cues from the supplied footage."
+    },
+    {
+      "id": "cut",
+      "type": "invoke-model-skill",
+      "input": "notes/cuts.md, ../inputs/",
+      "output": "video/",
+      "does": "Cut and render video/final.mp4 with ffmpeg and write the captions to video/final.srt."
+    },
+    {
+      "id": "accept",
+      "type": "script",
+      "run": "accept",
+      "input": "work/",
+      "output": "qa/"
+    },
+    {
+      "id": "review",
+      "type": "user-handoff",
+      "input": "video/",
+      "output": "operator decision",
+      "ask": "The operator watches the whole video and confirms the music licence before delivery."
+    }
+  ],
+  "deliverables": [
+    {
+      "path": "video/final.mp4",
+      "format": "mp4"
+    },
+    {
+      "path": "video/final.srt",
+      "format": "srt"
+    }
+  ],
+  "acceptance": [
+    {
+      "check": "files"
+    },
+    {
+      "check": "sloplint",
+      "paths": [
+        "video/final.srt"
+      ]
+    },
+    {
+      "check": "command",
+      "run": "ffprobe -v error -show_entries format=duration -of csv=p=0 video/final.mp4",
+      "timeoutMs": 60000
+    }
+  ],
+  "payment": {
+    "beforeStart": "deposit",
+    "beforeDelivery": "full"
+  }
+}

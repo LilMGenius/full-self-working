@@ -21,7 +21,7 @@ const VERBS = {
   help: 'show this help',
 };
 
-const HANDLERS = { price: 'price' };
+const HANDLERS = { price: 'price', approve: 'approvals', learn: 'learn', decide: 'decide' };
 
 function help() {
   console.log('usage: fsw <verb> [args]\n');

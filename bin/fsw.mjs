@@ -7,8 +7,8 @@ import { openLedger } from '../src/core/ledger.mjs';
 import { listDescriptors, loadDescriptor } from '../src/platforms/registry.mjs';
 
 const VERBS = {
-  tick: 'run one supervisor pass over every enabled platform',
-  run: 'start the supervisor daemon',
+  tick: 'run one supervisor pass over the due jobs [--only job,job]; FSW_FORCE_MODE=observe|draft lowers every platform mode',
+  run: 'start the supervisor daemon (a no-op while one runs); FSW_FORCE_MODE applies here too',
   status: 'show the instance, ledger counts and enabled platforms',
   probe: 'probe <platform>: check the login and page shapes of one platform',
   market: 'refresh market samples',
@@ -17,11 +17,11 @@ const VERBS = {
   learn: 'turn finished outcomes into lessons',
   approve: 'approve a drafted outbound item',
   decide: 'decide <platform> <thread.json>: run the brain on a thread file without sending',
-  schedule: 'install or show the scheduled task',
+  schedule: 'schedule install|status|uninstall: the logon and hourly task that keeps the supervisor running',
   help: 'show this help',
 };
 
-const HANDLERS = { market: 'market', price: 'price', approve: 'approvals', learn: 'learn', decide: 'decide' };
+const HANDLERS = { tick: 'tick', run: 'run', schedule: 'schedule', market: 'market', price: 'price', approve: 'approvals', learn: 'learn', decide: 'decide' };
 
 function help() {
   console.log('usage: fsw <verb> [args]\n');

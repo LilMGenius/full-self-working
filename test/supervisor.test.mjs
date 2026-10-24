@@ -159,6 +159,14 @@ test('a job that throws is recorded as failed and the next job still runs', asyn
   assert.deepEqual(again.jobs, []);
 });
 
+test('a deploy skipped by a forced observe pass stays due for the next unforced tick', async () => {
+  const instance = makeInstance();
+  const state = { lastRuns: {} };
+  const s = await runTick({ instance, ledger: openLedger(':memory:'), now: new Date('2026-10-25T02:03:00Z'), state, only: ['publish'], forceMode: 'observe', persist: false });
+  assert.equal(s.jobs[0].status, 'skipped');
+  assert.equal(state.lastRuns.publish, undefined);
+});
+
 // ---- digest ----
 
 test('the digest counts only the previous Seoul day from the ledger', async () => {

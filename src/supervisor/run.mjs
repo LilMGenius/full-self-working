@@ -249,7 +249,10 @@ export const JOB_HANDLERS = {
     const { syncPortfolio } = await import('../portfolio/store.mjs');
     return { status: 'ok', shown: syncPortfolio(ctx.instance, ctx.ledger).length };
   },
-  async publish() {
+  async publish(ctx) {
+    // A forced observe pass is read-only, and a deploy is an outbound action.
+    // keepDue leaves the period open, so the first unforced tick still deploys today.
+    if (ctx.forceMode === 'observe') return { status: 'skipped', detail: 'FSW_FORCE_MODE=observe skips the site deploy', keepDue: true };
     const script = join(repoRoot, 'scripts', 'publish.mjs');
     if (!existsSync(script)) return notWired('scripts/publish.mjs does not exist yet; the portfolio_site worker adds it');
     const r = spawnSync(process.execPath, [script], { cwd: repoRoot, encoding: 'utf8', windowsHide: true, timeout: 15 * 60_000 });
@@ -304,10 +307,11 @@ export async function runTick(ctx = {}) {
       } catch (err) {
         out = { status: 'failed', error: err.message, code: err.code ?? null };
       }
-      const entry = { job: id, period, seconds: Math.round((Date.now() - started) / 1000), ...out };
+      const { keepDue, ...rest } = out;
+      const entry = { job: id, period, seconds: Math.round((Date.now() - started) / 1000), ...rest };
       record(job, 'supervisor.job', id, entry);
       summary.jobs.push(entry);
-      state.lastRuns = { ...state.lastRuns, [id]: period };
+      if (!keepDue) state.lastRuns = { ...state.lastRuns, [id]: period };
     }
     summary.failures = summary.jobs.filter((j) => j.status === 'failed').length + summary.jobs.flatMap((j) => j.platforms ?? []).filter((p) => p.status === 'failed').length;
     record(job, 'supervisor.tick', null, { jobs: summary.jobs.map((j) => j.job + ':' + j.status), failures: summary.failures, forceMode });

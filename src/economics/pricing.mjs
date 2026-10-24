@@ -83,6 +83,7 @@ export function buildPriceTable({ summary, services, profile, sellerStats, confi
         service,
         category,
         baseKRW: base,
+        baseNetKRW: sellerNet(base, descriptor).net,
         packages,
         floorKRW: Math.max(costFloorKRW, roundTo1000(market.low)),
         ceilingKRW: Math.max(roundTo1000(market.high), packages.premium),

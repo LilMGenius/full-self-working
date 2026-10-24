@@ -56,10 +56,10 @@
   },
   "limits": {
     "message": {
-      "maxChars": "unknown"
+      "maxChars": 1000
     },
     "quote": {
-      "maxChars": "unknown"
+      "maxChars": 1000
     },
     "listing": {
       "maxChars": "unknown"
@@ -68,6 +68,7 @@
       "maxChars": "unknown"
     }
   },
+  "limitsNotes": "message is the chat composer textarea maxLength and quote the 견적 설명 textarea maxLength, both 1000, read from the pages on 2026-10-25. Listing and profile caps were not observed.",
   "rankingSignals": [
     "matching favors higher activity and response rate",
     "로켓응답 badge for replies within 10 minutes",

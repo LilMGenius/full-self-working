@@ -56,6 +56,16 @@ export function summarize(samples) {
   });
 }
 
+// One day's summary entries, ordered by platform and category so a retry's fetch order never reads as
+// a change. Listing samples (크몽) become quantile entries through summarize; a price-guide row (숨고) is
+// already the platform's aggregate, so its figures pass through, with the guide's request count as n
+// and its unit (건, 장) kept beside the average.
+export function summarizeDay(rows) {
+  const guide = ({ platform, category, url, guide: g, observedAt }) => ({ platform, category, n: g.quoteRequests, minKRW: g.minKRW, p25: null, median: null, p75: null, maxKRW: g.maxKRW, avgKRW: g.avgKRW, unit: g.unit, activePros: g.activePros, url, observedAt });
+  const entries = [...summarize(rows.filter((r) => !r.guide)), ...rows.filter((r) => r.guide).map(guide)];
+  return entries.sort((a, b) => a.platform.localeCompare(b.platform) || a.category.localeCompare(b.category));
+}
+
 const SUMMARY_RE = /^summary-(\d{4})(\d{2})(\d{2})\.json$/;
 
 // Newest summary-YYYYMMDD.json in the instance's market directory. observedAt is the file's day.

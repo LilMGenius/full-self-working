@@ -114,6 +114,7 @@
     "ko": "상세페이지 디자인",
     "en": "Product detail page design",
     "kmongCategory": "상세페이지 디자인",
+    "kmongCategoryId": 113,
     "soomgoGuide": "상세페이지 제작",
     "agentHours": {
       "standard": 5,
@@ -132,6 +133,7 @@
     "ko": "로고 및 브랜드 디자인",
     "en": "Logo and brand design",
     "kmongCategory": "로고 디자인",
+    "kmongCategoryId": 101,
     "soomgoGuide": "로고 디자인",
     "agentHours": {
       "standard": 4,
@@ -150,6 +152,7 @@
     "ko": "썸네일 및 배너 디자인",
     "en": "Thumbnail and banner design",
     "kmongCategory": "썸네일 배너 디자인",
+    "kmongCategoryId": 142,
     "soomgoGuide": "썸네일 제작",
     "agentHours": {
       "standard": 1,
@@ -168,6 +171,7 @@
     "ko": "사진 보정 및 누끼",
     "en": "Photo editing and background removal",
     "kmongCategory": "사진 보정 누끼 배경제거",
+    "kmongCategoryId": 104,
     "soomgoGuide": "사진 편집 및 보정",
     "agentHours": {
       "standard": 0.5,
@@ -185,6 +189,7 @@
     "ko": "PPT 및 카드뉴스 디자인",
     "en": "Presentation and card news design",
     "kmongCategory": "PPT 디자인",
+    "kmongCategoryId": 106,
     "soomgoGuide": "프레젠테이션 디자인",
     "agentHours": {
       "standard": 3,

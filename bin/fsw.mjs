@@ -21,7 +21,7 @@ const VERBS = {
   help: 'show this help',
 };
 
-const HANDLERS = { price: 'price', approve: 'approvals', learn: 'learn', decide: 'decide' };
+const HANDLERS = { market: 'market', price: 'price', approve: 'approvals', learn: 'learn', decide: 'decide' };
 
 function help() {
   console.log('usage: fsw <verb> [args]\n');
@@ -55,7 +55,7 @@ if (verb === 'help' || verb === '--help' || verb === '-h') help();
 else if (verb === 'status') status();
 else if (verb in HANDLERS) {
   const result = await (await import(`../src/cli/${HANDLERS[verb]}.mjs`)).run(process.argv.slice(3));
-  process.exitCode = typeof result === 'number' ? result : 0;
+  process.exitCode = typeof result === 'number' ? result : (result?.exitCode ?? 0);
 } else if (verb in VERBS) {
   console.error(`fsw ${verb}: not wired yet`);
   process.exit(2);

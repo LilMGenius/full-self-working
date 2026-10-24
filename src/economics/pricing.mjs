@@ -58,7 +58,8 @@ function marketFor(entries, platform, category) {
   throw new EconomicsError('FSW_MARKET_SUMMARY_INVALID', `summary entry ${platform}/${category} has neither quantiles nor guide figures`, { platform, category });
 }
 
-const CATEGORY_FIELD = { kmong: 'kmongCategory', soomgo: 'soomgoGuide' };
+// The services.json field that names each platform's market category, read by pricing and sampling.
+export const CATEGORY_FIELD = { kmong: 'kmongCategory', soomgo: 'soomgoGuide' };
 
 export function buildPriceTable({ summary, services, profile, sellerStats, config, descriptors }) {
   const entries = summary?.entries;
@@ -118,6 +119,8 @@ export const priceRowFor = (table, platform, service) => table.find((r) => r.pla
 
 // Quote for a request on a guide platform. quoteCostKRW is what sending the quote costs (숨고캐시);
 // it is required wherever the descriptor says quotes are paid, since the descriptor holds no number.
+// A guide whose unit is per item (장 for photos) prices one item, and this quote has no quantity yet:
+// until the brain's request decision carries one and multiplies it here, such a quote covers one item.
 export function quoteForRequest({ guide, complexity, row, descriptor, config, quoteCostKRW }) {
   const [cmin, cmax] = COMPLEXITY_RANGE;
   if (typeof complexity !== 'number' || complexity < cmin || complexity > cmax) {

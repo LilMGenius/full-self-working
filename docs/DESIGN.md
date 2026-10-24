@@ -43,7 +43,9 @@ Each platform runs in one mode: `observe` reads only, `draft` writes every outbo
 | `src/browser/driver.mjs` | `openSession(name)` | wraps the omowright attached engine on the operator's signed-in Chrome |
 | `src/brain/codex.mjs` | `runCodex({prompt, schema, model, effort, cwd, sandbox, timeoutMs})` | `codex exec --ephemeral --output-schema` |
 | `src/brain/respond.mjs` | `decide(thread, ctx)` | classify, reply, quote, operator flag |
-| `src/economics/market.mjs` | `summarize(samples)` | quantiles and review-weighted median per platform and category |
+| `src/platforms/<id>/market.mjs` | `sample(session, targets)` returns {rows, errors} | 크몽 reads the first 30 gig cards per category page (`kmongCategoryId`) or keyword search; 숨고 reads its public price guide |
+| `src/economics/market.mjs` | `summarize(samples)`, `summarizeDay(rows)`, `latestSummary(instance)` | quantiles and review-weighted median for listings; guide figures and their unit pass through |
+| `src/cli/market.mjs` | `run(argv, ctx)` | samples every enabled platform, retries a failed category once, writes the day's files only when the summary changed |
 | `src/economics/pricing.mjs` | `buildPriceTable({summaries, profile, reviews, config})`, `quoteFor(row, complexity)`, `splitPayment(amount, config, descriptor)` | |
 | `src/economics/yield.mjs` | `armStats(ledger)` | net KRW per weighted hour per (platform, service) |
 | `src/economics/allocate.mjs` | `allocate(arms, {rng})` | Thompson sampling with an exploration floor |

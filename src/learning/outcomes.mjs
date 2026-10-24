@@ -3,6 +3,7 @@
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
+import { dayKey } from '../core/clock.mjs';
 import { ensureDir } from '../core/instance.mjs';
 import { logEvent } from '../core/log.mjs';
 
@@ -24,7 +25,7 @@ export function recordOutcome(instance, ledger, c) {
   if (c.kind === 'operator_correction' && (typeof c.before !== 'string' || typeof c.after !== 'string')) throw new TypeError('an operator correction needs before and after');
   ensureDir(instance.paths.lessons);
   const record = {
-    id: new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + randomBytes(4).toString('hex'),
+    id: dayKey() + '-' + randomBytes(4).toString('hex'),
     at: new Date().toISOString(),
     kind: c.kind,
     platform: c.platform ?? null,

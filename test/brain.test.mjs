@@ -8,6 +8,9 @@ import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { decide, matchSystemNotice, parseDecision } from '../src/brain/respond.mjs';
 import { CodexError, runCodex } from '../src/brain/codex.mjs';
 import { listApprovals, queueApproval, resolveApproval } from '../src/brain/approvals.mjs';
+import { caseFromApproval, recordOutcome } from '../src/learning/outcomes.mjs';
+import { writeLessons } from '../src/learning/lessons.mjs';
+import { refreshPlaybook, validatePattern } from '../src/learning/playbook.mjs';
 
 function makeInstance() {
   const dir = mkdtempSync(join(tmpdir(), 'fsw-brain-'));
@@ -111,4 +114,54 @@ test('approvals are queued as files and resolved once', async () => {
   assert.equal(done.finalText, '안녕하세요. 반갑습니다.');
   assert.equal(done.edited, true);
   assert.throws(() => resolveApproval(instance, a.id, { approve: false }), /already approved/);
+});
+
+test('a generated regex that does not match its own case is not written to gate-rules.json', async () => {
+  const instance = makeInstance();
+  const c1 = recordOutcome(instance, null, { kind: 'approval_rejected', platform: 'kmong', text: '오픈채팅으로 오시면 더 빨리 답드려요' });
+  const c2 = recordOutcome(instance, null, { kind: 'operator_correction', platform: 'kmong', text: '최저가 보장해 드립니다', before: '최저가 보장해 드립니다', after: '범위 안에서 맞춰 드리겠습니다' });
+  const codex = fakeCodex([
+    { lessons: [
+      { class: 'chat_link_lure', rule: 'Never invite the customer to an outside chat.', evidence: [c1.id], gate: 'regex', pattern: '텔레그램\\s*방', appliesTo: ['all'] },
+      { class: 'price_guarantee', rule: 'Never promise the lowest price.', evidence: [c2.id], gate: 'regex', pattern: '최저가\\s*보장', appliesTo: ['all'] },
+    ] },
+    { playbook: '## 대화\n\n- 외부 채팅으로 안내하지 않습니다.\n' },
+  ]);
+  const w = await writeLessons(instance, { runCodex: codex });
+  assert.equal(w.lessons.length, 2);
+  const r = await refreshPlaybook(instance, { runCodex: codex });
+  assert.deepEqual(r.rules.map((x) => x.id), ['price_guarantee']);
+  assert.deepEqual(r.rejected.map((x) => [x.class, x.reason]), [['chat_link_lure', 'does not match the case text it came from']]);
+  const onDisk = JSON.parse(readFileSync(join(instance.paths.lessons, 'gate-rules.json'), 'utf8'));
+  assert.deepEqual(onDisk.map((x) => x.id), ['price_guarantee']);
+  assert.match(codex.calls[1].prompt, /Never invite the customer to an outside chat/);
+  assert.equal(readFileSync(join(instance.paths.lessons, 'playbook.md'), 'utf8'), '## 대화\n\n- 외부 채팅으로 안내하지 않습니다.\n');
+});
+
+test('catastrophic or over-broad patterns are refused before they reach the gate', () => {
+  const ev = [{ kind: 'approval_rejected', text: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!' }];
+  assert.equal(validatePattern({ pattern: '(a+)+!' }, ev).reason, 'nested quantifier');
+  assert.equal(validatePattern({ pattern: 'a{1,}'.repeat(60) }, ev).ok, false);
+  assert.equal(validatePattern({ pattern: '(' }, ev).ok, false);
+  assert.equal(validatePattern({ pattern: '.' }, ev).reason, 'matches an ordinary polite reply');
+  assert.equal(validatePattern({ pattern: 'a{20}!' }, ev).ok, true);
+});
+
+test('writeLessons learns each case once', async () => {
+  const instance = makeInstance();
+  recordOutcome(instance, null, { kind: 'lead_lost', platform: 'soomgo', text: '다른 분과 진행하기로 했어요', note: 'no reply for 3 hours' });
+  const codex = fakeCodex([{ lessons: [{ class: 'slow_first_reply', rule: 'Answer a new request within the hour.', evidence: [], gate: 'judgment', pattern: null, appliesTo: ['soomgo'] }] }]);
+  assert.equal((await writeLessons(instance, { runCodex: codex })).newCases, 1);
+  const again = await writeLessons(instance, { runCodex: noCodex });
+  assert.equal(again.changed, false);
+  assert.equal(codex.calls.length, 1);
+});
+
+test('a rejected approval and an edited approval become cases', async () => {
+  const instance = makeInstance();
+  const a = await queueApproval(instance, { platform: 'kmong', threadRef: 't9', kind: 'message', reason: 'draft mode', draft: '바로 시작할게요' });
+  const rejected = resolveApproval(instance, a.id, { approve: false, reason: 'scope not agreed' });
+  assert.equal(caseFromApproval(rejected).kind, 'approval_rejected');
+  const b = await queueApproval(instance, { platform: 'kmong', threadRef: 't10', kind: 'message', reason: 'draft mode', draft: '바로 시작할게요' });
+  assert.equal(caseFromApproval(resolveApproval(instance, b.id, { approve: true, editedText: '범위를 먼저 정하고 시작하겠습니다.' })).kind, 'operator_correction');
 });

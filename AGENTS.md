@@ -4,7 +4,7 @@ An autonomous freelance-outsourcing agent that runs on one local machine around 
 
 ## Privacy boundary
 
-The repository is generic and publishable. Everything about one operator lives in `instance.local/` (profile, background, business registration, payout account, ledger, job workspaces, lessons, logs) and is ignored by `*.local*`. Code reads the instance through `src/core/instance.mjs`; examples with placeholders live in `examples/instance/`. A personal value never appears in tracked files, tests, fixtures, commit messages or the public site bundle; the site reads instance data at runtime from the operator's own Blob store. `npm run check:privacy` fails on any tracked file that matches a value from `instance.local/`.
+The repository is generic and publishable. Everything about one operator lives in `instance.local/` (profile, background, business registration, payout account, ledger, job workspaces, lessons, logs) and is ignored by `*.local*`. Code reads the instance through `src/core/instance.mjs`; examples with placeholders live in `examples/instance/`. A personal value never appears in tracked files, tests, fixtures or commit messages. The public site is built locally from the instance into the ignored `site/dist/` and deployed as prebuilt output, and it never carries the payout account. `npm run check:privacy` fails on any tracked file that matches a value from `instance.local/`.
 
 ## Layout
 

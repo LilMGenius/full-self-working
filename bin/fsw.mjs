@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// fsw command line. status and help are wired; the other verbs land with their modules.
+// fsw command line. Each wired verb's handler lives in src/cli/<verb>.mjs and exports run(argv).
 import { loadInstance } from '../src/core/instance.mjs';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -16,9 +16,12 @@ const VERBS = {
   publish: 'build and deploy the portfolio site when it changed',
   learn: 'turn finished outcomes into lessons',
   approve: 'approve a drafted outbound item',
+  decide: 'decide <platform> <thread.json>: run the brain on a thread file without sending',
   schedule: 'install or show the scheduled task',
   help: 'show this help',
 };
+
+const HANDLERS = { price: 'price' };
 
 function help() {
   console.log('usage: fsw <verb> [args]\n');
@@ -50,7 +53,10 @@ function status() {
 const [verb = 'help'] = process.argv.slice(2);
 if (verb === 'help' || verb === '--help' || verb === '-h') help();
 else if (verb === 'status') status();
-else if (verb in VERBS) {
+else if (verb in HANDLERS) {
+  const result = await (await import(`../src/cli/${HANDLERS[verb]}.mjs`)).run(process.argv.slice(3));
+  process.exitCode = typeof result === 'number' ? result : 0;
+} else if (verb in VERBS) {
   console.error(`fsw ${verb}: not wired yet`);
   process.exit(2);
 } else {

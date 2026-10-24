@@ -52,6 +52,7 @@ export function loadInstance({ dir, allowExampleConfig = false } = {}) {
       platforms: join(root, 'platforms'),
       jobs: join(root, 'jobs'),
       portfolio: join(root, 'portfolio'),
+      pricing: join(root, 'pricing'),
       lessons: join(root, 'lessons'),
       operator,
       approvals: join(operator, 'approvals'),

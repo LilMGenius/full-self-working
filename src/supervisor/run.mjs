@@ -20,9 +20,38 @@ import { createBrowserKeeper, holdAwake } from './keepalive.mjs';
 // the next 5-minute mark; the rest wait for the following tick.
 export const MAX_THREADS_PER_PLATFORM = 10;
 
+// fsw run exits with this code when newer code should take over; the scheduled task's launcher starts it
+// again at once (scripts/task.ps1).
+export const RESTART_EXIT = 75;
+
 export const runDir = (instance) => join(instance.dir, 'run');
 const lockFile = (instance) => join(runDir(instance), 'supervisor.pid');
 const stateFile = (instance) => join(runDir(instance), 'state.json');
+
+// The commit the code on disk comes from. A running process keeps the modules it loaded at start, so a
+// newer commit reaches the supervisor only through a restart.
+export function codeVersion(cwd = repoRoot) {
+  const r = spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8', windowsHide: true });
+  return r.status === 0 ? r.stdout.trim() : null;
+}
+
+// Loads the supervisor's whole static module graph from disk in a fresh process, so a commit that does
+// not even import is never handed the machine.
+export function probeNewCode(cwd = repoRoot) {
+  const url = pathToFileURL(join(cwd, 'src', 'cli', 'run.mjs')).href;
+  const script = 'try { await import(' + JSON.stringify(url) + ') } catch (e) { console.error(String(e?.stack ?? e).split("\\n")[0]); process.exit(1) }';
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', script], { cwd, encoding: 'utf8', windowsHide: true, timeout: 60_000 });
+  return { ok: r.status === 0, detail: String(r.stderr || r.stdout || r.error?.message || '').trim().split(/\r?\n/)[0] };
+}
+
+// What to do at a tick boundary about the code on disk: keep running while HEAD is where the process
+// started or at a commit whose probe already failed, hand over when a newer commit imports cleanly, and
+// otherwise keep the running code and record the rejected commit so it is probed once, not every tick.
+export function codeHandover({ started, head, rejected, probe }) {
+  if (!started || !head || head === started || head === rejected) return { action: 'stay' };
+  const p = probe();
+  return p.ok ? { action: 'restart' } : { action: 'reject', detail: p.detail };
+}
 
 export function readState(instance) {
   const file = stateFile(instance);
@@ -374,6 +403,9 @@ export async function runSupervisor(ctx = {}) {
   try {
     const state = readState(instance);
     let current = instance;
+    const started = (ctx.codeVersion ?? codeVersion)();
+    let rejected = null;
+    let restart = false;
     while (!stopping) {
       // The config is read again every tick, so an operator edit (a mode, a budget) applies at the next
       // mark without a restart. A config that no longer parses keeps the last good one and tells the
@@ -389,6 +421,18 @@ export async function runSupervisor(ctx = {}) {
       const summary = await runTick({ instance: current, ledger, state, keeper, log, forceMode: ctx.forceMode });
       if (summary.jobs.length) log('tick ' + summary.jobs.map((j) => j.job + ':' + j.status).join(' ') + ' failures=' + summary.failures);
       if (stopping || ctx.once) break;
+      const head = (ctx.codeVersion ?? codeVersion)();
+      const handover = codeHandover({ started, head, rejected, probe: ctx.probeNewCode ?? probeNewCode });
+      if (handover.action === 'restart') {
+        log('code moved from ' + started.slice(0, 7) + ' to ' + head.slice(0, 7) + '; restarting');
+        restart = true;
+        break;
+      }
+      if (handover.action === 'reject') {
+        rejected = head;
+        log('code at ' + head.slice(0, 7) + ' does not load; keeping ' + started.slice(0, 7) + ': ' + handover.detail);
+        await notifyOperator(instance, { kind: 'supervisor', title: 'New code does not load; the supervisor keeps running ' + started.slice(0, 7), body: handover.detail, dedupeKey: 'code:' + head });
+      }
       const ms = Math.max(0, nextWake(new Date()).getTime() - Date.now());
       await new Promise((resolve) => {
         const t = setTimeout(resolve, ms);
@@ -404,7 +448,7 @@ export async function runSupervisor(ctx = {}) {
     process.off('exit', cleanup);
     cleanup();
     ledger.close();
-    log('supervisor stopped');
+    log(restart ? 'supervisor exiting for a restart' : 'supervisor stopped');
   }
-  return { status: 'stopped', pid: process.pid };
+  return { status: restart ? 'restart' : 'stopped', pid: process.pid };
 }

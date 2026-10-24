@@ -62,13 +62,27 @@ function deploy({ dir, team, project }) {
   return { url: d.url, id: d.id, productionUrl: d.productionUrl ?? null };
 }
 
-// The deployment answers with the built index before the record is written, so a recorded hash always names a site that serves.
-async function verify(url, hash) {
-  const res = await fetch(url + '/.content-hash');
-  const index = await fetch(url + '/');
-  const served = res.ok ? (await res.text()).trim() : null;
-  if (!index.ok) throw new PublishError('FSW_PUBLISH_VERIFY', url + '/ answered ' + index.status);
-  if (served !== hash) throw new PublishError('FSW_PUBLISH_VERIFY', url + ' serves content hash ' + served + ', expected ' + hash);
+// The deployment and the public domain both answer with the built index and its hash before the record
+// is written, so a recorded hash always names what visitors get. The domain check also catches a git
+// build promoted over the prebuilt output, which on this project serves an empty repository root.
+async function served(url) {
+  const res = await fetch(url + '/.content-hash', { cache: 'no-store' });
+  const index = await fetch(url + '/', { cache: 'no-store' });
+  return { index: index.status, hash: res.ok ? (await res.text()).trim() : null };
+}
+
+async function verify(urls, hash) {
+  for (const url of urls) {
+    let got;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      got = await served(url);
+      if (got.index === 200 && got.hash === hash) break;
+      await new Promise((r) => setTimeout(r, 5000));
+    }
+    if (got.index !== 200 || got.hash !== hash) {
+      throw new PublishError('FSW_PUBLISH_VERIFY', url + ' answered ' + got.index + ' with content hash ' + got.hash + ', expected ' + hash);
+    }
+  }
 }
 
 export async function publish({ instance: instanceDir, force = false, dryRun = false, log = () => {} } = {}) {
@@ -87,7 +101,7 @@ export async function publish({ instance: instanceDir, force = false, dryRun = f
     return { deployed: false, hash: built.hash, url: null, changed: true };
   }
   const { url, id, productionUrl } = deploy({ dir: built.out, team: site.vercelTeam, project: site.project });
-  await verify(url, built.hash);
+  await verify([url, ...(site.domain ? ['https://' + site.domain] : [])], built.hash);
   const record = { hash: built.hash, url, deploymentId: id, productionUrl, domain: site.domain ?? null, project: site.project, team: site.vercelTeam, deployedAt: new Date().toISOString(), priceTable: built.priceTable };
   writeLastDeploy(recordPath, record);
   log('publish: deployed ' + built.hash.slice(0, 12) + ' to ' + url + (site.domain ? ' (' + site.domain + ')' : ''));

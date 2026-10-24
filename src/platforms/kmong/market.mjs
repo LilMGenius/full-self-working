@@ -1,6 +1,8 @@
-// 크몽 market sampling: the first gig cards of each service's listing, read as public data through the
-// operator's browser. services.json maps a service to a category page by kmongCategoryId; a service
-// without one is searched by its kmongCategory label.
+// 크몽 market sampling: prices, ratings and review counts of the first gig cards on each service's
+// listing, one page per service per day. services.json maps a service to a category page by
+// kmongCategoryId; a service without one is searched by its kmongCategory label. The site footer
+// forbids copying, redistributing or scraping its gig information, so rows keep what pricing needs,
+// stay in the instance and are never republished; seller names are not kept.
 import { lines, toInt } from '../kit.mjs';
 
 const BASE = 'https://kmong.com';
@@ -57,7 +59,7 @@ export async function sample(session, targets, { now = () => new Date(), limit =
       const { total, cards } = parseListing(await session.evaluate(pageCards), { limit });
       if (!cards.length) throw new Error(`no priced gig card on ${url}`);
       const observedAt = now().toISOString();
-      cards.forEach((c, i) => rows.push({ platform: 'kmong', category, url: BASE + c.href, query: url, rank: i + 1, title: c.title, seller: c.seller, priceKRW: c.priceKRW, fromPrice: c.fromPrice, rating: c.rating, reviews: c.reviews, badges: c.badges, listingTotal: total, observedAt }));
+      cards.forEach((c, i) => rows.push({ platform: 'kmong', category, url: BASE + c.href, query: url, rank: i + 1, title: c.title, priceKRW: c.priceKRW, fromPrice: c.fromPrice, rating: c.rating, reviews: c.reviews, badges: c.badges, listingTotal: total, observedAt }));
     } catch (err) {
       errors.push({ category, message: err.message });
     }

@@ -1,14 +1,17 @@
 // fsw market: sample every enabled platform's market for the services in services.json, then write
 // samples-<day>.jsonl and summary-<day>.json, the files latestSummary and fsw price read. A category
 // that fails twice is reported by name and left out of the day's summary.
+// Listing pages and price guides are public, so they are read in the owned headless browser at the
+// descriptor's page gap; the operator's signed-in Chrome, and with it the seller account, takes no part.
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { withSession } from '../browser/driver.mjs';
+import { createPacingGuard } from '../browser/driver.mjs';
 import { dayKey } from '../core/clock.mjs';
 import { ensureDir, loadInstance } from '../core/instance.mjs';
 import { summarizeDay } from '../economics/market.mjs';
 import { CATEGORY_FIELD } from '../economics/pricing.mjs';
 import { loadDescriptor } from '../platforms/registry.mjs';
+import { openRenderer } from '../render/html2png.mjs';
 import services from '../economics/services.json' with { type: 'json' };
 
 const SAMPLERS = { kmong: '../platforms/kmong/market.mjs', soomgo: '../platforms/soomgo/market.mjs' };
@@ -25,6 +28,23 @@ export function targetsFor(platform, catalog = services) {
 
 const withoutTime = (entries) => JSON.stringify(entries.map(({ observedAt, ...rest }) => rest));
 
+async function withOwnedPage(platform, fn) {
+  const renderer = await openRenderer();
+  try {
+    const page = await renderer.page();
+    const guard = createPacingGuard(platform, loadDescriptor(platform).pacing);
+    return await fn({
+      async navigate(url, opts) {
+        await guard.beforeLoad();
+        return page.navigate(url, opts);
+      },
+      evaluate: page.evaluate,
+    });
+  } finally {
+    await renderer.close();
+  }
+}
+
 function writeAtomic(file, body) {
   const tmp = `${file}.${process.pid}.tmp`;
   writeFileSync(tmp, body);
@@ -34,7 +54,7 @@ function writeAtomic(file, body) {
 export async function run(argv, ctx = {}) {
   const log = ctx.log ?? console.log;
   const instance = ctx.instance ?? loadInstance();
-  const open = ctx.withSession ?? withSession;
+  const open = ctx.withPage ?? withOwnedPage;
   const now = ctx.now ?? (() => new Date());
   const named = argv.filter((a) => !a.startsWith('-'));
   const asked = named.length ? named : Object.entries(instance.config.platforms ?? {}).filter(([, p]) => p.enabled).map(([id]) => id);
@@ -50,7 +70,7 @@ export async function run(argv, ctx = {}) {
     for (let pass = 1; pass <= 2 && pending.length; pass += 1) {
       let failed;
       try {
-        const result = await open(`market-${platform}`, (session) => sample(session, pending, { now }), { platform, pacing: loadDescriptor(platform).pacing });
+        const result = await open(platform, (session) => sample(session, pending, { now }));
         rows.push(...result.rows);
         failed = result.errors;
       } catch (err) {

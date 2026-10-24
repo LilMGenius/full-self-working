@@ -12,6 +12,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { pageExpression } from '../browser/driver.mjs';
 
 export const DEFAULT_CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 
@@ -196,7 +197,32 @@ export async function openRenderer({ chrome = process.env.FSW_CHROME ?? DEFAULT_
     rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 
-  return { render, close, profile };
+  // A tab that stays open across navigations, for reading public pages with this owned browser
+  // (market sampling) so no read rides on the operator's signed-in session. It offers the two calls the
+  // samplers use on a driver session: navigate(url, {settle}) and evaluate(fn, arg).
+  async function page({ width = 1280, height = 1800 } = {}) {
+    const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
+    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+    await cdp.send('Page.enable', {}, sessionId);
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false }, sessionId);
+    return {
+      async navigate(url, { settle = 3000 } = {}) {
+        const loaded = cdp.waitFor('Page.loadEventFired', sessionId, timeoutMs);
+        const nav = await cdp.send('Page.navigate', { url }, sessionId);
+        if (nav.errorText) throw new RenderError('FSW_RENDER_NAVIGATE', 'navigation to ' + url + ' failed: ' + nav.errorText);
+        await loaded;
+        if (settle > 0) await sleep(settle);
+      },
+      async evaluate(fn, arg) {
+        const r = await cdp.send('Runtime.evaluate', { expression: pageExpression(fn, arg), awaitPromise: true, returnByValue: true }, sessionId);
+        if (r.exceptionDetails) throw new RenderError('FSW_RENDER_PROBE', 'evaluate threw: ' + (r.exceptionDetails.exception?.description ?? r.exceptionDetails.text));
+        return JSON.parse(r.result.value);
+      },
+      close: () => cdp.send('Target.closeTarget', { targetId }),
+    };
+  }
+
+  return { render, page, close, profile };
 }
 
 // One-shot render: opens a renderer, captures, closes. Use openRenderer for several captures.

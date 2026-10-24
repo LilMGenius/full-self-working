@@ -80,7 +80,7 @@ test('fsw market retries a failed category once, reports what still fails and wr
     let url = null;
     return { navigate: async (u) => { url = u; }, evaluate: async () => page(url) };
   };
-  const ctx = { instance, log: () => {}, now: () => new Date('2026-10-24T15:00:00Z'), withSession: async (name, fn) => fn(fakeSession()) };
+  const ctx = { instance, log: () => {}, now: () => new Date('2026-10-24T15:00:00Z'), withPage: async (platform, fn) => fn(fakeSession()) };
 
   const first = await run([], ctx);
   assert.equal(first.exitCode, 1);

@@ -1,0 +1,74 @@
+{
+  "id": "fiverr",
+  "name": "Fiverr",
+  "region": "global",
+  "currency": "USD",
+  "model": "storefront",
+  "fees": {
+    "seller": 0.2,
+    "paymentNetworkRate": 0,
+    "vatOnFees": "unknown",
+    "buyer": {
+      "rate": 0.055,
+      "notes": "plus a 3.50 USD small-order fee under 200 USD (secondary)"
+    },
+    "notes": "20% flat on orders, extras and tips (secondary aggregators citing the Payment Terms)."
+  },
+  "bidCost": {
+    "unit": "none",
+    "notes": "No cost for gigs."
+  },
+  "escrow": true,
+  "milestones": "unknown",
+  "splitMechanism": "Order extras and hourly orders exist; a native milestone mechanism is unknown. Earnings clear 14 days after completion (7 for Top Rated, Pro, Seller Plus; secondary).",
+  "contactPolicy": {
+    "preOrder": [],
+    "postOrder": [],
+    "allowedHosts": [
+      "fiverr.com"
+    ],
+    "notes": "Third-party communication only after an order is placed; records stay on the platform."
+  },
+  "offPlatformPayment": false,
+  "automation": {
+    "officialAutoReply": "unknown",
+    "forbidden": [],
+    "notes": "Prohibited Services and Community Standards not fully read (unknown)."
+  },
+  "aiPolicy": "AI is allowed when used responsibly, refined and customized; honor a client request for no AI and disclose the workflow; deepfakes, unauthorized likeness and fraud are banned.",
+  "taxInvoice": "unknown",
+  "pacing": {
+    "minGapMs": 8000,
+    "maxActionsPerHour": 60,
+    "maxMessagesPerHour": 20
+  },
+  "limits": {
+    "message": {
+      "maxChars": "unknown"
+    },
+    "quote": {
+      "maxChars": "unknown"
+    },
+    "listing": {
+      "maxChars": "unknown"
+    },
+    "profile": {
+      "maxChars": "unknown"
+    }
+  },
+  "rankingSignals": [
+    "response rate is the first reply within 24 hours over the last 90 days",
+    "response time",
+    "seller levels",
+    "Top Rated"
+  ],
+  "sources": [
+    "https://help.fiverr.com/hc/en-us/articles/34998793899665",
+    "https://help.fiverr.com/hc/en-us/articles/12792122691601",
+    "https://help.fiverr.com/hc/en-us/articles/15863342952977",
+    "https://help.fiverr.com/hc/en-us/articles/360010530058",
+    "https://help.fiverr.com/hc/en-us/articles/360011451678",
+    "https://help.fiverr.com/hc/en-us/articles/6348992414097",
+    "https://freelancesites.net/guide/fiverr-fees-explained"
+  ]
+}

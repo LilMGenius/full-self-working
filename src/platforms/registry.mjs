@@ -1,0 +1,67 @@
+// Platform descriptors are JSON data in ./descriptors, validated on load. Rules that a script can
+// decide live here as data and are enforced by src/policy/gate.mjs.
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+export const descriptorDir = join(dirname(fileURLToPath(import.meta.url)), 'descriptors');
+export const CONTACT_CLASSES = ['phone', 'email', 'url', 'messenger'];
+const MODELS = ['storefront', 'request_quote', 'bidding', 'contest'];
+const MILESTONES = ['native', 'reorder', 'multi_pay', 'none', 'unknown'];
+const LIMIT_KINDS = ['message', 'quote', 'listing', 'profile'];
+
+function invalid(id, path, detail) {
+  const err = new Error(`descriptor ${id} invalid at ${path}: ${detail}`);
+  err.code = 'FSW_DESCRIPTOR_INVALID';
+  err.path = path;
+  return err;
+}
+
+const at = (obj, path) => path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
+const isText = (v) => typeof v === 'string' && v.length > 0;
+const isRate = (v) => typeof v === 'number' && v >= 0 && v < 1;
+const isRateOrText = (v) => isRate(v) || isText(v);
+
+const REQUIRED = [
+  ['id', isText], ['name', isText], ['region', (v) => ['kr', 'global'].includes(v)], ['currency', (v) => /^[A-Z]{3}$/.test(v)],
+  ['model', (v) => [v].flat().length > 0 && [v].flat().every((m) => MODELS.includes(m))],
+  ['fees', (v) => typeof v === 'object' && v !== null],
+  ['fees.seller', (v) => isRateOrText(v) || (Array.isArray(v) && v.length > 0 && v.every((t) => isRate(t.rate) && (t.uptoKRW === null || t.uptoKRW > 0)))],
+  ['fees.paymentNetworkRate', isRateOrText], ['fees.vatOnFees', isRateOrText],
+  ['fees.buyer', (v) => isText(v) || (typeof v === 'object' && v !== null && isRateOrText(v.rate))],
+  ['bidCost.unit', isText], ['bidCost.notes', isText],
+  ['escrow', (v) => typeof v === 'boolean'], ['milestones', (v) => MILESTONES.includes(v)], ['splitMechanism', isText],
+  ...['preOrder', 'postOrder'].map((k) => [`contactPolicy.${k}`, (v) => Array.isArray(v) && v.every((c) => CONTACT_CLASSES.includes(c))]),
+  ['contactPolicy.allowedHosts', (v) => Array.isArray(v) && v.every((h) => /^[a-z0-9.-]+\.[a-z]{2,}$/.test(h))],
+  ['offPlatformPayment', (v) => typeof v === 'boolean'],
+  ['automation.officialAutoReply', isText], ['automation.forbidden', Array.isArray], ['automation.notes', isText],
+  ['aiPolicy', isText], ['taxInvoice', isText],
+  ...['minGapMs', 'maxActionsPerHour', 'maxMessagesPerHour'].map((k) => [`pacing.${k}`, (v) => Number.isInteger(v) && v > 0]),
+  ...LIMIT_KINDS.map((k) => [`limits.${k}.maxChars`, (v) => (Number.isInteger(v) && v > 0) || v === 'unknown']),
+  ['rankingSignals', (v) => Array.isArray(v) && v.length > 0],
+  ['sources', (v) => Array.isArray(v) && v.length > 0 && v.every((u) => /^https:\/\//.test(u))],
+];
+
+export function validateDescriptor(d, id = d?.id) {
+  for (const [path, ok] of REQUIRED) {
+    const v = at(d, path);
+    if (v === undefined) throw invalid(id, path, 'missing');
+    if (!ok(v)) throw invalid(id, path, `unexpected value ${JSON.stringify(v)}`);
+  }
+  if (id !== undefined && d.id !== id) throw invalid(id, 'id', `file is ${id} but id is ${d.id}`);
+  return d;
+}
+
+export function listDescriptors() {
+  return readdirSync(descriptorDir).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5)).sort();
+}
+
+const cache = new Map();
+export function loadDescriptor(id) {
+  if (cache.has(id)) return cache.get(id);
+  const file = join(descriptorDir, `${id}.json`);
+  if (!/^[a-z0-9_]+$/.test(id) || !existsSync(file)) throw invalid(id, 'id', 'no descriptor file');
+  const d = Object.freeze(validateDescriptor(JSON.parse(readFileSync(file, 'utf8')), id));
+  cache.set(id, d);
+  return d;
+}

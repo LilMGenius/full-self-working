@@ -1,0 +1,71 @@
+{
+  "id": "freelancer",
+  "name": "Freelancer.com",
+  "region": "global",
+  "currency": "USD",
+  "model": [
+    "bidding",
+    "contest"
+  ],
+  "fees": {
+    "seller": 0.1,
+    "paymentNetworkRate": "unknown",
+    "vatOnFees": "unknown",
+    "buyer": {
+      "rate": 0.03,
+      "notes": "on projects (secondary and the official fees page snippet)"
+    },
+    "notes": "10% of the project, minimum 5 USD; contest winners 10% or 5 USD. Payments beyond the winning bid add 3% client and 10% freelancer."
+  },
+  "bidCost": {
+    "unit": "bids",
+    "notes": "Free with a monthly limit: Free 6, Basic 50, Plus 100, Professional 300, Premier 1500 (official FAQ)."
+  },
+  "escrow": true,
+  "milestones": "native",
+  "splitMechanism": "Milestone payments.",
+  "contactPolicy": {
+    "preOrder": [],
+    "postOrder": [],
+    "allowedHosts": [
+      "freelancer.com"
+    ],
+    "notes": "unknown; kept closed until a source is read"
+  },
+  "offPlatformPayment": false,
+  "automation": {
+    "officialAutoReply": "unknown",
+    "forbidden": [],
+    "notes": "unknown"
+  },
+  "aiPolicy": "unknown",
+  "taxInvoice": "unknown",
+  "pacing": {
+    "minGapMs": 10000,
+    "maxActionsPerHour": 30,
+    "maxMessagesPerHour": 10
+  },
+  "limits": {
+    "message": {
+      "maxChars": "unknown"
+    },
+    "quote": {
+      "maxChars": "unknown"
+    },
+    "listing": {
+      "maxChars": "unknown"
+    },
+    "profile": {
+      "maxChars": "unknown"
+    }
+  },
+  "rankingSignals": [
+    "membership tier",
+    "highlighted and sponsored bids"
+  ],
+  "sources": [
+    "https://www.freelancer.com/feesandcharges",
+    "https://www.freelancer.com/faq/question.php?code=bid-limit",
+    "https://www.hireinsouth.com/post/freelancer-pricing"
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "id": "wishket",
+  "name": "위시켓",
+  "region": "kr",
+  "currency": "KRW",
+  "model": "bidding",
+  "fees": {
+    "seller": "unknown",
+    "paymentNetworkRate": "unknown",
+    "vatOnFees": "unknown",
+    "buyer": "unknown",
+    "notes": "Secondary sources report a partner commission of 10% to 20% for 외주 (도급) and 5% for 기간제 (상주); the official table was not fetched."
+  },
+  "bidCost": {
+    "unit": "unknown",
+    "notes": "Applying appears free (not verified)."
+  },
+  "escrow": true,
+  "milestones": "native",
+  "splitMechanism": "Staged payments per contract through 위시켓 escrow; the current structure is unverified.",
+  "contactPolicy": {
+    "preOrder": [],
+    "postOrder": [],
+    "allowedHosts": [
+      "wishket.com"
+    ],
+    "notes": "unknown; kept closed until a source is read"
+  },
+  "offPlatformPayment": false,
+  "automation": {
+    "officialAutoReply": "unknown",
+    "forbidden": [],
+    "notes": "unknown"
+  },
+  "aiPolicy": "unknown",
+  "taxInvoice": "The client pays the project cost plus 10% VAT; invoice details unknown.",
+  "pacing": {
+    "minGapMs": 10000,
+    "maxActionsPerHour": 30,
+    "maxMessagesPerHour": 10
+  },
+  "limits": {
+    "message": {
+      "maxChars": "unknown"
+    },
+    "quote": {
+      "maxChars": "unknown"
+    },
+    "listing": {
+      "maxChars": "unknown"
+    },
+    "profile": {
+      "maxChars": "unknown"
+    }
+  },
+  "rankingSignals": [
+    "portfolio, reviews and manager recommendation (secondary)"
+  ],
+  "sources": [
+    "https://www.wishket.com/news-center/detail/806/",
+    "https://blog.wishket.com/blog/freelancer-platform-comparison"
+  ]
+}

@@ -1,0 +1,116 @@
+{
+  "id": "kmong",
+  "name": "크몽",
+  "region": "kr",
+  "currency": "KRW",
+  "model": [
+    "storefront",
+    "request_quote"
+  ],
+  "fees": {
+    "seller": [
+      {
+        "uptoKRW": 700000,
+        "rate": 0.164
+      },
+      {
+        "uptoKRW": 2000000,
+        "rate": 0.094
+      },
+      {
+        "uptoKRW": null,
+        "rate": 0.044
+      }
+    ],
+    "paymentNetworkRate": 0.033,
+    "vatOnFees": 0.1,
+    "buyer": {
+      "rate": 0.045,
+      "minKRW": 900,
+      "maxKRW": 135000,
+      "notes": "secondary source, not confirmed on the official page"
+    },
+    "notes": "Seller tiers apply to each order amount; category rates vary (모형 제작 changed 2026-10-16). A business seller lists prices including the fee and VAT."
+  },
+  "bidCost": {
+    "unit": "none",
+    "notes": "No bidding. Ads (CPC, 클릭업, 스마트픽) are paid with 비즈머니."
+  },
+  "escrow": true,
+  "milestones": "reorder",
+  "splitMechanism": "No native milestones. A partial payment is a new order for the partial amount; an old order can only be cancelled in full. Splitting payments to inflate sales is a banned 부정 거래.",
+  "contactPolicy": {
+    "preOrder": [],
+    "postOrder": [
+      "phone",
+      "email",
+      "url",
+      "messenger"
+    ],
+    "allowedHosts": [
+      "kmong.com"
+    ],
+    "notes": "No phone, e-mail, SNS or URL in the profile, service pages, images or pre-order messages, and no pre-order meetings or Zoom links. After an order, contact goes through 크몽 메시지 or 안심번호."
+  },
+  "offPlatformPayment": false,
+  "payout": "Withdrawal requests 18:00 to 12:00 next day KST, paid in 1 to 2 business days after 구매 확정.",
+  "automation": {
+    "officialAutoReply": "자동응답 with up to 5 Q&A pairs, visible to buyers in the app; 자주 쓰는 문구 and 야간 응답 제외 also exist. Auto-replies do not count toward response metrics.",
+    "forbidden": [
+      "auto-reply content that lures off-platform payment",
+      "fake orders to move the grade",
+      "split payments to inflate sales data",
+      "multiple accounts",
+      "changing a service first-level category after approval"
+    ],
+    "notes": "No bot or scraping clause was found in the fetched 운영정책 sections (unknown); treat anything outside official features as banned."
+  },
+  "aiPolicy": "AI use is allowed. Hiding AI use or presenting AI output as human-made is deceptive advertising under 표시광고법; AI virtual persons are labelled 가상인물; deepfakes and illegal synthetic content are banned.",
+  "taxInvoice": "Business sellers (일반과세, 법인) issue 세금계산서 on buyer request through 홈택스; 크몽 auto-issues reverse invoices for 품질보장 and Prime orders when a 공동인증서 is registered, and invoices its own commission monthly.",
+  "pacing": {
+    "minGapMs": 6000,
+    "maxActionsPerHour": 120,
+    "maxMessagesPerHour": 40
+  },
+  "limits": {
+    "message": {
+      "maxChars": "unknown"
+    },
+    "quote": {
+      "maxChars": "unknown"
+    },
+    "listing": {
+      "maxChars": 20000
+    },
+    "profile": {
+      "maxChars": "unknown"
+    }
+  },
+  "limitsNotes": "listing is the service description cap shown on the gig edit form (20000, minimum 100); FAQ and request fields there are 255 each. Message, quote and profile caps were not observed.",
+  "rankingSignals": [
+    "first response within 24 hours on at least 90% of the last 60 inquiries keeps the grade; below drops it to NEW",
+    "average reply within 10 minutes earns the 빠른 응답 badge",
+    "grade uses sales count and amount, satisfaction, order success rate, deadline adherence and penalty history",
+    "Prime selection",
+    "CPC ads"
+  ],
+  "sources": [
+    "https://kmong.com/support/expert-center/posts/751",
+    "https://kmong.com/support/expert-center/posts/588",
+    "https://kmong.com/support/expert-center/posts/710",
+    "https://kmong.com/support/expert-center/posts/711",
+    "https://kmong.com/support/expert-center/posts/709",
+    "https://kmong.com/support/expert-center/posts/706",
+    "https://kmong.com/support/expert-center/posts/598",
+    "https://kmong.com/support/expert-center/posts/683",
+    "https://kmong.com/support/expert-center/posts/594",
+    "https://kmong.com/support/expert-center/posts/739",
+    "https://kmong.com/support/expert-center/posts/744",
+    "https://kmong.com/support/expert-center/posts/799",
+    "https://kmong.com/support/expert-center/posts/777",
+    "https://kmong.com/support/expert-center/posts/752",
+    "https://kmong.com/support/expert-center/posts/754",
+    "https://kmong.com/support/customer-center/posts/149",
+    "https://kmong.com/support/customer-center/posts/229"
+  ]
+}

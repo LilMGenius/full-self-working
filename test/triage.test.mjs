@@ -86,6 +86,31 @@ test('an expired request is parked without opening its detail', async () => {
   assert.deepEqual([r.action, r.reason, adapter.calls.readRequest, adapter.calls.quote], ['skipped', 'expired', 0, 0]);
 });
 
+test('an unread platform notice is parked once and returns only with a newer message', async () => {
+  const s = setup('soomgo');
+  const adapter = spyAdapter();
+  const ref = { id: 'n1', unread: true, at: '2026-10-25T01:00:00Z', service: '웹 개발', preview: '고객이 견적을 읽었어요. 11월 15일에 캐시를 지급해 드려요.' };
+  const r = await processThread({ ...s, threadRef: ref, adapter, mode: 'auto', decide: decideWith({}) });
+  assert.deepEqual([r.action, adapter.calls.readThread], ['system', 0]);
+  const [row] = s.ledger.listThreads({ platform: 'soomgo' });
+  assert.equal(needsWork(ref, row), false);
+  assert.equal(needsWork({ ...ref, at: '2026-10-25T02:00:00Z', preview: '혹시 다음 주에 시작 가능할까요?' }, row), true);
+});
+
+test('items settled from the list do not use up the per-tick slots', async () => {
+  const { runPlatform, MAX_THREADS_PER_PLATFORM } = await import('../src/supervisor/run.mjs');
+  const s = setup('kmong', (c) => {
+    c.activeHours = { outbound: ['00:00', '00:00'] };
+    return c;
+  });
+  const notices = Array.from({ length: MAX_THREADS_PER_PLATFORM + 2 }, (_, i) => ({ id: 'n' + i, unread: true, at: '2026-10-25T02:00:00Z', preview: '고객이 견적을 읽었어요.' }));
+  const live = { id: 'live', unread: true, at: '2026-10-25T02:30:00Z', preview: '랜딩 페이지 문의드립니다' };
+  const adapter = { ...spyAdapter(), login: async () => ({ loggedIn: true }), inbox: async () => [...notices, live], stop: async () => {} };
+  const decide = decideWith({});
+  const r = await runPlatform('kmong', { instance: s.instance, ledger: s.ledger, now: NOW, priceTable: [], loadAdapter: async () => async () => adapter, decide });
+  assert.deepEqual([r.threads.system, r.threads.sent, r.deferred, adapter.calls.readThread], [MAX_THREADS_PER_PLATFORM + 2, 1, 0, 1]);
+});
+
 test('a request outside the catalog stays unread for the operator, costs no model call and is counted', async () => {
   const s = setup('soomgo');
   const adapter = spyAdapter();

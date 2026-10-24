@@ -121,17 +121,15 @@ export async function processThread({ platform, threadRef, adapter, ledger, inst
     event('thread.pending_approval', { approvalId: pending.id });
     return { action: 'pending_approval', approvalId: pending.id };
   }
-  if (unread && threadRef.preview && isSystemNotice({ text: threadRef.preview })) {
-    event('thread.system', { preview: threadRef.preview });
-    return { action: 'system', opened: false };
-  }
-  // A skipped item is remembered with the list time it was skipped at, so the supervisor leaves it alone
-  // until a newer message arrives.
+  // An item settled from its list row is remembered with the list time it was settled at, so the
+  // supervisor leaves it alone until a newer message arrives.
   const park = (action, reason) => {
     ledger.upsertThread({ platform, externalId: ref, kind, meta: { skipped: { at: threadRef.at ?? null, reason } } });
     event('thread.' + action, { reason, service: threadRef.service ?? null });
     return { action, opened: false, reason };
   };
+  // A platform notice stays unread on the platform and needs no reply.
+  if (unread && threadRef.preview && isSystemNotice({ text: threadRef.preview })) return park('system', 'platform notice: ' + threadRef.preview);
   const skip = settings && skipReason(threadRef, kind, now, settings);
   if (skip) return park('skipped', skip);
   const allowed = catalogServicesFor(descriptor, threadRef.service);

@@ -163,18 +163,26 @@ export async function runPlatform(id, ctx) {
       ledger.addEvent({ kind: 'orders.read', platform: id, payload: { counts: orders.counts ?? null, total: orders.total ?? null, gap: orders.gap ?? null } });
     }
     const known = new Map(ledger.listThreads({ platform: id }).map((t) => [t.externalId, t]));
-    const work = refs.filter((r) => needsWork(r, known.get(String(r.id)))).slice(0, MAX_THREADS_PER_PLATFORM);
-    result.deferred = refs.filter((r) => needsWork(r, known.get(String(r.id)))).length - work.length;
+    const work = refs.filter((r) => needsWork(r, known.get(String(r.id))));
+    // The cap bounds pages opened per tick. An item settled from its list row (a notice, a closed or old
+    // item, a service outside the catalog) opens nothing, so it does not take one of the slots.
+    let opened = 0;
+    let done = 0;
     for (const threadRef of work) {
+      if (opened >= MAX_THREADS_PER_PLATFORM) break;
+      done += 1;
       try {
         const r = await processThread({ platform: id, threadRef, adapter, ledger, instance, descriptor, priceTable, mode, now, ...(ctx.decide ? { decide: ctx.decide } : {}) });
         result.threads[r.action] = (result.threads[r.action] ?? 0) + 1;
+        if (r.opened !== false && r.action !== 'pending_approval') opened += 1;
       } catch (err) {
+        opened += 1;
         result.errors.push({ ref: String(threadRef.id), code: err.code ?? null, message: err.message });
         ledger.addEvent({ kind: 'thread.error', platform: id, ref: threadRef.id, payload: { code: err.code ?? null, message: err.message } });
         if (err.code === 'FSW_PACING_LIMIT' || err.code === 'FSW_CONFIG_MISSING') break;
       }
     }
+    result.deferred = work.length - done;
     if (mode !== 'observe' && sendingHours) result.approvalsSent = (await flushApprovals({ platform: id, adapter, ledger, instance, descriptor })).length;
     if (result.errors.length) result.status = 'partial';
     return result;

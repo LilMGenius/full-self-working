@@ -93,10 +93,15 @@ function cdpClient(ws) {
 }
 
 // Resolves once every web font has loaded and every <img> has settled, so a capture never shows a
-// fallback face or a half-decoded image.
+// fallback face or a half-decoded image. Lazy images are switched to eager first, since one below the
+// fold never starts loading in a viewport capture; each image wait is bounded so a stalled host cannot
+// hang the render.
 const SETTLE = '(async () => {' +
   'await document.fonts.ready;' +
-  'await Promise.all([...document.images].map((i) => i.complete ? null : new Promise((r) => { i.onload = i.onerror = r; })));' +
+  'for (const i of document.images) if (i.loading === "lazy") i.loading = "eager";' +
+  'await Promise.all([...document.images].map((i) => i.complete ? null : Promise.race([' +
+  'new Promise((r) => { i.addEventListener("load", r, { once: true }); i.addEventListener("error", r, { once: true }); }),' +
+  'new Promise((r) => setTimeout(r, 15000))])));' +
   'await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));' +
   'return { fonts: document.fonts.status, broken: [...document.images].filter((i) => !i.naturalWidth).map((i) => i.currentSrc || i.src) };' +
   '})()';

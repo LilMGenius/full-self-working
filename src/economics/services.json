@@ -1,0 +1,273 @@
+{
+  "_notes": {
+    "_": "agentHours are wall-clock hours of agent work per package (brief reading, building, self QA, one revision round) with a human reviewer; humanMinutes.standard is reviewer time on the standard package. Estimates, refined by yield data from closed jobs.",
+    "landing_page_web": "One responsive page with copy, built and checked at 390, 768 and 1440 px plus one revision; deluxe adds sections and a form, premium multi-page.",
+    "web_app_dev": "A small CRUD app with auth and deploy needs design, tests and integration; review of data model and security keeps the reviewer longest.",
+    "ai_automation_chatbot": "Prompting, tool wiring, evaluation on sample conversations and deployment; the evaluation set is most of the time.",
+    "data_crawling": "One site scraper with pagination, export and a rerun guide; anti-bot handling pushes deluxe and premium.",
+    "excel_macro": "One workbook macro or script with test data and usage notes; the client's file quirks dominate.",
+    "detail_page_design": "One long product page image from supplied copy and photos, rendered and checked at mobile width; taste review by the human.",
+    "logo_brand": "Several concepts, one refined set and source files; the human picks and critiques, so reviewer time is high for the price.",
+    "thumbnail_banner": "One image at fixed sizes from a template; fast to make, the human checks text and taste.",
+    "photo_editing": "Background removal or retouch on a few images with local tools; minutes per image.",
+    "ppt_card_news": "About 10 slides or cards from supplied content, layout and export; deluxe and premium scale with slide count.",
+    "video_editing": "Cuts, captions and music on a short clip with render and review passes; render and review time dominate.",
+    "translation_ko_en": "About one page of Korean to English with a human proofread for tone and terms.",
+    "copywriting": "One page of sales or landing copy with two variants and the slop gate; the human checks claims.",
+    "blog_writing": "One researched post of about 2,000 Korean characters with sources and the slop gate."
+  },
+  "landing_page_web": {
+    "ko": "랜딩페이지 제작",
+    "en": "Landing page",
+    "kmongCategory": "랜딩페이지 홈페이지 제작",
+    "soomgoGuide": "웹 디자인",
+    "agentHours": {
+      "standard": 6,
+      "deluxe": 14,
+      "premium": 28
+    },
+    "humanMinutes": {
+      "standard": 60
+    },
+    "deliverables": [
+      "responsive HTML page",
+      "source files",
+      "deploy or hosting guide"
+    ]
+  },
+  "web_app_dev": {
+    "ko": "웹 앱 개발",
+    "en": "Web app development",
+    "kmongCategory": null,
+    "soomgoGuide": "웹 개발",
+    "agentHours": {
+      "standard": 30,
+      "deluxe": 70,
+      "premium": 140
+    },
+    "humanMinutes": {
+      "standard": 240
+    },
+    "deliverables": [
+      "source repository",
+      "deployed app",
+      "setup and handover notes"
+    ]
+  },
+  "ai_automation_chatbot": {
+    "ko": "AI 자동화 및 챗봇 개발",
+    "en": "AI automation and chatbot",
+    "kmongCategory": "챗봇 AI 개발",
+    "soomgoGuide": "챗봇 개발",
+    "agentHours": {
+      "standard": 12,
+      "deluxe": 30,
+      "premium": 60
+    },
+    "humanMinutes": {
+      "standard": 120
+    },
+    "deliverables": [
+      "working bot or automation",
+      "prompt and tool configuration",
+      "evaluation report"
+    ]
+  },
+  "data_crawling": {
+    "ko": "데이터 크롤링",
+    "en": "Data crawling",
+    "kmongCategory": "데이터 크롤링",
+    "soomgoGuide": "데이터 크롤링",
+    "agentHours": {
+      "standard": 4,
+      "deluxe": 10,
+      "premium": 20
+    },
+    "humanMinutes": {
+      "standard": 30
+    },
+    "deliverables": [
+      "scraper source",
+      "data export (CSV or XLSX)",
+      "rerun guide"
+    ]
+  },
+  "excel_macro": {
+    "ko": "엑셀 매크로 및 업무 자동화",
+    "en": "Excel macro and office automation",
+    "kmongCategory": "업무 자동화 엑셀 매크로",
+    "soomgoGuide": "매크로/VBA 개발",
+    "agentHours": {
+      "standard": 3,
+      "deluxe": 8,
+      "premium": 16
+    },
+    "humanMinutes": {
+      "standard": 30
+    },
+    "deliverables": [
+      "macro-enabled workbook or script",
+      "usage notes"
+    ]
+  },
+  "detail_page_design": {
+    "ko": "상세페이지 디자인",
+    "en": "Product detail page design",
+    "kmongCategory": "상세페이지 디자인",
+    "soomgoGuide": "상세페이지 제작",
+    "agentHours": {
+      "standard": 5,
+      "deluxe": 12,
+      "premium": 24
+    },
+    "humanMinutes": {
+      "standard": 60
+    },
+    "deliverables": [
+      "detail page image (JPG or PNG)",
+      "source HTML"
+    ]
+  },
+  "logo_brand": {
+    "ko": "로고 및 브랜드 디자인",
+    "en": "Logo and brand design",
+    "kmongCategory": "로고 디자인",
+    "soomgoGuide": "로고 디자인",
+    "agentHours": {
+      "standard": 4,
+      "deluxe": 9,
+      "premium": 18
+    },
+    "humanMinutes": {
+      "standard": 60
+    },
+    "deliverables": [
+      "logo files (SVG, PNG)",
+      "color and type sheet"
+    ]
+  },
+  "thumbnail_banner": {
+    "ko": "썸네일 및 배너 디자인",
+    "en": "Thumbnail and banner design",
+    "kmongCategory": "썸네일 배너 디자인",
+    "soomgoGuide": "썸네일 제작",
+    "agentHours": {
+      "standard": 1,
+      "deluxe": 2.5,
+      "premium": 5
+    },
+    "humanMinutes": {
+      "standard": 15
+    },
+    "deliverables": [
+      "images at requested sizes",
+      "source file"
+    ]
+  },
+  "photo_editing": {
+    "ko": "사진 보정 및 누끼",
+    "en": "Photo editing and background removal",
+    "kmongCategory": "사진 보정 누끼 배경제거",
+    "soomgoGuide": "사진 편집 및 보정",
+    "agentHours": {
+      "standard": 0.5,
+      "deluxe": 1.5,
+      "premium": 3
+    },
+    "humanMinutes": {
+      "standard": 10
+    },
+    "deliverables": [
+      "edited images"
+    ]
+  },
+  "ppt_card_news": {
+    "ko": "PPT 및 카드뉴스 디자인",
+    "en": "Presentation and card news design",
+    "kmongCategory": "PPT 디자인",
+    "soomgoGuide": "프레젠테이션 디자인",
+    "agentHours": {
+      "standard": 3,
+      "deluxe": 7,
+      "premium": 14
+    },
+    "humanMinutes": {
+      "standard": 30
+    },
+    "deliverables": [
+      "PPTX or PDF",
+      "per-slide PNG"
+    ]
+  },
+  "video_editing": {
+    "ko": "영상 편집",
+    "en": "Video editing",
+    "kmongCategory": "영상 편집",
+    "soomgoGuide": "영상 편집",
+    "agentHours": {
+      "standard": 4,
+      "deluxe": 10,
+      "premium": 20
+    },
+    "humanMinutes": {
+      "standard": 45
+    },
+    "deliverables": [
+      "edited video (MP4)",
+      "caption file"
+    ]
+  },
+  "translation_ko_en": {
+    "ko": "한영 번역",
+    "en": "Korean to English translation",
+    "kmongCategory": "번역 한영",
+    "soomgoGuide": "영어 번역",
+    "agentHours": {
+      "standard": 1.5,
+      "deluxe": 4,
+      "premium": 8
+    },
+    "humanMinutes": {
+      "standard": 30
+    },
+    "deliverables": [
+      "translated document",
+      "term list"
+    ]
+  },
+  "copywriting": {
+    "ko": "카피라이팅",
+    "en": "Copywriting",
+    "kmongCategory": null,
+    "soomgoGuide": "문서/글 작성",
+    "agentHours": {
+      "standard": 2,
+      "deluxe": 5,
+      "premium": 10
+    },
+    "humanMinutes": {
+      "standard": 30
+    },
+    "deliverables": [
+      "copy document with variants"
+    ]
+  },
+  "blog_writing": {
+    "ko": "블로그 원고 작성",
+    "en": "Blog writing",
+    "kmongCategory": "블로그 원고",
+    "soomgoGuide": null,
+    "agentHours": {
+      "standard": 1.5,
+      "deluxe": 4,
+      "premium": 8
+    },
+    "humanMinutes": {
+      "standard": 20
+    },
+    "deliverables": [
+      "blog post document",
+      "source list"
+    ]
+  }
+}

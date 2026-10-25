@@ -84,9 +84,17 @@
     },
     "profile": {
       "maxChars": "unknown"
+    },
+    "proposal": {
+      "maxChars": "unknown"
     }
   },
-  "limitsNotes": "listing is the service description cap shown on the gig edit form (20000, minimum 100); FAQ and request fields there are 255 each. Message, quote and profile caps were not observed.",
+  "limitsNotes": "listing is the service description cap shown on the gig edit form (20000, minimum 100); FAQ and request fields there are 255 each. Message, quote and profile caps were not observed. proposal is the enterprise 제안하기 form, which renders only after the enterprise profile is registered; propose() refuses a text longer than the field's maxLength it reads.",
+  "enterprise": {
+    "feeRate": 0.132,
+    "notes": "크몽 엔터프라이즈 projects (/enterprise/requests) are brokered contracts: the fee is 13.2% of the total contract amount, charged when the contract is concluded, in place of the per-order seller tiers. Proposing needs an enterprise profile (/enterprise/seller/profile) with a resume PDF and a portfolio entry; the daily proposal quota shows on /seller/proposals.",
+    "source": "https://kmong.com/enterprise/seller/profile"
+  },
   "rankingSignals": [
     "first response within 24 hours on at least 90% of the last 60 inquiries keeps the grade; below drops it to NEW",
     "average reply within 10 minutes earns the 빠른 응답 badge",

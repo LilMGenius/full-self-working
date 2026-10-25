@@ -171,12 +171,19 @@ export async function loadAdapter(id) {
   return typeof open === 'function' ? open : null;
 }
 
-// Whether a listed item needs a pass this tick: new to the ledger, unread, or newer than what the ledger
-// holds. An item parked as skipped at the list time it still shows waits for a newer message.
+// A thread whose pass threw (a rejected model decision, a page that did not load) was already read, so
+// its list row no longer looks new; it gets this many passes in all before it is left to the operator.
+export const THREAD_ATTEMPTS = 3;
+
+// Whether a listed item needs a pass this tick: new to the ledger, unread, newer than what the ledger
+// holds, or failed with passes left and nothing sent since. An item parked as skipped at the list time
+// it still shows waits for a newer message.
 export const needsWork = (ref, row) => {
   if (!row) return true;
   if (row.meta?.skipped && row.meta.skipped.at === (ref.at ?? null)) return false;
   if (ref.unread) return true;
+  const failed = row.meta?.failed;
+  if (failed && failed.count < THREAD_ATTEMPTS && !(Date.parse(row.lastOutboundAt ?? 0) > Date.parse(failed.at))) return true;
   if (!ref.at) return false;
   const seen = Math.max(Date.parse(row.lastInboundAt ?? 0) || 0, Date.parse(row.lastOutboundAt ?? 0) || 0);
   return Date.parse(ref.at) > seen;
@@ -237,6 +244,8 @@ export async function runPlatform(id, ctx) {
         opened += 1;
         result.errors.push({ ref: String(threadRef.id), code: err.code ?? null, message: err.message });
         ledger.addEvent({ kind: 'thread.error', platform: id, ref: threadRef.id, payload: { code: err.code ?? null, message: err.message } });
+        const row = ledger.listThreads({ platform: id }).find((t) => t.externalId === String(threadRef.id));
+        if (row) ledger.upsertThread({ platform: id, externalId: row.externalId, kind: row.kind, meta: { ...row.meta, failed: { count: (row.meta?.failed?.count ?? 0) + 1, at: now.toISOString(), code: err.code ?? null } } });
         if (err.code === 'FSW_PACING_LIMIT' || err.code === 'FSW_CONFIG_MISSING') break;
       }
     }

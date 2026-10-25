@@ -149,7 +149,7 @@ export function buildDecisionPrompt({ thread, instance, descriptor, priceRows = 
     sections.push(
       '',
       '# This is a buyer request',
-      'The reply goes out through the platform quote form, which shows the price beside your text, so quote is required: scope, deliveryDays, priceType "fixed" and complexity. On a platform with a price guide the amount is computed from the guide and your complexity, so write no price in the reply and set amountKRW to your best estimate. Use the reply to show you read the request: restate the need in one line, say what is included, ask the one or two questions that remain, and mention the deposit and balance split.',
+      'The reply goes out through the platform quote form, which shows the price beside your text, so quote is required: scope, deliveryDays (a whole number of days, at least 1; for a service I deliver myself, the days until the first session), priceType "fixed" and complexity. On a platform with a price guide the amount is computed from the guide and your complexity, so write no price in the reply and set amountKRW to your best estimate. Use the reply to show you read the request: restate the need in one line, say what is included, ask the one or two questions that remain, and mention the deposit and balance split.',
     );
   }
   if (violations.length) {

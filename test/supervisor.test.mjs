@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
-import { acquireLock, effectiveMode, pidAlive, readLock, releaseLock, runTick, STUCK_POLLS } from '../src/supervisor/run.mjs';
+import { acquireLock, effectiveMode, needsWork, pidAlive, readLock, releaseLock, runPlatform, runTick, STUCK_POLLS, THREAD_ATTEMPTS } from '../src/supervisor/run.mjs';
 import { writeDigest } from '../src/supervisor/digest.mjs';
 import { seoulParts } from '../src/core/clock.mjs';
 import { dueJobs, JOBS, nextWake, periodKey } from '../src/supervisor/schedule.mjs';
@@ -224,3 +224,27 @@ test('the digest counts only the previous Seoul day from the ledger', async () =
   assert.match(d.file, /digest-20261026\.md$/);
   assert.equal(notes[0].dedupeKey, 'digest:20261026');
 });
+
+test('a thread whose pass threw is passed again on the next ticks, at most THREAD_ATTEMPTS times in all', async () => {
+  const instance = makeInstance({ soomgo: { enabled: true, mode: 'draft' } });
+  const ledger = openLedger(':memory:');
+  const at = '2026-10-25T02:00:00Z';
+  const opened = [];
+  const adapter = {
+    login: async () => ({ loggedIn: true }),
+    inbox: async () => [],
+    requests: async () => [{ id: 'r1', unread: false, at, service: '웹 개발' }],
+    readRequest: async (id) => (opened.push(id), { id, title: '웹 개발', text: '랜딩 페이지가 필요합니다', quoteCostKRW: 1990 }),
+    stop: async () => {},
+  };
+  const decide = async () => { throw Object.assign(new Error('model decision rejected: quote.deliveryDays'), { code: 'FSW_BRAIN_BAD_DECISION' }); };
+  const tick = (i) => runPlatform('soomgo', { instance, ledger, now: new Date(Date.parse('2026-10-25T03:00:00Z') + i * 300_000), priceTable: [], loadAdapter: async () => async () => adapter, decide });
+  for (let i = 0; i < THREAD_ATTEMPTS + 2; i++) await tick(i);
+  assert.equal(opened.length, THREAD_ATTEMPTS);
+  const row = ledger.listThreads({ platform: 'soomgo' })[0];
+  assert.deepEqual([row.meta.failed.count, row.meta.failed.code], [THREAD_ATTEMPTS, 'FSW_BRAIN_BAD_DECISION']);
+  const failedAt = { failed: { count: 1, at: '2026-10-25T03:00:00Z' } };
+  assert.equal(needsWork({ id: 'r1', at }, { ...row, lastOutboundAt: null, meta: failedAt }), true);
+  assert.equal(needsWork({ id: 'r1', at }, { ...row, lastOutboundAt: '2026-10-25T03:05:00Z', meta: failedAt }), false);
+});
+

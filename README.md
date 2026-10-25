@@ -106,7 +106,7 @@ This registers a per-user task that starts fsw at logon and checks it every hour
 | Command | What it shows or does |
 |---|---|
 | `fsw status` | The instance, ledger counts and the enabled platforms with their modes |
-| `fsw approve` | Lists open approvals; `fsw approve <id>` sends one, `--text "..."` edits it first, `--reject --reason "..."` refuses it |
+| `fsw approve` | Lists open approvals; `fsw approve <id>` sends one, `--text "..."` edits it first, `--reject --reason "..."` refuses it, and `--sent [--cost <KRW>]` records a send the adapter could not confirm but you saw go out, so it is never sent twice |
 | `fsw order list` | Jobs in progress; `order permission` and `order review` record what a client answered |
 | `fsw learn` | Turns finished outcomes into lessons now instead of waiting for the daily pass |
 | `fsw publish` | Rebuilds the portfolio site and deploys it only if its content changed |

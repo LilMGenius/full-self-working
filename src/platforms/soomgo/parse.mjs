@@ -174,6 +174,28 @@ export function parseProfile(text) {
   };
 }
 
+// 충전/사용 내역 (/mypage/cash-dashboard, read 2026-10-26), newest first: each row is a label
+// "<what> - <customer>", a Seoul timestamp to the second and a signed cash amount. A sent quote reads
+// "견적 발송 - <customer>" (a smart quote "스마트견적 발송"), a payback "견적 보상 - <customer>".
+export function parseCashHistory(text) {
+  const ls = lines(text);
+  const rows = [];
+  for (let i = 0; i + 2 < ls.length; i++) {
+    const head = ls[i].match(/^(.+?) - (.+)$/);
+    const at = ls[i + 1].match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})$/);
+    if (!head || !at || !/^-?[\d,]+캐시$/.test(ls[i + 2])) continue;
+    rows.push({ what: head[1], customer: head[2], at: at[1] + 'T' + at[2] + '+09:00', amountKRW: toInt(ls[i + 2]) });
+    i += 2;
+  }
+  return rows;
+}
+
+// The charge a quote press made: the newest 견적 발송 row at or after the press, less a margin for clock
+// drift, and for the customer when the caller names one.
+export function quoteCharge(rows, { since, customer = null, marginMs = 180_000 }) {
+  return rows.find((r) => /견적 발송$/.test(r.what) && Date.parse(r.at) >= since - marginMs && (!customer || r.customer === squash(customer))) ?? null;
+}
+
 // /mypage body text: the cash balance sits after 스토어, the payback after 이번 달 페이백.
 export function parseCash(text) {
   const ls = lines(text);

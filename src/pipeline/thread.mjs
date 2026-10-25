@@ -67,10 +67,13 @@ export function skipReason(threadRef, kind, now, settings) {
 }
 
 // Quotes and cash for one platform on the Seoul day of now, counted from the ledger.
-export function quotaUsage(ledger, platform, now = new Date()) {
+// A quote pressed but not observed may have spent cash, so its approval carries the press and counts here
+// until the operator settles it as sent, when the quote row it records takes over.
+export function quotaUsage(ledger, platform, now, instance) {
   const today = dayKey(now);
   const quotes = ledger.listQuotes({ platform }).filter((q) => dayKey(new Date(q.at)) === today);
-  return { quotes: quotes.length, cashKRW: quotes.reduce((s, q) => s + (q.costKRW ?? 0), 0) };
+  const pressed = listApprovals(instance).filter((a) => a.platform === platform && a.pressed && a.status !== 'sent' && dayKey(new Date(a.pressed.at)) === today).map((a) => a.pressed);
+  return { quotes: quotes.length + pressed.length, cashKRW: [...quotes, ...pressed].reduce((s, q) => s + (q.costKRW ?? 0), 0) };
 }
 
 // Fails closed: a missing limit or an unknown cost refuses the spend.
@@ -109,6 +112,12 @@ function splitAmounts(quote) {
   return parts.length > 1 ? { depositKRW: parts[0].amountKRW, balanceKRW: quote.amountKRW - parts[0].amountKRW } : { depositKRW: null, balanceKRW: null };
 }
 
+// Records an item that went out: the outbound message and, for a quote, its row with the cash it cost.
+export function recordSent({ ledger, platform, threadId, text, quote, service, costKRW, gate, externalId = null }) {
+  ledger.addMessage({ threadId, direction: 'out', body: text, externalId, gate });
+  if (quote) ledger.addQuote({ threadId, platform, service, amountKRW: quote.amountKRW, ...splitAmounts(quote), scope: quote.scope, deliveryDays: quote.deliveryDays, costKRW: costKRW ?? 0, status: 'sent' });
+}
+
 // Sends one gated item and records it only when the adapter observed it. Returns {observed, res}.
 async function act({ adapter, ledger, platform, threadId, ref, kind, text, quote, service, gate, allowSpendCash, costKRW, customer }) {
   const viaQuote = kind === 'request';
@@ -117,13 +126,7 @@ async function act({ adapter, ledger, platform, threadId, ref, kind, text, quote
     : await adapter.send(ref, { text, files: [], gate });
   if (res?.observed !== true) return { observed: false, res };
   const body = typeof res.text === 'string' && res.text ? res.text : text;
-  ledger.addMessage({ threadId, direction: 'out', body, externalId: res.externalId ?? null, gate });
-  if (quote) {
-    ledger.addQuote({
-      threadId, platform, service, amountKRW: quote.amountKRW, ...splitAmounts(quote), scope: quote.scope, deliveryDays: quote.deliveryDays,
-      costKRW: viaQuote ? res.cashSpentKRW ?? costKRW ?? 0 : 0, status: 'sent',
-    });
-  }
+  recordSent({ ledger, platform, threadId, text: body, quote, service, costKRW: viaQuote ? res.cashSpentKRW ?? costKRW ?? 0 : 0, gate, externalId: res.externalId ?? null });
   return { observed: true, res };
 }
 
@@ -219,7 +222,7 @@ export async function processThread({ platform, threadRef, adapter, ledger, inst
   const cash = spendsCash(descriptor, kind);
   if (cash) {
     costKRW = full.quoteCostKRW ?? threadRef.quoteCostKRW ?? null;
-    const check = cashBudgetCheck({ budget: budget ?? instance.config?.platforms?.[platform], usage: quotaUsage(ledger, platform, now), costKRW });
+    const check = cashBudgetCheck({ budget: budget ?? instance.config?.platforms?.[platform], usage: quotaUsage(ledger, platform, now, instance), costKRW });
     if (!check.ok) {
       event('quote.budget_refused', { reason: check.reason, costKRW });
       return queue('cash quote refused: ' + check.reason, { costKRW });
@@ -228,7 +231,8 @@ export async function processThread({ platform, threadRef, adapter, ledger, inst
   const sent = await act({ adapter, ledger, platform, threadId: row.id, ref, kind, text, quote: d.quote, service: d.service, gate: result.gate, allowSpendCash: cash, costKRW, customer: threadRef.customer ?? null });
   if (!sent.observed) {
     event('send.unobserved', { kind: itemKind, detail: sent.res?.reason ?? null });
-    return queue('the adapter did not observe the sent ' + itemKind + '; check the thread before resending', { unobserved: true });
+    const pressed = sent.res?.pressed ? { pressed: { at: now.toISOString(), costKRW: sent.res.costKRW ?? costKRW } } : {};
+    return queue('the adapter did not observe the sent ' + itemKind + '; check the thread, then settle it with fsw approve <id> --sent or --reject', { unobserved: true, ...pressed });
   }
   event(itemKind === 'quote' ? 'quote.sent' : 'message.sent', { amountKRW: d.quote?.amountKRW ?? null, costKRW });
   return { action: 'sent', kind: itemKind };
@@ -251,7 +255,7 @@ export async function flushApprovals({ platform, adapter, ledger, instance, desc
     }
     const sent = await act({ adapter, ledger, platform, threadId: a.threadId, ref: a.threadRef, kind: a.threadKind ?? 'message', text: a.finalText, quote: a.quote, service: a.service, gate, allowSpendCash: spendsCash(descriptor, a.threadKind), costKRW: a.costKRW ?? null, customer: ledger.getThread(a.threadId)?.customer ?? null });
     if (!sent.observed) {
-      closeApproval(instance, a.id, { status: 'unobserved', detail: sent.res?.reason ?? null });
+      closeApproval(instance, a.id, { status: 'unobserved', detail: sent.res?.reason ?? null, ...(sent.res?.pressed ? { pressed: { at: new Date().toISOString(), costKRW: sent.res.costKRW ?? a.costKRW ?? null } } : {}) });
       ledger.addEvent({ kind: 'send.unobserved', platform, ref: a.threadRef, payload: { approvalId: a.id, detail: sent.res?.reason ?? null } });
       out.push({ id: a.id, action: 'unobserved' });
       continue;

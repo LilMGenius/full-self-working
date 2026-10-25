@@ -6,7 +6,7 @@
 import { openSession } from '../../browser/driver.mjs';
 import { loadDescriptor } from '../registry.mjs';
 import { AdapterRefusal, squash } from '../kit.mjs';
-import { parseCash, parseChats, parseChatThread, parseProfile, parseRequestDetail, parseRequests } from './parse.mjs';
+import { parseCash, parseCashHistory, parseChats, parseChatThread, parseProfile, parseRequestDetail, parseRequests, quoteCharge } from './parse.mjs';
 import { readServices } from './services.mjs';
 
 const BASE = 'https://soomgo.com';
@@ -162,10 +162,8 @@ function pageChatThread() {
   };
 }
 
-function pageQuotesTop() {
-  const t = document.body.innerText.split('\n').map((l) => l.trim()).filter(Boolean);
-  const i = t.findIndex((l) => /^\d{4}\.\d{2}\.\d{2}$/.test(l));
-  return i >= 0 ? { date: t[i], customer: t[i + 1] ?? null, service: t[i + 2] ?? null } : null;
+function pageText() {
+  return document.body.innerText;
 }
 
 // The 숨고페이 요청 dialog (a Bootstrap modal .safe-payment-modal, read 2026-10-25): a tel amount input
@@ -292,25 +290,26 @@ export async function openSoomgo({ session, sleep = wait } = {}) {
       }
       if (typed.form.sendDisabled) return { sent: false, observed: false, reason: 'send button disabled after filling', costKRW: detail.quoteCostKRW };
       s.guard.beforeMessage();
+      const pressedAt = Date.now();
       await s.click('[data-fsw=quote-send]');
       await sleep(5000);
-      // Observable result: 보낸견적's newest row is today's, for this request's service and, when the caller
-      // names the customer, for that customer. The request page's send button counts only when no customer
-      // is named: a quote soomgo listed there on 2026-10-25 was reported unobserved while it counted.
+      // Observable result: 충전/사용 내역 lists the charge as "견적 발송 - <customer>" to the second, with
+      // its exact cost. 보낸견적 is not the record: on 2026-10-26 it listed one of three quotes sent that
+      // minute, and it prints today's rows with a time where a date was expected. A free quote leaves no
+      // charge, so it counts when the request page no longer offers the send button.
       const after = await s.evaluate(pageRequestDetail, String(id));
-      await s.navigate(`${BASE}/pro/quotes`);
-      let top = await s.evaluate(pageQuotesTop);
-      for (let i = 0; i < 4 && !top; i++) {
-        await sleep(1500);
-        top = await s.evaluate(pageQuotesTop);
+      let rows = [];
+      let charge = null;
+      for (let i = 0; i < 4 && detail.quoteCostKRW > 0 && !charge; i++) {
+        if (i) await sleep(2000);
+        await s.navigate(`${BASE}/mypage/cash-dashboard`);
+        rows = parseCashHistory(await s.evaluate(pageText));
+        charge = quoteCharge(rows, { since: pressedAt, customer });
       }
-      const today = new Intl.DateTimeFormat('sv', { timeZone: 'Asia/Seoul' }).format(new Date()).replace(/-/g, '.');
-      const sameService = !detail.service || top?.service === detail.service;
-      const sameCustomer = customer ? top?.customer === squash(customer) : !after.form.sendLabel;
-      const observed = top?.date === today && sameService && sameCustomer;
-      return observed
-        ? { sent: true, observed: true, cashSpentKRW: detail.quoteCostKRW, text, observedSnippet: `${top.date} ${top.customer ?? ''}`.trim() }
-        : { sent: false, observed: false, reason: 'the quote was not observed in 보낸견적: ' + (top ? 'newest row ' + [top.date, top.customer, top.service].join(' ') : 'the list showed no dated row'), costKRW: detail.quoteCostKRW };
+      if (charge) return { sent: true, observed: true, cashSpentKRW: -charge.amountKRW, text, observedSnippet: charge.at + ' ' + charge.customer };
+      if (detail.quoteCostKRW === 0 && !after.form.sendLabel) return { sent: true, observed: true, cashSpentKRW: 0, text, observedSnippet: 'send button gone' };
+      const top = rows[0];
+      return { sent: false, observed: false, pressed: true, reason: 'the quote charge was not observed in 충전/사용 내역: ' + (top ? 'newest row ' + [top.what, top.customer, top.at].join(' ') : 'no dated row'), costKRW: detail.quoteCostKRW };
     },
 
     async inbox({ pages = 0 } = {}) {

@@ -317,9 +317,9 @@ test('soomgo quote refuses when the cost cannot be read from the send button', a
   assert.deepEqual(acted(s.log), []);
 });
 
-// A request page that keeps its send button after the click, and a 보낸견적 list whose newest row is
+// A request page that keeps its send button after the click, and a 충전/사용 내역 page whose text is
 // given by the test.
-function sentQuoteSession(newestRow) {
+function sentQuoteSession(cashText) {
   const form = { priceInput: true, priceTypes: ['총 비용', '시간 당'], selectedPriceType: '총 비용', textarea: true, fileInput: true, sendLabel: '2,490 캐시로 견적 보내기', sendDisabled: false, saveTemplateChecked: false, priceValue: '', textValue: '' };
   let reads = 0;
   return fakeSession({
@@ -328,23 +328,32 @@ function sentQuoteSession(newestRow) {
       const typed = reads >= 2 ? { priceValue: '50,000', textValue: '견적 드립니다' } : {};
       return { url: 'u', service: '웹 개발', pairs: [], customerText: '', form: { ...form, ...typed } };
     },
-    pageQuotesTop: newestRow,
+    pageText: cashText,
   });
 }
-const seoulToday = () => new Intl.DateTimeFormat('sv', { timeZone: 'Asia/Seoul' }).format(new Date()).replace(/-/g, '.');
+const seoulStamp = (ms = Date.now()) => new Intl.DateTimeFormat('sv', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(new Date(ms));
+const quoteArgs = { amountKRW: 50000, text: '견적 드립니다', gate: { ok: true }, allowSpendCash: true, customer: '고객A' };
 
-test('soomgo quote is observed from the newest 보낸견적 row for its customer and service', async () => {
-  const s = sentQuoteSession({ date: seoulToday(), customer: '고객A', service: '웹 개발' });
-  const g = await openSoomgo({ session: s, sleep: async () => {} });
-  const q = await g.quote('req1', { amountKRW: 50000, text: '견적 드립니다', gate: { ok: true }, allowSpendCash: true, customer: '고객A' });
-  assert.equal(q.observed, true);
-  assert.equal(q.cashSpentKRW, 2490);
+test('soomgo cash history reads each charge with its customer, Seoul time and signed amount', () => {
+  const text = ['35,000캐시', '지급 예정 페이백', '2026년', '10월', '견적 발송 - 고객A', '2026-10-26 09:15:00', '-4,490캐시', '스마트견적 발송 - 고객B', '2026-10-23 18:30:00', '-1,990캐시', '견적 보상 - 고객C', '2026-10-24 07:30:00', '1,990캐시', '전체 내역'].join('\n');
+  assert.deepEqual(soomgo.parseCashHistory(text), [
+    { what: '견적 발송', customer: '고객A', at: '2026-10-26T09:15:00+09:00', amountKRW: -4490 },
+    { what: '스마트견적 발송', customer: '고객B', at: '2026-10-23T18:30:00+09:00', amountKRW: -1990 },
+    { what: '견적 보상', customer: '고객C', at: '2026-10-24T07:30:00+09:00', amountKRW: 1990 },
+  ]);
 });
 
-test('soomgo quote is not observed when the newest 보낸견적 row is another customer, and says what it saw', async () => {
-  const s = sentQuoteSession({ date: seoulToday(), customer: '고객B', service: '웹 개발' });
-  const g = await openSoomgo({ session: s, sleep: async () => {} });
-  const q = await g.quote('req1', { amountKRW: 50000, text: '견적 드립니다', gate: { ok: true }, allowSpendCash: true, customer: '고객A' });
-  assert.equal(q.observed, false);
-  assert.match(q.reason, /newest row .*고객B/);
+test('soomgo quote is observed from its 견적 발송 charge in 충전/사용 내역, at the cost charged', async () => {
+  const s = sentQuoteSession(['35,000캐시', '견적 발송 - 고객A', seoulStamp(), '-4,490캐시', '견적 보상 - 고객C', '2026-10-24 07:30:00', '1,990캐시'].join('\n'));
+  const q = await (await openSoomgo({ session: s, sleep: async () => {} })).quote('req1', quoteArgs);
+  assert.deepEqual([q.observed, q.cashSpentKRW], [true, 4490]);
+});
+
+test('soomgo quote is not observed from another customer\'s charge or one older than the press, and stays counted as pressed', async () => {
+  const other = sentQuoteSession(['견적 발송 - 고객B', seoulStamp(), '-5,890캐시'].join('\n'));
+  const q = await (await openSoomgo({ session: other, sleep: async () => {} })).quote('req1', quoteArgs);
+  assert.deepEqual([q.observed, q.pressed, q.costKRW], [false, true, 2490]);
+  assert.match(q.reason, /newest row 견적 발송 고객B/);
+  const stale = sentQuoteSession(['견적 발송 - 고객A', seoulStamp(Date.now() - 3_600_000), '-5,890캐시'].join('\n'));
+  assert.equal((await (await openSoomgo({ session: stale, sleep: async () => {} })).quote('req1', quoteArgs)).observed, false);
 });

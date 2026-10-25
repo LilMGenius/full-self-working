@@ -6,7 +6,7 @@ import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { listApprovals } from '../src/brain/approvals.mjs';
-import { parkKey, processThread } from '../src/pipeline/thread.mjs';
+import { parkKey, processThread, quotaUsage } from '../src/pipeline/thread.mjs';
 import { catalogIds, loadCatalog } from '../src/brain/prompts.mjs';
 import { needsWork } from '../src/supervisor/run.mjs';
 import { digestNumbers } from '../src/supervisor/digest.mjs';
@@ -97,6 +97,33 @@ test('an unread platform notice is parked once and returns only with a newer mes
   const key = parkKey(s.instance.config, s.descriptor);
   assert.equal(needsWork(ref, row, key), false);
   assert.equal(needsWork({ ...ref, at: '2026-10-25T02:00:00Z', preview: '혹시 다음 주에 시작 가능할까요?' }, row, key), true);
+});
+
+// 숨고 charged three quotes on 2026-10-26 that the adapter reported unobserved, so the ledger held no
+// cost and the daily cash budget let all three through.
+test('a quote the adapter pressed but could not confirm counts against the daily cash budget', async () => {
+  const now = new Date();
+  const s = { ...setup('soomgo', (c) => {
+    c.activeHours = { outbound: ['00:00', '00:00'] };
+    c.platforms.soomgo = { ...c.platforms.soomgo, enabled: true, mode: 'auto', maxQuotesPerDay: 5, maxCashPerDay: 10000 };
+    return c;
+  }), now };
+  const pressed = [];
+  const adapter = {
+    ...spyAdapter(),
+    readRequest: async (id) => ({ id, title: '랜딩 페이지', text: '회사 소개 랜딩 페이지가 필요합니다.', quoteCostKRW: 5890 }),
+    quote: async (id) => (pressed.push(id), { sent: false, observed: false, pressed: true, reason: 'the quote charge was not observed', costKRW: 5890 }),
+  };
+  const decide = async () => ({
+    action: 'reply', modelCalls: 1,
+    decision: { intent: 'quote_request', service: 'landing_page_web', language: 'ko', reply: '견적 드립니다.', quote: { amountKRW: 300000, deliveryDays: 7, scope: ['랜딩 페이지 1개'] }, needsOperator: false, operatorReason: null, confidence: 0.9, claimsUsed: [] },
+    item: { kind: 'quote' }, gate: { ok: true, violations: [], warnings: [] }, priceRow: { viable: true },
+  });
+  const ref = (id, minutesAgo) => ({ id, kind: 'request', unread: true, at: new Date(now.getTime() - minutesAgo * 60_000).toISOString() });
+  assert.equal((await processThread({ ...s, threadRef: ref('r1', 30), adapter, mode: 'auto', decide })).action, 'queued');
+  assert.deepEqual(quotaUsage(s.ledger, 'soomgo', now, s.instance), { quotes: 1, cashKRW: 5890 });
+  assert.equal((await processThread({ ...s, threadRef: ref('r2', 20), adapter, mode: 'auto', decide })).action, 'queued');
+  assert.deepEqual(pressed, ['r1']);
 });
 
 test('items settled from the list do not use up the per-tick slots', async () => {

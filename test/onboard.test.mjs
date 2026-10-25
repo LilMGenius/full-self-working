@@ -6,7 +6,7 @@ import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { parseArgs, run } from '../src/cli/onboard.mjs';
 import { blockOf, dayLabel, humanize, readIdentity, walkWizard } from '../src/platforms/onboarding.mjs';
-import { HANDLERS as FREELANCER, STEPS as FREELANCER_STEPS, addSkill, parseSelectedSkills, resultPattern, skillOfResult } from '../src/platforms/freelancer/onboarding.mjs';
+import { HANDLERS as FREELANCER, STEPS as FREELANCER_STEPS, addSkill, parseSelectedSkills, resultPattern, skillOfResult, splitLegalName, stepOfUrl as freelancerStep } from '../src/platforms/freelancer/onboarding.mjs';
 import { HANDLERS as UPWORK, employmentEntries, onboard, parseEmploymentCard, parsePeriod, splitTitle, stepOfUrl, upworkSpecialties } from '../src/platforms/upwork/onboarding.mjs';
 import { tempDir } from './tmp.mjs';
 
@@ -146,6 +146,35 @@ test('freelancer linked-accounts links nothing and leaves by Skip', async () => 
   assert.equal(await h.next(session), true);
   assert.ok(!new RegExp(spec.re, spec.flags).test('Next'));
   assert.equal(clicked.length, 1);
+});
+
+test('freelancer photo-and-name types the legal name as given and family name and uploads the photo through the camera button', async () => {
+  assert.equal(freelancerStep('https://www.freelancer.com/new-freelancer/profile-details/photo-and-name?x=1'), 'profile-details/photo-and-name');
+  assert.equal(freelancerStep('https://www.freelancer.com/new-freelancer/skills'), 'skills');
+  assert.deepEqual(splitLegalName('GILDONG HONG'), { first: 'Gildong', last: 'Hong' });
+  assert.deepEqual(splitLegalName('Mary Ann McKay'), { first: 'Mary Ann', last: 'McKay' });
+  assert.equal(splitLegalName('MONONYM'), null);
+  const h = FREELANCER['profile-details/photo-and-name'];
+  const dir = tempDir('fsw-fl-photo-');
+  const photo = join(dir, 'me.jpg');
+  const identity = join(dir, 'identity.json');
+  writeFileSync(photo, 'x');
+  writeFileSync(identity, JSON.stringify({ person: { legal_name_en: 'GILDONG HONG', date_of_birth: '2000-01-01', phone: '+82 10-0000-0000' }, business: { address_en: { street: 's', city: 'c', postal_code: '1', country: 'KR' } } }));
+  const want = h.want({ instance: { config: { onboarding: { identity, photo } } } });
+  assert.deepEqual(want, { photo, first: 'Gildong', last: 'Hong' });
+  const page = { photo: false, first: '', last: '' };
+  const typed = [];
+  const uploads = [];
+  const session = {
+    evaluate: async (fn, arg) => (arg?.selector ? true : { ...page }),
+    click: async () => {},
+    typeKeys: async (sel, text) => { typed.push([sel, text]); page[sel === '#inputFirstName' ? 'first' : 'last'] = text; },
+    setFiles: async (sel, file) => { uploads.push([sel, file]); page.photo = true; },
+  };
+  await h.write(session, want, await h.read(session));
+  assert.deepEqual(typed, [['#inputFirstName', 'Gildong'], ['#inputLastName', 'Hong']]);
+  assert.deepEqual(uploads, [['fl-camera-input button', photo]]);
+  assert.ok(h.same(await h.read(session), want));
 });
 
 test('a run within the cooldown of the last one stops before opening the browser, unless forced', async () => {

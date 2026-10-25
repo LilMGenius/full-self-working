@@ -3,7 +3,8 @@
 // dry run types and reads back without saving. Values come from config.onboarding.freelancer and the
 // profile; every typed text passes the outbound gate as kind profile first. Bids and deposits are never
 // part of onboarding.
-import { clickMatch, googleSignIn, needs, pathOf, readIdentity, sleep, typeInto, waitFor, walkWizard } from '../onboarding.mjs';
+import { existsSync } from 'node:fs';
+import { Needs, clickMatch, googleSignIn, needs, pathOf, readIdentity, sleep, typeInto, waitFor, walkWizard } from '../onboarding.mjs';
 
 export const START = 'https://www.freelancer.com/new-freelancer/skills';
 const BASE = '/new-freelancer/';
@@ -12,12 +13,31 @@ export const MAX_SKILLS = 20;
 export const STEPS = [
   { id: 'skills', detect: { path: BASE + 'skills', heading: /tell us your top skills/i } },
   { id: 'linked-accounts', detect: { path: BASE + 'linked-accounts', heading: /link your accounts/i } },
+  { id: 'profile-details/photo-and-name', detect: { path: BASE + 'profile-details/photo-and-name', heading: /what is your name/i } },
 ];
 
+// A step is the wizard path after /new-freelancer/, since profile-details holds several pages.
 export const stepOfUrl = (url) => {
   const path = pathOf(url);
-  return path.startsWith(BASE) ? path.slice(BASE.length).split('/')[0] : null;
+  return path.startsWith(BASE) ? path.slice(BASE.length) : null;
 };
+
+// The identity file's legal English name as a passport writes it ("GIVEN FAMILY", capitals): the last
+// word is the family name, and capitals are written as a name is on a profile.
+export function splitLegalName(name) {
+  const words = String(name ?? '').trim().split(/\s+/).filter(Boolean);
+  if (words.length < 2) return null;
+  const cap = (w) => (w === w.toUpperCase() ? w.charAt(0) + w.slice(1).toLowerCase() : w);
+  return { first: words.slice(0, -1).map(cap).join(' '), last: cap(words.at(-1)) };
+}
+
+// Runs in the page: the name fields, and whether the photo area shows an uploaded picture. Before an
+// upload the page shows only the logo and the camera button; asset images are the site's own.
+const readPhotoAndName = () => ({
+  photo: [...document.querySelectorAll('img')].some((i) => i.getBoundingClientRect().width > 40 && !/\/assets\/|logo/i.test(i.src)),
+  first: document.querySelector('#inputFirstName')?.value ?? '',
+  last: document.querySelector('#inputLastName')?.value ?? '',
+});
 
 const norm = (s) => String(s ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
 const sameSet = (a, b) => a.length === b.length && a.every((x) => b.some((y) => norm(x) === norm(y)));
@@ -90,6 +110,37 @@ export const HANDLERS = {
     want: () => 'not linked',
     same: (cur, want) => cur === want,
     next: (s) => clickMatch(s, 'button', /^Skip$/),
+  },
+  // Mapped 2026-10-26: a camera button in fl-camera-input opens the photo chooser, and #inputFirstName and
+  // #inputLastName take the name; the page asks for the real name, since identity verification checks
+  // it, so the name is the identity file's legal name. Next stays disabled until both names are typed.
+  'profile-details/photo-and-name': {
+    show: (cur, want) => 'read back differs in: ' + ['photo', 'first', 'last'].filter((k) => (k === 'photo' ? !cur.photo : cur[k] !== want[k])).join(', '),
+    read: (s) => s.evaluate(readPhotoAndName),
+    want: (ctx) => {
+      const id = readIdentity(ctx);
+      if (id instanceof Needs) return id;
+      const name = splitLegalName(id.legalNameEn);
+      if (!name) return needs('the identity file lacks person.legal_name_en as given and family name');
+      const photo = ctx.instance.config?.onboarding?.photo;
+      if (!photo || !existsSync(photo)) return needs('set config onboarding.photo to a photo of you');
+      return { photo, ...name };
+    },
+    same: (cur, want) => cur.photo === true && cur.first === want.first && cur.last === want.last,
+    write: async (s, want, cur) => {
+      if (cur.first !== want.first) await typeInto(s, '#inputFirstName', want.first);
+      if (cur.last !== want.last) await typeInto(s, '#inputLastName', want.last);
+      if (cur.photo) return;
+      // The upload tool presses the camera button and answers the chooser it opens with the file.
+      await s.setFiles('fl-camera-input button', want.photo);
+      // A crop dialog may follow; its confirm button saves the picture.
+      for (let i = 0; i < 15; i++) {
+        await sleep(1000);
+        if ((await s.evaluate(readPhotoAndName)).photo) return;
+        if (await clickMatch(s, '[role=dialog] button, fl-modal button, .ModalContainer button', /^(Save|Upload|Done|Apply|Confirm|Crop|Use photo|Upload photo)$/i)) await sleep(2000);
+      }
+      throw new Error('the photo did not show after the upload; the page outline: ' + JSON.stringify(await s.evaluate(() => ({ dialogs: [...document.querySelectorAll('[role=dialog], fl-modal')].map((d) => d.innerText.replace(/\s+/g, ' ').slice(0, 200)), files: document.querySelectorAll('input[type=file]').length }))));
+    },
   },
 };
 

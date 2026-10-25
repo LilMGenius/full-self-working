@@ -292,6 +292,7 @@ export function readIdentity(ctx) {
   const cc = /^\+(\d{1,3})[\s-]/.exec(phone)?.[1] ?? null;
   return {
     googleEmail: person.google_login_email ?? null,
+    legalNameEn: person.legal_name_en ?? null,
     dateOfBirth: person.date_of_birth,
     phone,
     countryCode: cc,

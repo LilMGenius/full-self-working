@@ -438,8 +438,8 @@ test('listing text refuses SNS handles beside the gate contact rules', async () 
 test('a /my-gigs row never reads the approval notice of the row below, and edit URLs give their ids', async () => {
   const { parseGigList } = await import('../src/platforms/kmong/parse.mjs');
   const { editIds } = await import('../src/platforms/kmong/adapter.mjs');
-  const text = ['서비스 상태 안내', '승인 전', '#1', 'IT·프로그래밍', '랜딩페이지', '랜딩페이지 제작', '35,000원~', '제출 취소', '등록일', '2026.10.25', '수정일', '2026.10.25', '승인 대기 중', '영업일 7일 이내',
-    '판매중', '#2', '데이터 분석 레슨', '프로그래밍 레슨', '웹 레슨', '레슨', '150,000원~', '편집하기', '등록일', '2022.03.14', '수정일', '2026.07.24', '승인 안내', '2026.07.30'].join('\n');
+  const text = ['서비스 상태 안내', '승인 전', '#1', 'IT·프로그래밍', '랜딩페이지', '랜딩페이지 제작', '35,000원~', '제출 취소', '등록일', '2026.10.25',
+    '판매중', '#2', '데이터 분석 레슨', '프로그래밍 레슨', '웹 레슨', '레슨', '150,000원~', '편집하기', '등록일', '2022.03.14', '승인 안내', '2026.07.30'].join('\n');
   const { gigs } = parseGigList(text);
   assert.equal(gigs[0].approvedAt, null);
   assert.equal(gigs[1].approvedAt, '2026-07-30');

@@ -14,6 +14,7 @@ import { logEvent } from '../core/log.mjs';
 import { notifyOperator } from '../core/notify.mjs';
 import { MODES, flushApprovals, processThread } from '../pipeline/thread.mjs';
 import { recordOrderCounters } from '../orders/money.mjs';
+import { latestAllocation, prioritize } from '../economics/priority.mjs';
 import { loadDescriptor } from '../platforms/registry.mjs';
 import { dueJobs, JOBS, nextWake } from './schedule.mjs';
 import { createBrowserKeeper, holdAwake } from './keepalive.mjs';
@@ -217,7 +218,9 @@ export async function runPlatform(id, ctx) {
       result.ordersChanged = (await recordOrderCounters({ ledger, instance, platform: id, orders })).rises;
     }
     const known = new Map(ledger.listThreads({ platform: id }).map((t) => [t.externalId, t]));
-    const work = refs.filter((r) => needsWork(r, known.get(String(r.id))));
+    // Open conversations first, then requests by the allocation weight of their service, so the per-tick
+    // cap and the daily quote budget go to the arms with the best expected yield.
+    const work = prioritize(refs.filter((r) => needsWork(r, known.get(String(r.id)))), { allocation: latestAllocation(instance), descriptor });
     // The cap bounds pages opened per tick. An item settled from its list row (a notice, a closed or old
     // item, a service outside the catalog) opens nothing, so it does not take one of the slots.
     let opened = 0;

@@ -98,10 +98,10 @@ function splitAmounts(quote) {
 }
 
 // Sends one gated item and records it only when the adapter observed it. Returns {observed, res}.
-async function act({ adapter, ledger, platform, threadId, ref, kind, text, quote, service, gate, allowSpendCash, costKRW }) {
+async function act({ adapter, ledger, platform, threadId, ref, kind, text, quote, service, gate, allowSpendCash, costKRW, customer }) {
   const viaQuote = kind === 'request';
   const res = viaQuote
-    ? await adapter.quote(ref, { amountKRW: quote.amountKRW, priceType: quote.priceType ?? 'fixed', text, gate, allowSpendCash })
+    ? await adapter.quote(ref, { amountKRW: quote.amountKRW, priceType: quote.priceType ?? 'fixed', text, gate, allowSpendCash, customer })
     : await adapter.send(ref, { text, files: [], gate });
   if (res?.observed !== true) return { observed: false, res };
   const body = typeof res.text === 'string' && res.text ? res.text : text;
@@ -207,9 +207,9 @@ export async function processThread({ platform, threadRef, adapter, ledger, inst
       return queue('cash quote refused: ' + check.reason, { costKRW });
     }
   }
-  const sent = await act({ adapter, ledger, platform, threadId: row.id, ref, kind, text, quote: d.quote, service: d.service, gate: result.gate, allowSpendCash: cash, costKRW });
+  const sent = await act({ adapter, ledger, platform, threadId: row.id, ref, kind, text, quote: d.quote, service: d.service, gate: result.gate, allowSpendCash: cash, costKRW, customer: threadRef.customer ?? null });
   if (!sent.observed) {
-    event('send.unobserved', { kind: itemKind, detail: sent.res?.error ?? null });
+    event('send.unobserved', { kind: itemKind, detail: sent.res?.reason ?? null });
     return queue('the adapter did not observe the sent ' + itemKind + '; check the thread before resending', { unobserved: true });
   }
   event(itemKind === 'quote' ? 'quote.sent' : 'message.sent', { amountKRW: d.quote?.amountKRW ?? null, costKRW });
@@ -231,10 +231,10 @@ export async function flushApprovals({ platform, adapter, ledger, instance, desc
       out.push({ id: a.id, action: 'blocked' });
       continue;
     }
-    const sent = await act({ adapter, ledger, platform, threadId: a.threadId, ref: a.threadRef, kind: a.threadKind ?? 'message', text: a.finalText, quote: a.quote, service: a.service, gate, allowSpendCash: spendsCash(descriptor, a.threadKind), costKRW: a.costKRW ?? null });
+    const sent = await act({ adapter, ledger, platform, threadId: a.threadId, ref: a.threadRef, kind: a.threadKind ?? 'message', text: a.finalText, quote: a.quote, service: a.service, gate, allowSpendCash: spendsCash(descriptor, a.threadKind), costKRW: a.costKRW ?? null, customer: ledger.getThread(a.threadId)?.customer ?? null });
     if (!sent.observed) {
-      closeApproval(instance, a.id, { status: 'unobserved' });
-      ledger.addEvent({ kind: 'send.unobserved', platform, ref: a.threadRef, payload: { approvalId: a.id } });
+      closeApproval(instance, a.id, { status: 'unobserved', detail: sent.res?.reason ?? null });
+      ledger.addEvent({ kind: 'send.unobserved', platform, ref: a.threadRef, payload: { approvalId: a.id, detail: sent.res?.reason ?? null } });
       out.push({ id: a.id, action: 'unobserved' });
       continue;
     }

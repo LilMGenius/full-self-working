@@ -165,7 +165,7 @@ function pageChatThread() {
 function pageQuotesTop() {
   const t = document.body.innerText.split('\n').map((l) => l.trim()).filter(Boolean);
   const i = t.findIndex((l) => /^\d{4}\.\d{2}\.\d{2}$/.test(l));
-  return i >= 0 ? { date: t[i], customer: t[i + 1] ?? null } : null;
+  return i >= 0 ? { date: t[i], customer: t[i + 1] ?? null, service: t[i + 2] ?? null } : null;
 }
 
 // The 숨고페이 요청 dialog (a Bootstrap modal .safe-payment-modal, read 2026-10-25): a tel amount input
@@ -206,7 +206,7 @@ function pageOpenPayDialog() {
 // 숨고페이 takes 15,000 to 5,000,000 KRW per payment (descriptor splitMechanism).
 export const PAY_REQUEST_RANGE = [15_000, 5_000_000];
 
-export async function openSoomgo({ session } = {}) {
+export async function openSoomgo({ session, sleep = wait } = {}) {
   const s = session ?? (await openSession('soomgo', { platform: 'soomgo', pacing: loadDescriptor('soomgo').pacing }));
 
   const listChats = async ({ pages = 0, until } = {}) => {
@@ -259,7 +259,7 @@ export async function openSoomgo({ session } = {}) {
     },
 
     // dryRun fills the form, confirms the send button and its cost, then clears the form.
-    async quote(id, { amountKRW, priceType = 'fixed', text, gate, allowSpendCash = false, dryRun = false } = {}) {
+    async quote(id, { amountKRW, priceType = 'fixed', text, gate, allowSpendCash = false, dryRun = false, customer = null } = {}) {
       if (gate?.ok !== true) return { sent: false, observed: false, reason: 'gate result missing or not ok' };
       if (!dryRun && allowSpendCash !== true) return { sent: false, observed: false, reason: 'quote spends 숨고캐시; allowSpendCash was not given' };
       if (!Number.isInteger(amountKRW) || amountKRW <= 0) return { sent: false, observed: false, reason: 'amountKRW must be a positive integer' };
@@ -293,16 +293,24 @@ export async function openSoomgo({ session } = {}) {
       if (typed.form.sendDisabled) return { sent: false, observed: false, reason: 'send button disabled after filling', costKRW: detail.quoteCostKRW };
       s.guard.beforeMessage();
       await s.click('[data-fsw=quote-send]');
-      await wait(5000);
-      // Observable result: the request's send button is gone and 보낸견적 lists this customer today.
+      await sleep(5000);
+      // Observable result: 보낸견적's newest row is today's, for this request's service and, when the caller
+      // names the customer, for that customer. The request page's send button counts only when no customer
+      // is named: a quote soomgo listed there on 2026-10-25 was reported unobserved while it counted.
       const after = await s.evaluate(pageRequestDetail, String(id));
       await s.navigate(`${BASE}/pro/quotes`);
-      const top = await s.evaluate(pageQuotesTop);
+      let top = await s.evaluate(pageQuotesTop);
+      for (let i = 0; i < 4 && !top; i++) {
+        await sleep(1500);
+        top = await s.evaluate(pageQuotesTop);
+      }
       const today = new Intl.DateTimeFormat('sv', { timeZone: 'Asia/Seoul' }).format(new Date()).replace(/-/g, '.');
-      const observed = !after.form.sendLabel && top?.date === today;
+      const sameService = !detail.service || top?.service === detail.service;
+      const sameCustomer = customer ? top?.customer === squash(customer) : !after.form.sendLabel;
+      const observed = top?.date === today && sameService && sameCustomer;
       return observed
         ? { sent: true, observed: true, cashSpentKRW: detail.quoteCostKRW, text, observedSnippet: `${top.date} ${top.customer ?? ''}`.trim() }
-        : { sent: false, observed: false, reason: 'the quote was not observed in 보낸견적', costKRW: detail.quoteCostKRW };
+        : { sent: false, observed: false, reason: 'the quote was not observed in 보낸견적: ' + (top ? 'newest row ' + [top.date, top.customer, top.service].join(' ') : 'the list showed no dated row'), costKRW: detail.quoteCostKRW };
     },
 
     async inbox({ pages = 0 } = {}) {

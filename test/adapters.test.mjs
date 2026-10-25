@@ -303,3 +303,35 @@ test('soomgo quote refuses when the cost cannot be read from the send button', a
   assert.match(q.reason, /cost not readable/);
   assert.deepEqual(acted(s.log), []);
 });
+
+// A request page that keeps its send button after the click, and a 보낸견적 list whose newest row is
+// given by the test.
+function sentQuoteSession(newestRow) {
+  const form = { priceInput: true, priceTypes: ['총 비용', '시간 당'], selectedPriceType: '총 비용', textarea: true, fileInput: true, sendLabel: '2,490 캐시로 견적 보내기', sendDisabled: false, saveTemplateChecked: false, priceValue: '', textValue: '' };
+  let reads = 0;
+  return fakeSession({
+    pageRequestDetail: () => {
+      reads += 1;
+      const typed = reads >= 2 ? { priceValue: '50,000', textValue: '견적 드립니다' } : {};
+      return { url: 'u', service: '웹 개발', pairs: [], customerText: '', form: { ...form, ...typed } };
+    },
+    pageQuotesTop: newestRow,
+  });
+}
+const seoulToday = () => new Intl.DateTimeFormat('sv', { timeZone: 'Asia/Seoul' }).format(new Date()).replace(/-/g, '.');
+
+test('soomgo quote is observed from the newest 보낸견적 row for its customer and service', async () => {
+  const s = sentQuoteSession({ date: seoulToday(), customer: '고객A', service: '웹 개발' });
+  const g = await openSoomgo({ session: s, sleep: async () => {} });
+  const q = await g.quote('req1', { amountKRW: 50000, text: '견적 드립니다', gate: { ok: true }, allowSpendCash: true, customer: '고객A' });
+  assert.equal(q.observed, true);
+  assert.equal(q.cashSpentKRW, 2490);
+});
+
+test('soomgo quote is not observed when the newest 보낸견적 row is another customer, and says what it saw', async () => {
+  const s = sentQuoteSession({ date: seoulToday(), customer: '고객B', service: '웹 개발' });
+  const g = await openSoomgo({ session: s, sleep: async () => {} });
+  const q = await g.quote('req1', { amountKRW: 50000, text: '견적 드립니다', gate: { ok: true }, allowSpendCash: true, customer: '고객A' });
+  assert.equal(q.observed, false);
+  assert.match(q.reason, /newest row .*고객B/);
+});

@@ -10,6 +10,7 @@ import { notifyOperator } from '../core/notify.mjs';
 import { agreedScope, jobPaths, pidAlive, runningJobs, startAllowed } from '../jobs/run.mjs';
 import { loadRecipe } from '../jobs/recipe.mjs';
 import { loadDescriptor } from '../platforms/registry.mjs';
+import { closeSettledJobs, queueDeliveries } from './delivery.mjs';
 
 // Starts fsw job run <id> detached, its output in jobs/<id>/qa/runner.log. Returns the child pid.
 export function spawnJobRun(instance, jobId) {
@@ -82,9 +83,11 @@ export async function startJobs({ instance, ledger, spawnJob = spawnJobRun, noti
   return out;
 }
 
-// The supervisor handler.
+// The supervisor handler: start paid jobs, queue accepted ones for delivery, close settled ones.
 export async function ordersJob(ctx) {
   const start = await startJobs({ instance: ctx.instance, ledger: ctx.ledger });
-  return { status: 'ok', ...start };
+  const deliveries = await queueDeliveries({ instance: ctx.instance, ledger: ctx.ledger });
+  const closing = await closeSettledJobs({ instance: ctx.instance, ledger: ctx.ledger, forceMode: ctx.forceMode });
+  return { status: closing.published && !closing.published.ok ? 'partial' : 'ok', ...start, deliveriesQueued: deliveries, closed: closing.closed, published: closing.published ?? null };
 }
 

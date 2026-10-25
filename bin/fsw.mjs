@@ -20,10 +20,11 @@ const VERBS = {
   job: 'job run|check <id>: run a paid job through its recipe, or re-run its acceptance checks',
   schedule: 'schedule install|status|uninstall: the logon and hourly task that keeps the supervisor running',
   listings: 'listings build|render|check|publish <service>: write a kmong gig spec and images for review, or submit it',
+  order: 'order list|permission|review: record what the client said on the platform (portfolio permission, review)',
   help: 'show this help',
 };
 
-const HANDLERS = { tick: 'tick', run: 'run', schedule: 'schedule', market: 'market', price: 'price', approve: 'approvals', learn: 'learn', decide: 'decide', job: 'job', listings: 'listings' };
+const HANDLERS = { tick: 'tick', run: 'run', schedule: 'schedule', market: 'market', price: 'price', approve: 'approvals', learn: 'learn', decide: 'decide', job: 'job', listings: 'listings', order: 'order' };
 
 function help() {
   console.log('usage: fsw <verb> [args]\n');

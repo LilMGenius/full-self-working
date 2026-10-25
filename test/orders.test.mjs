@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
@@ -15,6 +15,12 @@ import { flushApprovals } from '../src/pipeline/thread.mjs';
 import { parseChats, parseChatThread } from '../src/platforms/soomgo/parse.mjs';
 import { openSoomgo } from '../src/platforms/soomgo/adapter.mjs';
 import { startJobs } from '../src/orders/run.mjs';
+import { closeSettledJobs, queueDeliveries } from '../src/orders/delivery.mjs';
+import { jobPaths } from '../src/jobs/run.mjs';
+import { run as orderCli } from '../src/cli/order.mjs';
+import { rankPortfolio } from '../src/portfolio/rank.mjs';
+import { loadItems } from '../src/portfolio/store.mjs';
+import { readCases } from '../src/learning/outcomes.mjs';
 
 function makeInstance(edit = (c) => c) {
   const dir = mkdtempSync(join(tmpdir(), 'fsw-orders-'));
@@ -258,5 +264,100 @@ test('a recorded deposit starts the job once in its own process, and only up to 
   live.clear();
   const third = await startJobs({ instance, ledger, spawnJob, alive, notify: quietNotify });
   assert.deepEqual(third.started, [b.id]);
+});
+
+// A soomgo landing page job whose run passed acceptance, with its deposit paid.
+async function acceptedJob(ledger, instance, ref) {
+  const job = await hiredJob(ledger, instance, ref, { paid: true });
+  const paths = jobPaths(instance, job.id);
+  mkdirSync(join(paths.work, 'site'), { recursive: true });
+  mkdirSync(paths.qa, { recursive: true });
+  writeFileSync(join(paths.work, 'site', 'index.html'), '<!doctype html><title>x</title>');
+  writeFileSync(join(paths.work, 'site', 'HOSTING.md'), '# hosting');
+  writeFileSync(join(paths.qa, 'site-390.jpg'), 'jpg');
+  ledger.upsertJob({ id: job.id, status: 'in_progress', meta: { ...job.meta, lastRun: { at: '2026-10-21T10:00:00.000Z', ok: true } } });
+  return ledger.getJob(job.id);
+}
+
+function deliveryAdapter() {
+  const calls = { send: [], payRequest: [] };
+  return {
+    calls,
+    async payRequest(id, opts) { calls.payRequest.push({ id, ...opts }); return { observed: true, sent: true }; },
+    async send(id, { text, files, gate }) { calls.send.push({ id, text, files, gate }); if (!gate?.ok) throw new Error('ungated'); return { observed: true, sent: true, text }; },
+  };
+}
+
+test('a delivery goes out only once approved and once deliveryAllowed passes, asking the balance first on soomgo', async () => {
+  const instance = makeInstance();
+  const ledger = openLedger(':memory:');
+  const descriptor = loadDescriptor('soomgo');
+  const job = await acceptedJob(ledger, instance, 'd1');
+  const flush = (adapter) => flushApprovals({ platform: 'soomgo', adapter, ledger, instance, descriptor });
+  assert.equal((await queueDeliveries({ instance, ledger })).length, 1);
+  assert.equal((await queueDeliveries({ instance, ledger })).length, 0);
+  const item = listApprovals(instance).find((a) => a.kind === 'delivery');
+  assert.equal(item.files.length, 2);
+  assert.equal(item.captures.length, 1);
+  assert.equal(item.balanceKRW, 300000);
+  assert.match(item.draft, /포트폴리오/);
+  const adapter = deliveryAdapter();
+  await flush(adapter);
+  assert.deepEqual([adapter.calls.send.length, adapter.calls.payRequest.length], [0, 0]);
+  resolveApproval(instance, item.id, { approve: true });
+  const first = await flush(adapter);
+  assert.deepEqual(first.find((x) => x.id === item.id).action, 'balance_requested');
+  assert.deepEqual(adapter.calls.payRequest, [{ id: 'd1', amountKRW: 300000, approved: true }]);
+  assert.equal(adapter.calls.send.length, 0);
+  // Waiting for the balance: neither a second request nor a send.
+  assert.equal((await flush(adapter)).find((x) => x.id === item.id).action, 'waiting');
+  assert.deepEqual([adapter.calls.send.length, adapter.calls.payRequest.length], [0, 1]);
+  const thread = ledger.getThread(job.threadId);
+  await recordMoney({ ledger, instance, platform: 'soomgo', descriptor, thread, notices: [{ text: NOTICE.paid, at: '2026-10-20T14:00:00+09:00' }], now: NOW, notify: quietNotify });
+  assert.equal(ledger.jobPayments(job.id).map((p) => p.kind).join(','), 'deposit,balance');
+  assert.equal((await flush(adapter)).find((x) => x.id === item.id).action, 'sent');
+  assert.equal(adapter.calls.send.length, 1);
+  assert.deepEqual(adapter.calls.send[0].files.map((f) => f.split(/[\\/]/).pop()).sort(), ['HOSTING.md', 'index.html']);
+  assert.match(adapter.calls.send[0].text, /포트폴리오에 소개해도 괜찮을까요/);
+  const delivered = ledger.getJob(job.id);
+  assert.equal(delivered.status, 'delivered');
+  assert.ok(delivered.deliveredAt);
+  assert.equal(delivered.meta.portfolio.permission, 'pending');
+  assert.deepEqual(await flush(adapter), []);
+});
+
+test('a paid job reaches the portfolio only after it is closed and the client granted permission', async () => {
+  const instance = makeInstance();
+  const ledger = openLedger(':memory:');
+  const descriptor = loadDescriptor('soomgo');
+  const job = await acceptedJob(ledger, instance, 'p9');
+  const thread = ledger.getThread(job.threadId);
+  const money = (text, at) => recordMoney({ ledger, instance, platform: 'soomgo', descriptor, thread, notices: [{ text, at }], now: NOW, notify: quietNotify });
+  await money(NOTICE.paid, '2026-10-20T14:00:00+09:00');
+  ledger.upsertJob({ id: job.id, status: 'delivered', deliveredAt: '2026-10-20T14:30:00+09:00' });
+  const published = [];
+  const publish = () => { published.push(1); return { ok: true }; };
+  const shownJobs = () => rankPortfolio(loadItems(instance)).filter((i) => i.jobId === job.id).length;
+  // The client answered yes before the money settled: a deposit and a grant still show nothing.
+  assert.equal(await orderCli(['permission', job.id, 'granted'], { instance, ledger, publish, log: () => {} }), 0);
+  assert.equal(shownJobs(), 0, 'granted but not closed');
+  ledger.upsertJob({ id: job.id, meta: { ...ledger.getJob(job.id).meta, portfolio: { permission: 'pending' } } });
+  // Fully paid but neither payment confirmed by soomgo: not closed, not shown.
+  assert.deepEqual((await closeSettledJobs({ instance, ledger, publish })).closed, []);
+  await money(NOTICE.confirmed, '2026-10-20T15:00:00+09:00');
+  assert.deepEqual((await closeSettledJobs({ instance, ledger, publish })).closed, []);
+  await money(NOTICE.confirmed, '2026-10-20T15:05:00+09:00');
+  const closing = await closeSettledJobs({ instance, ledger, publish });
+  assert.deepEqual(closing.closed, [job.id]);
+  assert.equal(ledger.getJob(job.id).status, 'closed');
+  assert.equal(published.length, 2);
+  assert.equal(readCases(instance).filter((c) => c.kind === 'job_closed' && c.jobId === job.id).length, 1);
+  assert.equal(shownJobs(), 0, 'paid but permission pending');
+  const logs = [];
+  assert.equal(await orderCli(['permission', job.id, 'granted'], { instance, ledger, publish, log: (l) => logs.push(l) }), 0);
+  assert.equal(shownJobs(), 1);
+  assert.equal(published.length, 3);
+  assert.equal(await orderCli(['permission', job.id, 'denied'], { instance, ledger, publish, log: () => {} }), 0);
+  assert.equal(shownJobs(), 0);
 });
 

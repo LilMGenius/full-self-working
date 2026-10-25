@@ -96,6 +96,8 @@ export function syncPortfolio(instance, ledger) {
   const byId = new Map(existing.map((i) => [i.id, i]));
   const generated = [...itemsFromProfile(instance.profile)];
   for (const job of ledger.listJobs()) {
+    // Only a closed job is fully paid and confirmed (src/orders/delivery.mjs); a deposit alone shows nothing.
+    if (job.status !== 'closed') continue;
     const payments = ledger.jobPayments(job.id);
     if (!payments.length) continue;
     const review = ledger.jobReviews(job.id).at(-1) ?? null;

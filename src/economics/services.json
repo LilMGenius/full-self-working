@@ -14,12 +14,21 @@
     "video_editing": "Cuts, captions and music on a short clip with render and review passes; render and review time dominate.",
     "translation_ko_en": "About one page of Korean to English with a human proofread for tone and terms.",
     "copywriting": "One page of sales or landing copy with two variants and the slop gate; the human checks claims.",
-    "blog_writing": "One researched post of about 2,000 Korean characters with sources and the slop gate."
+    "blog_writing": "One researched post of about 2,000 Korean characters with sources and the slop gate.",
+    "kmongGig": "Category labels the kmong /my-gigs/new form shows for a listed service: root (1st level) and sub (2nd level), plus third when the form asks for a 3rd level.",
+    "kmongForm": "Values for the kmong gig edit form of that category, read from the live form 2026-10-25: meta is the 주요 특징 selects by label, packageSelects and packageChecks are package rows by label with one value per STANDARD, DELUXE, PREMIUM column (작업 기간 and 수정 횟수 come from the listing), scope is what each package covers and is handed to the copy writer so the package text and the form agree."
   },
   "landing_page_web": {
     "ko": "랜딩페이지 제작",
     "en": "Landing page",
     "kmongCategory": "랜딩페이지 홈페이지 제작",
+    "kmongGig": { "root": "IT·프로그래밍", "sub": "랜딩페이지" },
+    "kmongForm": {
+      "meta": { "기술 수준": "중급:설계 / 코딩", "개발 언어": "JavaScript", "팀 규모": "1인", "상주 여부": "상주 불가능" },
+      "packageSelects": { "섹션 수": ["5섹션", "8섹션", "10섹션"], "기능 추가": ["0개", "1개", "3개"] },
+      "packageChecks": { "맞춤 디자인 제공": [true, true, true], "반응형 웹": [true, true, true], "크로스 브라우징": [true, true, true], "옵트인폼": [false, true, true], "소스 코드 제공": [true, true, true], "코드 구조 주석": [false, true, true] },
+      "scope": ["한 페이지, 5개 섹션 이내", "한 페이지, 8개 섹션 이내, 문의 폼 연결", "여러 페이지 구성, 페이지마다 10개 섹션 이내, 기능 3개까지"]
+    },
     "soomgoGuide": "웹 디자인",
     "agentHours": {
       "standard": 6,
@@ -58,6 +67,13 @@
     "ko": "AI 자동화 및 챗봇 개발",
     "en": "AI automation and chatbot",
     "kmongCategory": "챗봇 AI 개발",
+    "kmongGig": { "root": "IT·프로그래밍", "sub": "맞춤형 챗봇·GPT" },
+    "kmongForm": {
+      "meta": { "기술 수준": "고급:최적화 설계", "사용하는 AI 툴": "ChatGPT", "활용 목적": "사내 문서 검색용 GPT", "팀 규모": "1인", "상주 여부": "상주 불가능" },
+      "packageSelects": {},
+      "packageChecks": { "대화 스크립트": [true, true, true], "소스 코드 제공": [true, true, true], "설치 파일": [false, true, true], "코드 구조 주석": [false, true, true] },
+      "scope": ["문서 하나 묶음에 답하는 챗봇 또는 반복 업무 하나의 자동화", "여러 문서와 도구 하나를 연결한 챗봇이나 자동화, 평가 대화 묶음 포함", "여러 도구와 업무 흐름을 잇는 자동화, 평가 보고서와 운영 안내 포함"]
+    },
     "soomgoGuide": "챗봇 개발",
     "agentHours": {
       "standard": 12,
@@ -77,6 +93,13 @@
     "ko": "데이터 크롤링",
     "en": "Data crawling",
     "kmongCategory": "데이터 크롤링",
+    "kmongGig": { "root": "IT·프로그래밍", "sub": "크롤링·스크래핑" },
+    "kmongForm": {
+      "meta": { "기술 수준": "중급:설계 / 코딩", "개발 언어": "JavaScript", "팀 규모": "1인", "상주 여부": "상주 불가능" },
+      "packageSelects": {},
+      "packageChecks": { "소스 코드 제공": [true, true, true], "설치 파일": [false, false, true], "코드 구조 주석": [false, true, true] },
+      "scope": ["공개된 사이트 하나, 목록과 상세 수집, CSV 또는 엑셀 파일", "사이트 하나, 로그인 없는 동적 페이지와 페이지 넘김 처리, 재실행 안내", "사이트 여러 곳 또는 정기 실행 구성, 실행 파일과 재실행 안내"]
+    },
     "soomgoGuide": "데이터 크롤링",
     "agentHours": {
       "standard": 4,
@@ -96,6 +119,13 @@
     "ko": "엑셀 매크로 및 업무 자동화",
     "en": "Excel macro and office automation",
     "kmongCategory": "업무 자동화 엑셀 매크로",
+    "kmongGig": { "root": "IT·프로그래밍", "sub": "업무 자동화" },
+    "kmongForm": {
+      "meta": { "기술 수준": "중급:설계 / 코딩", "팀 규모": "1인", "상주 여부": "상주 불가능" },
+      "packageSelects": {},
+      "packageChecks": { "소스 코드 제공": [true, true, true], "설치 파일": [false, false, true], "코드 구조 주석": [false, true, true] },
+      "scope": ["엑셀 파일 하나의 반복 작업 하나를 매크로나 스크립트로 자동화", "파일 여러 개를 합치거나 나누는 작업 묶음 자동화, 사용 안내 포함", "여러 단계 업무 흐름 자동화, 실행 파일과 사용 안내 포함"]
+    },
     "soomgoGuide": "매크로/VBA 개발",
     "agentHours": {
       "standard": 3,

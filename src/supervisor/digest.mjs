@@ -1,14 +1,19 @@
 // The 09:00 Seoul operator digest: what happened on the previous Seoul day, written to
 // operator/digest-YYYYMMDD.md and announced through notifyOperator. Every figure is counted from a
-// record: the ledger for activity, the approval files for what waits, the price-table and allocation
-// files the daily jobs wrote, and lessons.jsonl. A source that does not exist yet prints as "none".
+// record: the ledger for activity, the approval files for what waits, the market summary, price-table
+// and allocation files the daily jobs wrote, and lessons.jsonl. A source that does not exist yet prints
+// as "none".
 import { existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { dayKey } from '../core/clock.mjs';
 import { ensureDir } from '../core/instance.mjs';
 import { notifyOperator } from '../core/notify.mjs';
 import { listApprovals } from '../brain/approvals.mjs';
+import { latestSummary } from '../economics/market.mjs';
+import { CATEGORY_FIELD } from '../economics/pricing.mjs';
 import { readLessons } from '../learning/lessons.mjs';
+import { loadDescriptor } from '../platforms/registry.mjs';
+import catalog from '../economics/services.json' with { type: 'json' };
 
 const DAY_MS = 86_400_000;
 const krw = (n) => Math.round(n).toLocaleString('en-US') + ' KRW';
@@ -32,6 +37,40 @@ export function priceChanges(pricingDir) {
     .filter((r) => !before.has(key(r)) || before.get(key(r)).baseKRW !== r.baseKRW || before.get(key(r)).viable !== r.viable)
     .map((r) => ({ row: key(r), from: before.get(key(r))?.baseKRW ?? null, to: r.baseKRW, viable: r.viable }));
   return { table: cur.file, previous: prev.file, changes };
+}
+
+// What a summary figure measures, since a client's budget, a gig's starting price and a guide's average
+// are not the same number: price-guide entries carry an average, and listing entries are budgets on a
+// bidding platform and starting prices on a storefront.
+function figureOf(entry) {
+  if (typeof entry.median !== 'number') return typeof entry.avgKRW === 'number' ? { valueKRW: entry.avgKRW, basis: 'guide avg' } : null;
+  const models = [loadDescriptor(entry.platform).model].flat();
+  return { valueKRW: entry.median, basis: models.includes('bidding') && !models.includes('storefront') ? 'budget' : 'from price', n: entry.n };
+}
+
+// Each catalog service's market on every sampled platform, from the newest summary, in the platform
+// order of CATEGORY_FIELD, so the overseas figures sit next to the domestic ones and show which login
+// would pay. null when no summary exists yet.
+export function marketMedians(instance, services = catalog) {
+  let summary;
+  try {
+    summary = latestSummary(instance);
+  } catch (err) {
+    if (err.code === 'FSW_MARKET_NO_SUMMARY') return null;
+    throw err;
+  }
+  const rows = [];
+  for (const [service, def] of Object.entries(services)) {
+    if (service.startsWith('_')) continue;
+    const cells = [];
+    for (const [platform, field] of Object.entries(CATEGORY_FIELD)) {
+      const entry = def[field] ? summary.entries.find((e) => e.platform === platform && e.category === def[field]) : null;
+      const figure = entry ? figureOf(entry) : null;
+      if (figure) cells.push({ platform, ...figure });
+    }
+    if (cells.length) rows.push({ service, cells });
+  }
+  return { file: basename(summary.file), services: rows };
 }
 
 export function digestNumbers({ instance, ledger, now = new Date() }) {
@@ -70,6 +109,7 @@ export function digestNumbers({ instance, ledger, now = new Date() }) {
     ordersStarted: orders.length,
     payments: { count: payments.length, amountKRW: payments.reduce((s, p) => s + p.amount_krw, 0) },
     prices: priceChanges(instance.paths.pricing),
+    market: marketMedians(instance),
     allocation: allocation ? { file: allocation.file, weights: allocation.data.weights.filter((w) => w.weight > 0).map((w) => ({ arm: w.platform + '/' + w.service, weight: w.weight })) } : null,
     errors,
     lessons: readLessons(instance).length,
@@ -77,6 +117,7 @@ export function digestNumbers({ instance, ledger, now = new Date() }) {
 }
 
 const counts = (m) => Object.entries(m).map(([k, v]) => k + ' ' + v).join(', ');
+const cell = (c) => c.platform + ' ' + krw(c.valueKRW) + ' ' + c.basis + (c.n != null ? ' (n ' + c.n + ')' : '');
 
 export function renderDigest(n) {
   const lines = [
@@ -94,6 +135,10 @@ export function renderDigest(n) {
     '## Price table',
     '',
     !n.prices.table ? '- none' : n.prices.first ? '- ' + n.prices.table + ' is the first table' : n.prices.changes.length ? n.prices.changes.map((c) => '- ' + c.row + ': ' + (c.from == null ? 'new' : krw(c.from)) + ' to ' + krw(c.to) + (c.viable ? '' : ' (not viable)')).join('\n') : '- no change from ' + n.prices.previous,
+    '',
+    '## Market medians',
+    '',
+    !n.market ? '- none' : ['- from ' + n.market.file, ...n.market.services.map((s) => '- ' + s.service + ': ' + s.cells.map(cell).join(', '))].join('\n'),
     '',
     '## Allocation',
     '',

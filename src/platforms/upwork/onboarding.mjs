@@ -7,8 +7,7 @@
 import catalog from '../../economics/services.json' with { type: 'json' };
 import { existsSync } from 'node:fs';
 import { answeredServices } from '../../economics/catalog.mjs';
-import { gateOutbound } from '../../policy/gate.mjs';
-import { clickMatch, clickVisible, pageOutline, pathOf, pickOption, result, sleep, typeInto, waitFor } from '../onboarding.mjs';
+import { clickMatch, clickVisible, gated, needs, pathOf, pickOption, sleep, typeInto, waitFor, walkWizard } from '../onboarding.mjs';
 
 export const START = 'https://www.upwork.com/nx/create-profile/';
 const BASE = '/nx/create-profile/';
@@ -210,21 +209,6 @@ function settings(ctx) {
   return ctx.instance.config?.onboarding?.upwork ?? {};
 }
 
-// Text the profile shows passes the outbound gate first; a refusal is the operator's to fix in the instance.
-export function gated(ctx, text, key) {
-  if (!text || !String(text).trim()) return key + ' is empty';
-  const g = gateOutbound({ kind: 'profile', platform: 'upwork', text }, { descriptor: ctx.descriptor, instance: ctx.instance });
-  return g.ok ? null : key + ' refused by the gate: ' + g.violations.map((v) => v.rule + ' ' + v.detail).join('; ');
-}
-
-// A step whose instance values cannot be typed says what the operator must change instead.
-class Needs {
-  constructor(message) {
-    this.message = message;
-  }
-}
-const needs = (message) => new Needs(message);
-
 const readValue = (sel) => document.querySelector(sel)?.value ?? null;
 
 const textStep = (selector, key, pick) => ({
@@ -260,11 +244,11 @@ export const HANDLERS = {
       return photo && existsSync(photo) ? true : needs('upload a profile photo of yourself, or set config onboarding.photo to a public photo of you');
     },
     same: (cur) => cur === true,
-    write: async (s) => {
+    write: async (s, want, cur, ctx) => {
       // want is true only when the photo file exists; the path is read again for the upload.
       await clickVisible(s, 'button[data-qa=open-loader]');
       if (!(await waitFor(s, () => !!document.querySelector('[role=dialog] input[type=file]')))) throw new Error('the photo dialog did not open');
-      await s.setFiles('[role=dialog] input[type=file]', s.photoPath);
+      await s.setFiles('[role=dialog] input[type=file]', ctx.instance.config.onboarding.photo);
       if (!(await waitFor(s, () => /Zoom/i.test(document.querySelector('[role=dialog]')?.innerText ?? ''), null, { timeoutMs: 20000 }))) throw new Error('the photo did not load into the crop view');
       await clickMatch(s, '[role=dialog] button', 'Attach photo');
       if (!(await waitFor(s, () => !document.querySelector('[role=dialog]'), null, { timeoutMs: 20000 }))) throw new Error('the photo dialog did not close');
@@ -499,32 +483,6 @@ export const HANDLERS = {
   },
 };
 
-async function runStep(session, id, ctx) {
-  const h = HANDLERS[id];
-  const want = h.want(ctx);
-  if (want instanceof Needs) return result(id, 'needs-operator', want.message);
-  // The wizard renders a step a few seconds after its URL changes; read it only once its heading shows.
-  const heading = STEPS.find((s) => s.id === id)?.detect.heading;
-  if (heading && !(await waitFor(session, (spec) => [...document.querySelectorAll('h1,h2,h3')].some((h) => h.getBoundingClientRect().width > 0 && new RegExp(spec.re, spec.flags).test(h.innerText)), { re: heading.source, flags: heading.flags }, { timeoutMs: 20000 }))) {
-    return result(id, 'needs-operator', 'the ' + id + ' page did not show its heading within 20 s');
-  }
-  await sleep(1000);
-  const cur = await h.read(session);
-  if (h.same(cur, want)) return result(id, 'done', describe(want));
-  if (!h.write) return result(id, 'needs-operator', 'no writer for this step');
-  // A step whose dialog saves on its own (Save, Attach photo) is only described in a dry run.
-  if (h.saves && !ctx.apply) return result(id, 'filled', 'dry run, not typed since its dialog saves at once: ' + describe(want));
-  session.photoPath = ctx.instance.config?.onboarding?.photo ?? null;
-  try {
-    await h.write(session, want, cur);
-  } catch (err) {
-    return result(id, 'needs-operator', err.message);
-  }
-  await sleep(800);
-  const back = await h.read(session);
-  return h.same(back, want) ? result(id, 'filled', describe(want)) : result(id, 'needs-operator', 'read back ' + JSON.stringify(back) + ' instead of ' + JSON.stringify(want));
-}
-
 const describe = (want) => {
   if (want === true) return 'profile photo in place';
   const one = (w) => (typeof w !== 'object' ? w : w.level ? w.language + ' ' + w.level : w.school ? [w.school, w.degree, w.field, w.from && w.from + '-' + w.to].filter(Boolean).join(', ') : w.title + ' at ' + w.company + ', ' + w.dates);
@@ -532,61 +490,14 @@ const describe = (want) => {
   return typeof want === 'object' ? JSON.stringify(want.specialties ?? want) : String(want);
 };
 
-async function advance(session, id) {
-  const before = pathOf(await session.evaluate(() => location.href));
-  if (HANDLERS[id].next) await HANDLERS[id].next(session);
-  else await session.click(NEXT);
-  const moved = await waitFor(session, (p) => location.pathname.replace(/\/+$/, '') !== p && location.href, before, { timeoutMs: 20000 });
-  await sleep(1500);
-  return moved;
-}
-
-export async function onboard(session, ctx) {
-  const log = ctx.log ?? (() => {});
-  const results = [];
-  const only = ctx.step ?? null;
-  let url = await session.navigate(only ? START + only : START);
-  for (let guard = 0; guard < 40; guard++) {
-    const id = stepOfUrl(url);
-    if (id === null) {
-      results.push(result('submitted', 'done', 'create-profile now opens ' + pathOf(url) + ', so the wizard is finished'));
-      break;
-    }
-    if (!(id in HANDLERS)) {
-      results.push(result(id, 'unmapped', JSON.stringify(await session.evaluate(pageOutline))));
-      break;
-    }
-    if (results.some((r) => r.step === id)) break;
-    if (only && id !== only) {
-      results.push(result(only, 'needs-operator', 'upwork opened ' + id + ' instead; the wizard opens a step only after the steps before it are saved'));
-      break;
-    }
-    const r = await runStep(session, id, ctx);
-    results.push(r);
-    log(r.step + ': ' + r.state + (r.detail ? ' (' + r.detail + ')' : ''));
-    if (r.state === 'needs-operator' || r.state === 'unmapped' || only) break;
-    // A step with fields only the operator can fill reports them and ends the walk there.
-    const pending = HANDLERS[id].pending ? await HANDLERS[id].pending(session) : null;
-    if (pending) {
-      results.push(result(id, 'needs-operator', pending));
-      log(id + ': needs-operator (' + pending + ')');
-      break;
-    }
-    if (!ctx.apply) {
-      // A dry run saves nothing, so the wizard keeps every later step closed; report and stop here
-      // unless this step was already saved, in which case the next one is open.
-      const at = STEPS.findIndex((s) => s.id === id);
-      const nextId = STEPS[at + 1]?.id;
-      if (r.state !== 'done' || !nextId) break;
-      url = await session.navigate(START + nextId);
-      continue;
-    }
-    url = await advance(session, id);
-    if (!url) {
-      results.push(result(id, 'needs-operator', 'next did not leave ' + id + '; the page may show a validation message'));
-      break;
-    }
-  }
-  return results;
-}
-
+export const onboard = (session, ctx) =>
+  walkWizard(session, ctx, {
+    name: 'upwork',
+    steps: STEPS,
+    handlers: HANDLERS,
+    startUrl: START,
+    stepUrl: (id) => START + id,
+    stepOfUrl,
+    describe,
+    advance: (s) => s.click(NEXT),
+  });

@@ -1,6 +1,7 @@
 // Shared by the platform onboarding scripts that fsw onboard runs (src/cli/onboard.mjs holds the
 // interface). Pages are read and clicked through DOM queries, never a whole-page snapshot, since one
 // stalled page stalls the BrowserSkill extension every agent shares (docs/DESIGN.md, Browser).
+import { gateOutbound } from '../policy/gate.mjs';
 
 export const STATES = ['done', 'filled', 'needs-operator', 'unmapped'];
 export const result = (step, state, detail = '') => ({ step, state, detail });
@@ -102,4 +103,113 @@ export const pathOf = (url) => {
     return '';
   }
 };
+
+
+// A step whose instance values cannot be typed says what the operator must change instead.
+export class Needs {
+  constructor(message) {
+    this.message = message;
+  }
+}
+export const needs = (message) => new Needs(message);
+
+// Text a profile shows passes the outbound gate first; a refusal is the operator's to fix in the instance.
+export function gated(ctx, text, key) {
+  if (!text || !String(text).trim()) return key + ' is empty';
+  const g = gateOutbound({ kind: 'profile', platform: ctx.descriptor.id, text }, { descriptor: ctx.descriptor, instance: ctx.instance });
+  return g.ok ? null : key + ' refused by the gate: ' + g.violations.map((v) => v.rule + ' ' + v.detail).join('; ');
+}
+
+// A wizard is { name, steps: [{id, detect: {heading}}], handlers: {id: handler}, startUrl, stepUrl(id)
+// or null when the wizard cannot open a step by URL, stepOfUrl(url) -> id, or null once the wizard has
+// left its pages, describe(want), advance(session, id) -> clicks the step's next control }.
+// A handler is { read(s), want(ctx) -> value or Needs, same(cur, want), write(s, want, cur, ctx),
+// saves (its dialog saves at once, so a dry run only describes it), pending(s) -> what the operator
+// still has to fill on this page, next(s) -> a custom next control }.
+export async function runStep(session, id, ctx, wiz) {
+  const h = wiz.handlers[id];
+  const want = h.want(ctx);
+  if (want instanceof Needs) return result(id, 'needs-operator', want.message);
+  // A wizard renders a step a few seconds after its URL changes; read it only once its heading shows.
+  const heading = wiz.steps.find((s) => s.id === id)?.detect.heading;
+  if (heading && !(await waitFor(session, (spec) => [...document.querySelectorAll('h1,h2,h3,h4')].some((h) => h.getBoundingClientRect().width > 0 && new RegExp(spec.re, spec.flags).test(h.innerText)), { re: heading.source, flags: heading.flags }, { timeoutMs: 20000 }))) {
+    return result(id, 'needs-operator', 'the ' + id + ' page did not show its heading within 20 s');
+  }
+  await sleep(1000);
+  const cur = await h.read(session);
+  if (h.same(cur, want)) return result(id, 'done', wiz.describe(want));
+  if (!h.write) return result(id, 'needs-operator', 'no writer for this step');
+  if (h.saves && !ctx.apply) return result(id, 'filled', 'dry run, not typed since its dialog saves at once: ' + wiz.describe(want));
+  try {
+    await h.write(session, want, cur, ctx);
+  } catch (err) {
+    return result(id, 'needs-operator', err.message);
+  }
+  await sleep(800);
+  const back = await h.read(session);
+  return h.same(back, want) ? result(id, 'filled', wiz.describe(want)) : result(id, 'needs-operator', 'read back ' + JSON.stringify(back) + ' instead of ' + JSON.stringify(want));
+}
+
+async function advance(session, id, wiz) {
+  const before = await session.evaluate(() => location.href);
+  if (wiz.handlers[id].next) await wiz.handlers[id].next(session);
+  else await wiz.advance(session, id);
+  const moved = await waitFor(session, (u) => location.href !== u && location.href, before, { timeoutMs: 20000 });
+  await sleep(1500);
+  return moved;
+}
+
+// Walks the wizard from wherever it opens: each known step is read, compared and, when it differs,
+// typed and read back; under ctx.apply the step's next control saves it and the walk goes on. A dry run
+// saves nothing, so it goes past a step only when that step already holds the instance's values and the
+// wizard can open the next one by URL.
+export async function walkWizard(session, ctx, wiz) {
+  const log = ctx.log ?? (() => {});
+  const results = [];
+  const only = ctx.step ?? null;
+  let url = await session.navigate(only && wiz.stepUrl ? wiz.stepUrl(only) : wiz.startUrl);
+  for (let guard = 0; guard < 40; guard++) {
+    // A sign-in page is never the end of a wizard: the operator's session expired or never existed.
+    if (/\/(?:login|signin|sign-in|ab\/account-security\/login)\b/i.test(pathOf(url))) {
+      results.push(result(only ?? 'login', 'needs-operator', 'sign in to ' + wiz.name + ' in Chrome; ' + pathOf(url) + ' opened instead of the wizard'));
+      break;
+    }
+    const id = wiz.stepOfUrl(url);
+    if (id === null) {
+      results.push(result('submitted', 'done', wiz.name + ' now opens ' + pathOf(url) + ', so the wizard is finished'));
+      break;
+    }
+    if (!(id in wiz.handlers)) {
+      results.push(result(id, 'unmapped', JSON.stringify(await session.evaluate(pageOutline))));
+      break;
+    }
+    if (results.some((r) => r.step === id)) break;
+    if (only && id !== only) {
+      results.push(result(only, 'needs-operator', wiz.name + ' opened ' + id + ' instead; the wizard opens a step only after the steps before it are saved'));
+      break;
+    }
+    const r = await runStep(session, id, ctx, wiz);
+    results.push(r);
+    log(r.step + ': ' + r.state + (r.detail ? ' (' + r.detail + ')' : ''));
+    if (r.state === 'needs-operator' || r.state === 'unmapped' || only) break;
+    const pending = wiz.handlers[id].pending ? await wiz.handlers[id].pending(session) : null;
+    if (pending) {
+      results.push(result(id, 'needs-operator', pending));
+      log(id + ': needs-operator (' + pending + ')');
+      break;
+    }
+    if (!ctx.apply) {
+      const nextId = wiz.steps[wiz.steps.findIndex((s) => s.id === id) + 1]?.id;
+      if (r.state !== 'done' || !nextId || !wiz.stepUrl) break;
+      url = await session.navigate(wiz.stepUrl(nextId));
+      continue;
+    }
+    url = await advance(session, id, wiz);
+    if (!url) {
+      results.push(result(id, 'needs-operator', 'next did not leave ' + id + '; the page may show a validation message'));
+      break;
+    }
+  }
+  return results;
+}
 

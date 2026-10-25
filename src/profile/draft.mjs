@@ -50,7 +50,9 @@ export function buildPrompt(sources, { today = new Date().toISOString().slice(0,
     '6. A repository folder shows what the person authored through its README and its commit subjects; list only projects whose README or commits show the person built them, and say so in what. Commits by other authors are not theirs.',
     '7. serviceFit covers every catalog service below. strong: at least two pieces of evidence (project names or role orgs from your own lists) for that service; some: one; none: nothing in the sources. Evidence is the name of a project, role org or award you listed, copied exactly.',
     '8. claimsNotToMake lists things a reader might wrongly assume from this profile (a big-company background, a professional title, a degree, a skill the sources lack), each with the reason. These need no cite.',
-    '9. Leave a field null or empty when unknown. Skills are tools, languages or methods the sources name, copied as written, filed under the closest category.',
+    '9. Copy names, titles, schools, awards, project names, claims and stack items exactly as the source writes them, in the source language; never translate or paraphrase them. Only headline_ko, headline_en, summary_ko and summary_en are written by you, one per language. An approved claim is a sentence or phrase copied from the source that carries a number about experience.',
+    '10. A degree is listed only when the source says it was earned. Studies not finished, an enrolment or a course is not a degree: leave it out.',
+    '11. Leave a field null or empty when unknown. Skills are tools, languages or methods the sources name, copied as written, filed under the closest category.',
     '',
     `Today is ${today}.`,
     '',
@@ -135,7 +137,11 @@ export function verifyDraft(raw, sources, { today = new Date().toISOString().sli
   }
 
   out.roles = (raw.roles ?? []).flatMap((r, i) => (prove(`roles.${i}`, r.cite, r.org, r.title, r.period) ? [{ org: r.org, title: r.title, period: r.period ?? undefined }] : []));
-  out.education = (raw.education ?? []).flatMap((e, i) => (prove(`education.${i}`, e.cite, e.school, e.degree, e.period) ? [{ school: e.school, degree: e.degree ?? undefined, field: e.field ?? undefined, period: e.period ?? undefined }] : []));
+  out.education = (raw.education ?? []).flatMap((e, i) => {
+    if (!e.degree) return drop(`education.${i}`, e.school, 'no earned degree stated'), [];
+    if (!prove(`education.${i}`, e.cite, e.school, e.degree, e.period)) return [];
+    return [{ school: e.school, degree: e.degree, field: e.field ?? undefined, period: e.period ?? undefined }];
+  });
   out.awards = (raw.awards ?? []).flatMap((a, i) => (prove(`awards.${i}`, a.cite, a.name, a.year) ? [{ name: a.name, year: a.year ?? undefined }] : []));
   out.projects = (raw.projects ?? []).flatMap((x, i) => {
     if (!prove(`projects.${i}`, x.cite, x.name)) return [];
@@ -146,7 +152,7 @@ export function verifyDraft(raw, sources, { today = new Date().toISOString().sli
     if (!stated(s.name)) drop(`skills.${i}`, s.name, 'not found in any source');
     else if (!out.skills[s.category]?.some((n) => fold(n) === fold(s.name))) out.skills[s.category].push(s.name);
   }
-  out.languages = (raw.languages ?? []).flatMap((l, i) => (prove(`languages.${i}`, l.cite) ? [l.code] : []));
+  out.languages = [...new Set((raw.languages ?? []).flatMap((l, i) => (prove(`languages.${i}`, l.cite) ? [l.code] : [])))];
 
   const named = new Set([...out.projects.map((x) => x.name), ...out.roles.map((r) => r.org), ...out.awards.map((a) => a.name)]);
   const fit = new Map();

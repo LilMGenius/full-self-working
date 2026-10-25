@@ -180,13 +180,14 @@ test('kmong listing form maps counters, packages, prices and limits', () => {
   assert.equal(f.limits.packageDescription, 60);
 });
 
-test('soomgo requests map card props, unread from isRead and redacted summaries', () => {
+test('soomgo requests map card props, Seoul times, unread from isRead and redacted summaries', () => {
   const r = soomgo.parseRequests([
     { id: 'abc123', createdAt: '2026-10-25T01:13:34.6230', expiredAt: '2026-10-27T01:13:34.6230', quoteCount: 4, isQuotable: true, isRead: false, customer: '고객A', customerRequestCount: 2, service: '웹 개발', serviceId: 1, category: ['외주', '개발 외주'], address: '서울 강남구', summary: '랜딩 페이지, 연락은 010 1111 2222' },
     { id: 'def456', createdAt: null, isRead: true, isQuotable: false, customer: '', summary: '' },
   ]);
   assert.equal(r[0].unread, true);
-  assert.equal(r[0].at, '2026-10-25T01:13:34.623Z');
+  assert.equal(Date.parse(r[0].at), Date.parse('2026-10-24T16:13:34.623Z'));
+  assert.equal(Date.parse(r[0].expiresAt), Date.parse('2026-10-26T16:13:34.623Z'));
   assert.equal(r[0].preview, '랜딩 페이지, 연락은 [number]');
   assert.equal(r[0].url, 'https://soomgo.com/requests/received/abc123?from=request_list');
   assert.deepEqual([r[1].unread, r[1].quotable, r[1].customer, r[1].at], [false, false, null, null]);

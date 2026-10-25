@@ -8,6 +8,8 @@ import { lines, redactDigits, seoulIso, snippet, squash, toInt } from '../kit.mj
 export const noticeEvidence = (text) => redactDigits(String(text ?? '').split(/\n/).filter((l) => !/정산\s*계좌|입금자명/.test(l)).join('\n').trim()).slice(0, 500);
 
 // Requests: rows projected from RequestItemCard.request plus the card's questionnaire summary text.
+// createdAt and expiredAt carry no zone and are Seoul time: a card whose createdAt read 01:13 printed
+// "10시간 전" at 12:05 Seoul on 2026-10-25.
 export function parseRequests(rows) {
   return rows.map((r) => ({
     id: String(r.id),
@@ -18,8 +20,8 @@ export function parseRequests(rows) {
     serviceId: r.serviceId ?? null,
     category: r.category ?? [],
     region: r.address ?? null,
-    at: r.createdAt ? r.createdAt.replace(/(\.\d{3})\d*$/, '$1') + 'Z' : null,
-    expiresAt: r.expiredAt ? r.expiredAt.replace(/(\.\d{3})\d*$/, '$1') + 'Z' : null,
+    at: r.createdAt ? r.createdAt.replace(/(\.\d{3})\d*$/, '$1') + '+09:00' : null,
+    expiresAt: r.expiredAt ? r.expiredAt.replace(/(\.\d{3})\d*$/, '$1') + '+09:00' : null,
     quoteCount: r.quoteCount ?? null,
     quotable: r.isQuotable !== false,
     unread: r.isRead === false,

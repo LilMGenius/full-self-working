@@ -80,7 +80,10 @@ export function parseGigList(text) {
   body.forEach((l, i) => {
     const id = l.match(/^#(\d+)$/)?.[1];
     if (!id) return;
-    const row = body.slice(i + 1, i + 20);
+    // A row ends where the next one starts (its status chip sits just above the next #id line), so a
+    // label such as 승인 안내 is never read from the gig below.
+    const next = body.findIndex((x, j) => j > i && /^#\d+$/.test(x));
+    const row = body.slice(i + 1, next > i ? next - 1 : i + 20);
     const priceAt = row.findIndex((x) => /^[\d,]+원~?$/.test(x));
     if (priceAt < 1) return;
     const dateAfter = (label) => {

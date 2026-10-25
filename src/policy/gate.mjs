@@ -82,18 +82,37 @@ function payoutMatchers(business) {
 // trade name. An employer or a school is not one, and the brain's prompts keep those out instead.
 const OWNER_TITLE = /founder|owner|\bceo\b|대표|창업/i;
 
-export function identityNames(instance = {}) {
+// identityParts splits them into people (names, handle, payout holder) and companies, for a caller that
+// rewrites them in prose; identityNames is both. employers are the other organisations of the profile's
+// roles: the gate lets them through, and prompts on such a board swap them for neutral words.
+const GENERIC_ORG = /^(?:independent|freelance|self-employed|프리랜서)$/i;
+
+export function identityParts(instance = {}) {
   const profile = instance.profile ?? {};
-  const owned = (profile.roles ?? []).filter((r) => OWNER_TITLE.test([r.title, r.title_ko].filter(Boolean).join(' '))).flatMap((r) => [r.org, r.org_ko]);
-  const raw = [profile.person?.nameKo, profile.person?.nameEn, profile.person?.handle, instance.business?.payout?.holder, instance.business?.company, ...owned];
-  const names = raw.filter((n) => typeof n === 'string').flatMap((n) => [n.split(/\s*[(,]/)[0], n.match(/\(([^)]+)\)/)?.[1]]);
-  return [...new Set(names.filter(Boolean).map((n) => n.trim()).filter((n) => n.length >= 2))];
+  const isOwned = (r) => OWNER_TITLE.test([r.title, r.title_ko].filter(Boolean).join(' '));
+  const roles = profile.roles ?? [];
+  const names = (raw) => {
+    const split = raw.filter((n) => typeof n === 'string').flatMap((n) => [n.split(/\s*[(,]/)[0], n.match(/\(([^)]+)\)/)?.[1]]);
+    return [...new Set(split.filter(Boolean).map((n) => n.trim()).filter((n) => n.length >= 2 && !GENERIC_ORG.test(n)))];
+  };
+  const people = names([profile.person?.nameKo, profile.person?.nameEn, profile.person?.handle, instance.business?.payout?.holder]);
+  const companies = names([instance.business?.company, ...roles.filter(isOwned).flatMap((r) => [r.org, r.org_ko])]);
+  return {
+    people,
+    companies,
+    employers: names(roles.filter((r) => !isOwned(r)).flatMap((r) => [r.org, r.org_ko])).filter((n) => !companies.includes(n)),
+  };
+}
+
+export function identityNames(instance = {}) {
+  const { people, companies } = identityParts(instance);
+  return [...new Set([...people, ...companies])];
 }
 
 // A Latin name matches as a whole word in any case (bran is not brand); any name may be spaced.
-function namePattern(name) {
+export function namePattern(name, flags = '') {
   const body = name.split(/\s+/).map((w) => w.replace(/[.*+?^$(){}|[\]\\]/g, '\\$&')).join('\\s*');
-  return /^[\x20-\x7E]+$/.test(name) ? new RegExp('(?<![A-Za-z0-9])' + body + '(?![A-Za-z0-9])', 'i') : new RegExp(body);
+  return /^[\x20-\x7E]+$/.test(name) ? new RegExp('(?<![A-Za-z0-9])' + body + '(?![A-Za-z0-9])', 'i' + flags) : new RegExp(body, flags);
 }
 
 export function gateOutbound(item, ctx = {}) {

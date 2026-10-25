@@ -1,10 +1,12 @@
-// Proposals for 크몽 엔터프라이즈 projects: the brain writes the parts (the need, an answer to every item
-// the client asked for, a phased plan, the AI production note) through runCodex with a JSON schema; this
-// module composes the text, checks the plan against the project and the cost floor, gates it, retries
-// once with the violations, and asks an independent critic on a different model. improveProposal redrafts
-// with the critic's problems while the critic fails, at most MAX_REWRITES times. sendDecision is the policy
-// (config platforms.kmong.proposals) that turns the result into a send or an operator approval.
-import { gateOutbound } from '../policy/gate.mjs';
+// Proposals for project boards (크몽 엔터프라이즈, 위시켓): the brain writes the parts (the need, an answer
+// to every item the client asked for, a phased plan, the AI production note) through runCodex with a JSON
+// schema; this module composes the text, checks the plan against the project and the cost floor, gates it
+// on the board's descriptor, retries once with the violations, and asks an independent critic on a
+// different model. improveProposal redrafts with the critic's problems while the critic fails, at most
+// MAX_REWRITES times. sendDecision is the policy (config platforms.<id>.proposals) that turns the result
+// into a send or an operator approval. A board whose descriptor forbids identifying details (위시켓) gets
+// a profile without names, companies or project names, and the gate blocks any that slip through.
+import { gateOutbound, identityParts, namePattern } from '../policy/gate.mjs';
 import { runCodex as defaultRunCodex } from '../brain/codex.mjs';
 import { loadGateRules } from '../brain/respond.mjs';
 import { dayKey } from '../core/clock.mjs';
@@ -15,6 +17,49 @@ export const DEFAULT_MIN_CRITIC_SCORE = 0.75;
 export const MAX_REWRITES = 2;
 export const PILOT_RE = /시범|파일럿|pilot|PoC|POC|개념\s*검증|테스트\s*구축|1차\s*구축/i;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// How each board appears in the prompts: the program a proposal is for, the platform payment stays on,
+// the project lines the writer and the critic read, and any rule on terms the board adds.
+const won = (n) => n.toLocaleString('en-US') + '원';
+const percents = (shares) => shares.map((s) => Math.round(s * 100)).join(', ') + ' percent';
+
+export const BOARD_COPY = {
+  kmong: {
+    board: '크몽 엔터프라이즈',
+    platform: '크몽',
+    projectLines: (p) => [
+      'Category: ' + [p.root?.name, p.sub?.name].filter(Boolean).join(' / '),
+      'Budget: ' + p.amountKRW + ' KRW' + (p.isTax ? ', tax invoice needed' : ''),
+      'Start: ' + (p.startDate ?? 'not given') + ', end: ' + (p.endDate ?? 'not given') + ', deadline to propose: ' + (p.deadlineAt ?? 'unknown'),
+      'Readiness: ' + (p.readiness ?? 'not given'),
+    ],
+    criticBudget: (p) => 'Budget: ' + p.amountKRW + ' KRW; start ' + (p.startDate ?? '?') + ', end ' + (p.endDate ?? '?'),
+    termsRule: () => null,
+    periodRule: () => '',
+    criticRule: '',
+  },
+  wishket: {
+    board: '위시켓',
+    platform: '위시켓',
+    projectLines: (p) => [
+      'Category: ' + [p.root?.name, p.sub?.name].filter(Boolean).join(' / '),
+      'Skills the client named: ' + ((p.skills ?? []).join(', ') || 'none'),
+      'Budget: ' + p.amountKRW + ' KRW before VAT' + (p.budgetSource === 'description' ? ' (the page leaves the budget to negotiation; this is the amount its description names)' : ''),
+      'Expected period: ' + (p.durationDays ? p.durationDays + ' days' : 'not given') + ', start: ' + (p.startDate ?? p.startText ?? 'not given') + ', deadline to apply: ' + (p.deadlineAt ?? 'unknown'),
+    ],
+    criticBudget: (p) => 'Budget: ' + p.amountKRW + ' KRW before VAT; expected period ' + (p.durationDays ? p.durationDays + ' days' : 'not given') + ', start ' + (p.startDate ?? p.startText ?? '?'),
+    // 위시켓 holds the client's payment in escrow under its standard contract and adds VAT on top, so the
+    // split is proposed as contract stages, in the shares config.payment sets.
+    termsRule: (payment) => '- terms: every amount is before VAT, which 위시켓 adds to what the client pays, and payment runs through 위시켓 escrow under its standard contract, so propose the split as contract stages tied to the phases' + (Array.isArray(payment?.milestones) && payment.milestones.length ? ' (for example ' + percents(payment.milestones) + ')' : '') + ', never as a payment to me directly.',
+    periodRule: (p) => (p.durationDays ? ' The client expects about ' + p.durationDays + ' days from the start; fit the plan to that or say in need why the scope takes longer.' : ''),
+    criticRule: ' A name, a company or trade name, a project or product name or a link anywhere in the proposal is a problem and makes claimsBacked false, since 위시켓 forbids anything that identifies a member.',
+  },
+};
+const copyOf = (platform) => {
+  const copy = BOARD_COPY[platform];
+  if (!copy) throw new RangeError('no proposal copy for platform ' + platform);
+  return copy;
+};
 
 export class ProposalError extends Error {
   constructor(code, message, detail = {}) {
@@ -27,11 +72,11 @@ export class ProposalError extends Error {
 
 // ---- policy ----
 
-// config platforms.kmong.proposals; a missing or malformed value refuses every send instead of
+// config platforms.<platform>.proposals; a missing or malformed value refuses every send instead of
 // falling back to one that might send.
-export function proposalPolicy(config) {
-  const p = config?.platforms?.kmong?.proposals;
-  const bad = (what) => Object.assign(new Error('config platforms.kmong.proposals.' + what), { code: 'FSW_CONFIG_MISSING' });
+export function proposalPolicy(config, platform = 'kmong') {
+  const p = config?.platforms?.[platform]?.proposals;
+  const bad = (what) => Object.assign(new Error('config platforms.' + platform + '.proposals.' + what), { code: 'FSW_CONFIG_MISSING' });
   if (!p || typeof p !== 'object') throw bad('is missing');
   if (!Number.isInteger(p.maxPerDay) || p.maxPerDay < 0) throw bad('maxPerDay must be a non-negative integer');
   if (!['strong', 'some'].includes(p.minFit)) throw bad('minFit must be "strong" or "some"');
@@ -53,9 +98,11 @@ export function proposalsLeft({ policy, pageQuota, usedToday }) {
   return Math.max(0, Math.min(pageQuota, policy.maxPerDay - usedToday));
 }
 
-export function usedToday(ledger, now = new Date()) {
+// What counts against a board's maxPerDay: proposals sent, queued for the operator, or drafted while the
+// board has no login (위시켓 scouting), on that board in the Seoul day.
+export function usedToday(ledger, now = new Date(), platform = 'kmong') {
   const today = dayKey(now);
-  return ledger.db.prepare("SELECT at FROM events WHERE platform = 'kmong' AND kind IN ('project.proposed', 'project.queued')").all().filter((e) => dayKey(new Date(e.at)) === today).length;
+  return ledger.db.prepare("SELECT at FROM events WHERE platform = ? AND kind IN ('project.proposed', 'project.queued', 'project.drafted')").all(platform).filter((e) => dayKey(new Date(e.at)) === today).length;
 }
 
 // Auto sends need everything at once: auto mode inside the outbound hours, a strong fit, a total at or
@@ -133,8 +180,6 @@ export function parseParts(data) {
   return data;
 }
 
-const won = (n) => n.toLocaleString('en-US') + '원';
-
 export function composeText(parts) {
   const total = parts.phases.reduce((s, p) => s + p.priceKRW, 0);
   const out = [parts.need.trim(), ''];
@@ -187,8 +232,31 @@ export function checkPlan(parts, project, { floorKRW, minKRW = 0, now = new Date
 
 // ---- prompts ----
 
-function profileLines(profile) {
+// A board whose descriptor forbids identifying details (contactPolicy.identity "forbidden") gets the
+// profile with the seller's names, companies and employers swapped for neutral words and without project
+// names, so the writer cannot copy one; the facts stay, and past work is described by what was built.
+export const forbidsIdentity = (descriptor) => descriptor?.contactPolicy?.identity === 'forbidden';
+
+function anonymizer(instance) {
+  const { people, companies, employers } = identityParts(instance);
+  const swaps = [...people.map((n) => [n, '본인']), ...companies.map((n) => [n, '제 회사']), ...employers.map((n) => [n, '이전 직장'])]
+    .sort((a, b) => b[0].length - a[0].length)
+    .map(([n, to]) => [namePattern(n, 'g'), to]);
+  return (text) => swaps.reduce((t, [re, to]) => t.replace(re, to), String(text ?? ''));
+}
+
+function profileLines(profile, mask = null) {
   const p = profile ?? {};
+  if (mask) {
+    return [
+      'Headline: ' + mask(p.headline_ko ?? ''),
+      'Summary: ' + mask(p.summary_ko ?? ''),
+      'Work I can describe (by what was built, my role and the stack; never name a project, product, client or company, never paste a link): ' + JSON.stringify((p.projects ?? []).map((x) => ({ role: mask(x.role_ko ?? x.role), what: mask(x.what_ko ?? x.what), stack: x.stack }))),
+      'Skills: ' + JSON.stringify(p.skills ?? {}),
+      'Approved claims, the only experience numbers you may write, verbatim: ' + JSON.stringify(p.approvedClaims ?? []),
+      'Claims never to make: ' + JSON.stringify(p.claimsNotToMake ?? []),
+    ].join('\n');
+  }
   return [
     'Name: ' + (p.person?.nameKo ?? '') + ' / ' + (p.person?.nameEn ?? ''),
     'Headline: ' + (p.headline_ko ?? ''),
@@ -201,35 +269,38 @@ function profileLines(profile) {
 }
 
 // critique is the critic's verdict on an earlier draft ({score, problems, text}); violations are the gate
-// and plan findings on the draft just written (previous).
-export function buildProposalPrompt({ project, instance, service, floorKRW, minKRW = 0, maxChars = null, now = new Date(), violations = [], previous = null, critique = null }) {
+// and plan findings on the draft just written (previous). platform picks the board's copy; anonymous drops
+// every identifying detail from what the writer reads.
+export function buildProposalPrompt({ project, instance, service, floorKRW, minKRW = 0, maxChars = null, now = new Date(), violations = [], previous = null, critique = null, platform = 'kmong', anonymous = false }) {
   const requested = project.requested ?? [];
   const least = Math.max(floorKRW, minKRW);
+  const copy = copyOf(platform);
+  const mask = anonymous ? anonymizer(instance) : null;
+  const terms = copy.termsRule(instance.config?.payment);
   const sections = [
     '# Role',
-    'You write one proposal for a 크몽 엔터프라이즈 project as the seller below, in Korean 합니다체, plain and specific. Answer only with the JSON object the schema describes; do not run commands or read files.',
+    'You write one proposal for a ' + copy.board + ' project as the seller below, in Korean 합니다체, plain and specific. Answer only with the JSON object the schema describes; do not run commands or read files.',
     '',
     '# Who I am (the only facts you may state about me)',
-    profileLines(instance.profile),
-    'Company: ' + (instance.business?.company ?? ''),
+    profileLines(instance.profile, mask),
+    ...(mask ? [] : ['Company: ' + (instance.business?.company ?? '')]),
     '',
     '# Rules',
     '- Restate the need in need, in your own words.',
     '- answers has exactly ' + requested.length + ' entries, one per requested item below, in order. Restate each item as a short phrase in item and answer it concretely: approach, tools, what the client gets, and what you need from them. If something cannot be promised, say what you would do and what decides it.',
     '- When an item asks for past cases or similar experience, describe the closest projects from my profile by what was built, my role and the stack, and say plainly which part of this project they do not cover. Never answer only that there is nothing to show. For experience the profile does not show (a platform, a payment gateway, a language), name the nearest real work and how you would cover the gap (a pilot, a test environment, a review step); never claim it.',
-    '- phases is a plan of 2 to 5 phases, each with distinct deliverables, start and end dates (YYYY-MM-DD, starting no earlier than ' + toDay(now) + (project.endDate ? ', ending by ' + project.endDate + ' with a few working days of buffer before it' : '') + ') and a price in KRW rounded to 10,000. The total must be at most the budget ' + project.amountKRW + ' KRW and at least ' + least + ' KRW. Price it as a fair offer for the scope, not automatically at the budget; when the scope does not fit the budget, keep the core inside it and name the rest as options with a price range.' + (PILOT_RE.test(project.description) ? ' The client asked for a pilot: phase 1 is the pilot (pilot true) with its own deliverable and acceptance check.' : ' Set pilot true only on a pilot phase.') + (project.startDate ? ' If the plan starts after the client\'s start date ' + project.startDate + ', say why in need or closing.' : ''),
+    '- phases is a plan of 2 to 5 phases, each with distinct deliverables, start and end dates (YYYY-MM-DD, starting no earlier than ' + toDay(now) + (project.endDate ? ', ending by ' + project.endDate + ' with a few working days of buffer before it' : '') + ') and a price in KRW rounded to 10,000. The total must be at most the budget ' + project.amountKRW + ' KRW and at least ' + least + ' KRW. Price it as a fair offer for the scope, not automatically at the budget; when the scope does not fit the budget, keep the core inside it and name the rest as options with a price range.' + (PILOT_RE.test(project.description) ? ' The client asked for a pilot: phase 1 is the pilot (pilot true) with its own deliverable and acceptance check.' : ' Set pilot true only on a pilot phase.') + (project.startDate ? ' If the plan starts after the client\'s start date ' + project.startDate + ', say why in need or closing.' : '') + copy.periodRule(project),
     '- deliverables are short noun phrases. Prices, VAT, the tax invoice, payment terms and exclusions go in terms; what you need from the client goes in closing.',
+    ...(terms ? [terms] : []),
     '- aiNote says plainly that production uses AI tools and every deliverable is reviewed by me before delivery.',
-    '- Never write a phone number, e-mail, URL, domain, messenger ID or meeting link, and never suggest paying outside 크몽. No client or employer names. No numbers about experience unless they are approved claims. No guarantees you cannot keep.',
+    '- Never write a phone number, e-mail, URL, domain, messenger ID or meeting link, and never suggest paying outside ' + copy.platform + '. No client or employer names. No numbers about experience unless they are approved claims. No guarantees you cannot keep.',
+    ...(mask ? ['- Never write my name, a company or trade name, a project or product name, a logo or a link: ' + copy.platform + ' forbids anything that identifies a member, and the proposal is blocked when one appears. Describe past work by what was built, my role and the stack.'] : []),
     '- Plain text: no markdown, no em dash, no middle dot between words (write 과 or a comma), no hype words, no emoji. Write every amount with thousands separators and 원 (500,000원).' + (maxChars ? ' The composed proposal must stay under ' + maxChars + ' characters, headings included, so keep each answer to what the client needs to decide.' : ''),
     '- List every profile fact you used in claimsUsed.',
     '',
     '# Project (catalog service: ' + service + ')',
     'Title: ' + project.title,
-    'Category: ' + [project.root?.name, project.sub?.name].filter(Boolean).join(' / '),
-    'Budget: ' + project.amountKRW + ' KRW' + (project.isTax ? ', tax invoice needed' : ''),
-    'Start: ' + (project.startDate ?? 'not given') + ', end: ' + (project.endDate ?? 'not given') + ', deadline to propose: ' + (project.deadlineAt ?? 'unknown'),
-    'Readiness: ' + (project.readiness ?? 'not given'),
+    ...copy.projectLines(project),
     'Description:',
     project.description,
     '',
@@ -253,12 +324,13 @@ export async function draftProposal(project, ctx) {
   const minKRW = minimumKRW(project, descriptor);
   const maxChars = Number.isInteger(descriptor.limits?.proposal?.maxChars) ? descriptor.limits.proposal.maxChars : null;
   const critique = ctx.critique ?? null;
+  const board = { platform: descriptor.id, anonymous: forbidsIdentity(descriptor) };
   const attempt = async (extra) => {
-    const { data } = await runCodex({ prompt: buildProposalPrompt({ project, instance, service, floorKRW, minKRW, maxChars, now, critique, ...extra }), schema: PROPOSAL_SCHEMA, model: ctx.model ?? brain.model, effort: ctx.effort ?? brain.effort, timeoutMs: ctx.timeoutMs ?? brain.timeoutMs });
+    const { data } = await runCodex({ prompt: buildProposalPrompt({ project, instance, service, floorKRW, minKRW, maxChars, now, critique, ...board, ...extra }), schema: PROPOSAL_SCHEMA, model: ctx.model ?? brain.model, effort: ctx.effort ?? brain.effort, timeoutMs: ctx.timeoutMs ?? brain.timeoutMs });
     const parts = parseParts(data);
     const text = composeText(parts);
     const plan = checkPlan(parts, project, { floorKRW, minKRW, now });
-    const gate = gateOutbound({ platform: 'kmong', kind: 'proposal', text, thread: { stage: 'pre_order' } }, { descriptor, instance, lessonsRules });
+    const gate = gateOutbound({ platform: descriptor.id, kind: 'proposal', text, thread: { stage: 'pre_order' } }, { descriptor, instance, lessonsRules });
     const proposal = { text, totalKRW: plan.totalKRW, phases: parts.phases, answers: parts.answers, terms: parts.terms, claimsUsed: parts.claimsUsed, service, floorKRW };
     return { proposal, gate, violations: [...plan.violations, ...gate.violations] };
   };
@@ -285,20 +357,21 @@ export const CRITIC_SCHEMA = {
   },
 };
 
-export function buildCriticPrompt({ project, proposal, instance }) {
+export function buildCriticPrompt({ project, proposal, instance, platform = 'kmong', anonymous = false }) {
+  const copy = copyOf(platform);
   return [
     '# Role',
-    'You review a proposal before it is sent to a client on 크몽 엔터프라이즈. You did not write it. Judge it strictly against the project and the seller profile, and answer only with the JSON object the schema describes.',
+    'You review a proposal before it is sent to a client on ' + copy.board + '. You did not write it. Judge it strictly against the project and the seller profile, and answer only with the JSON object the schema describes.',
     '',
     '# Score',
-    'score from 0 to 1: would a careful client shortlist this proposal? needRestated: the need is restated correctly. everyItemAnswered: every requested item gets a concrete answer, none skipped or answered vaguely. claimsBacked: every fact about the seller is backed by the profile below and nothing is invented (no client names, no numbers outside approved claims). pricePlausible: the phases, dates and prices are realistic for the scope and inside the budget. problems: the concrete faults, in English.',
+    'score from 0 to 1: would a careful client shortlist this proposal? needRestated: the need is restated correctly. everyItemAnswered: every requested item gets a concrete answer, none skipped or answered vaguely. claimsBacked: every fact about the seller is backed by the profile below and nothing is invented (no client names, no numbers outside approved claims). pricePlausible: the phases, dates and prices are realistic for the scope and inside the budget. problems: the concrete faults, in English.' + (anonymous ? copy.criticRule : ''),
     '',
     '# Seller profile',
-    profileLines(instance.profile),
+    profileLines(instance.profile, anonymous ? anonymizer(instance) : null),
     '',
     '# Project',
     'Title: ' + project.title,
-    'Budget: ' + project.amountKRW + ' KRW; start ' + (project.startDate ?? '?') + ', end ' + (project.endDate ?? '?'),
+    copy.criticBudget(project),
     project.description,
     '',
     '# Requested items',
@@ -311,9 +384,10 @@ export function buildCriticPrompt({ project, proposal, instance }) {
 
 // A critic that cannot answer is a failed critic: the draft goes to the operator with the error.
 export async function criticize(project, proposal, ctx) {
-  const { instance, policy, runCodex = defaultRunCodex } = ctx;
+  const { instance, policy, descriptor, runCodex = defaultRunCodex } = ctx;
+  const board = { platform: descriptor?.id ?? 'kmong', anonymous: forbidsIdentity(descriptor) };
   try {
-    const { data } = await runCodex({ prompt: buildCriticPrompt({ project, proposal, instance }), schema: CRITIC_SCHEMA, model: policy.criticModel, effort: ctx.effort ?? 'medium', timeoutMs: ctx.timeoutMs ?? instance.config?.brain?.timeoutMs });
+    const { data } = await runCodex({ prompt: buildCriticPrompt({ project, proposal, instance, ...board }), schema: CRITIC_SCHEMA, model: policy.criticModel, effort: ctx.effort ?? 'medium', timeoutMs: ctx.timeoutMs ?? instance.config?.brain?.timeoutMs });
     if (typeof data?.score !== 'number') throw new ProposalError('FSW_CRITIC_BAD', 'critic answer has no score');
     const pass = data.score >= policy.minCriticScore && data.needRestated && data.everyItemAnswered && data.claimsBacked && data.pricePlausible;
     return { ...data, pass, model: policy.criticModel };

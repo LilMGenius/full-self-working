@@ -15,6 +15,7 @@ import {
   APPLY_UNMAPPED, applyToProject, budgetOf, descriptionBudget, detailUrl, listQuery, openProjectReader, parseListCard, parseProjectDetail, requestedItems,
 } from '../src/platforms/wishket/projects.mjs';
 import { boardDrop, needsJudgement, projectFloorKRW, projectMemory, rankProjects, scoreProject } from '../src/projects/score.mjs';
+import { buildCriticPrompt, buildProposalPrompt, draftProposal, proposalPolicy, usedToday } from '../src/projects/draft.mjs';
 
 const NOW = new Date('2026-10-25T03:00:00Z'); // 12:00 Seoul
 const CHROME = process.env.FSW_CHROME ?? DEFAULT_CHROME;
@@ -160,6 +161,65 @@ test('a card alone drops private and term-based projects, and wishket judgements
 });
 
 // ---- the page-side readers on synthetic markup in the owned headless browser ----
+
+// ---- proposals on the wishket board ----
+
+const draftParts = (over = {}) => ({
+  need: '사내 회의실과 장비 예약을 한곳에서 관리하는 웹이 필요합니다.',
+  answers: [{ item: '비슷한 사례', answer: '예약 페이지를 만든 경험을 바탕으로 설명드립니다.' }, { item: '일정과 견적', answer: '2단계로 진행합니다.' }, { item: '유지보수', answer: '오픈 후 한 달 무상 수정입니다.' }],
+  phases: [
+    { title: '설계', deliverables: ['화면 설계서'], startDate: '2026-11-02', endDate: '2026-11-20', priceKRW: 4000000, pilot: false },
+    { title: '개발', deliverables: ['예약 웹'], startDate: '2026-11-23', endDate: '2026-12-18', priceKRW: 6000000, pilot: false },
+  ],
+  terms: '부가세 별도이며 위시켓 계약 단계에 맞춰 나누어 받습니다.',
+  aiNote: 'AI 도구로 작업하고 모든 결과물은 제가 검토합니다.',
+  closing: '예약 대상 목록을 보내 주시면 바로 시작합니다.',
+  claimsUsed: [],
+  ...over,
+});
+
+test('a wishket proposal and its critic never see the operator names, companies, employers or project names, and kmong keeps its copy', () => {
+  const instance = makeInstance();
+  instance.profile.roles = [{ org: '예시회사', title: '소프트웨어 엔지니어' }, { org: 'Example Studio', org_ko: '예시스튜디오 (Example Studio)', title: 'Founder/CEO' }];
+  instance.profile.summary_ko = '예시스튜디오를 세웠고 예시회사에서 예약 시스템을 만들었습니다.';
+  const project = detail();
+  const prompt = buildProposalPrompt({ project, instance, service: 'web_app_dev', floorKRW: 1000000, now: NOW, platform: 'wishket', anonymous: true });
+  const critic = buildCriticPrompt({ project, proposal: { text: '제안서' }, instance, platform: 'wishket', anonymous: true });
+  for (const text of [prompt, critic]) {
+    for (const name of ['홍길동', 'Gildong', 'gildong', '예시상사', '예시스튜디오', 'Example Studio', '예시회사', '예시 프로젝트']) assert.ok(!text.includes(name), name);
+    assert.match(text, /위시켓/);
+    assert.doesNotMatch(text, /크몽/);
+  }
+  assert.match(prompt, /제 회사를 세웠고 이전 직장에서 예약 시스템을 만들었습니다/);
+  assert.match(prompt, /escrow/);
+  assert.match(prompt, /about 40 days/);
+  assert.match(critic, /identifies a member/);
+  const kmong = buildProposalPrompt({ project, instance, service: 'web_app_dev', floorKRW: 1000000, now: NOW });
+  assert.match(kmong, /크몽 엔터프라이즈/);
+  assert.match(kmong, /홍길동/);
+});
+
+test('a wishket draft that names the operator is blocked and redrafted, and policy and quota are per platform', async () => {
+  const instance = makeInstance();
+  const calls = [];
+  const runCodex = async ({ prompt }) => (calls.push(prompt), { data: draftParts({ closing: '홍길동이 직접 진행합니다.' }) });
+  const d = await draftProposal(detail(), { instance, descriptor: wishket, service: 'web_app_dev', floorKRW: 1000000, runCodex, lessonsRules: [], now: NOW });
+  assert.equal(d.ok, false);
+  assert.ok(d.violations.some((v) => v.rule === 'identity.name'));
+  assert.equal(calls.length, 2);
+  assert.match(calls[1], /identity\.name/);
+  const clean = await draftProposal(detail(), { instance, descriptor: wishket, service: 'web_app_dev', floorKRW: 1000000, runCodex: async () => ({ data: draftParts() }), lessonsRules: [], now: NOW });
+  assert.deepEqual([clean.ok, clean.proposal.totalKRW], [true, 10000000]);
+  const config = { platforms: { kmong: { proposals: { maxPerDay: 5, minFit: 'strong', autoMaxKRW: 0 } }, wishket: { proposals: { maxPerDay: 2, minFit: 'some', autoMaxKRW: 0 } } } };
+  assert.deepEqual([proposalPolicy(config).maxPerDay, proposalPolicy(config, 'wishket').maxPerDay, proposalPolicy(config, 'wishket').minFit], [5, 2, 'some']);
+  assert.throws(() => proposalPolicy({ platforms: { wishket: {} } }, 'wishket'), /platforms\.wishket\.proposals/);
+  const ledger = openLedger(':memory:');
+  ledger.addEvent({ at: NOW.toISOString(), kind: 'project.queued', platform: 'kmong', ref: 1 });
+  ledger.addEvent({ at: NOW.toISOString(), kind: 'project.drafted', platform: 'wishket', ref: 2 });
+  ledger.addEvent({ at: NOW.toISOString(), kind: 'project.drafted', platform: 'wishket', ref: 3 });
+  assert.deepEqual([usedToday(ledger, NOW), usedToday(ledger, NOW, 'wishket')], [1, 2]);
+  ledger.close();
+});
 
 const LZ = '<script>window.LZString = { compressToBase64: (q) => "ENC:" + q };</script>';
 const listCard = ({ id, title, budget, term = '30일', type = '외주', field = '랜딩ㆍ소개 페이지', applicants = '5명', isPrivate = false }) => '<div class="project-info-box"><section class="project-organic-info">'

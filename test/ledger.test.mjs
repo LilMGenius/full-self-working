@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openLedger } from '../src/core/ledger.mjs';
@@ -69,9 +70,43 @@ test('reopening keeps the schema version and data', () => {
     a.upsertThread({ platform: 'kmong', externalId: 'X', kind: 'order' });
     a.close();
     const b = openLedger(path);
-    assert.equal(b.db.prepare('PRAGMA user_version').get().user_version, 2);
+    assert.equal(b.db.prepare('PRAGMA user_version').get().user_version, 3);
     assert.equal(b.db.prepare('PRAGMA journal_mode').get().journal_mode, 'wal');
     assert.equal(b.counts().threads, 1);
+    b.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
+test('a version 2 ledger takes project threads after the rebuild and keeps every row and reference', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'fsw-ledger-'));
+  try {
+    const path = join(dir, 'ledger.sqlite');
+    const a = openLedger(path);
+    const t = a.upsertThread({ platform: 'kmong', externalId: 'T9', kind: 'message', meta: { a: 1 } });
+    a.addMessage({ threadId: t.id, direction: 'in', body: 'hello', externalId: 'm1' });
+    a.addQuote({ threadId: t.id, platform: 'kmong', amountKRW: 100000 });
+    a.close();
+    // Turn the file back into a version 2 ledger: the old threads table without the project kind.
+    const raw = new DatabaseSync(path);
+    // legacy_alter_table keeps the child tables pointing at the name threads while the table is swapped.
+    raw.exec('PRAGMA foreign_keys = OFF; PRAGMA legacy_alter_table = ON');
+    const sql = raw.prepare("SELECT sql FROM sqlite_master WHERE name = 'threads'").get().sql;
+    raw.exec('ALTER TABLE threads RENAME TO threads_v3');
+    raw.exec(sql.replace(",'project'", ''));
+    raw.exec('INSERT INTO threads SELECT * FROM threads_v3; DROP TABLE threads_v3; PRAGMA user_version = 2');
+    raw.close();
+    const b = openLedger(path);
+    assert.equal(b.db.prepare('PRAGMA user_version').get().user_version, 3);
+    assert.equal(b.db.prepare('PRAGMA foreign_keys').get().foreign_keys, 1);
+    assert.deepEqual(b.db.prepare('PRAGMA foreign_key_check').all(), []);
+    assert.equal(b.getThread(t.id).meta.a, 1);
+    assert.equal(b.threadMessages(t.id).length, 1);
+    assert.equal(b.listQuotes({ threadId: t.id }).length, 1);
+    const p = b.upsertThread({ platform: 'kmong', externalId: 'project:1', kind: 'project' });
+    assert.equal(p.kind, 'project');
+    assert.throws(() => b.addMessage({ threadId: 9999, direction: 'in', body: 'orphan' }), /FOREIGN KEY/);
     b.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });

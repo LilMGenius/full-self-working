@@ -114,6 +114,33 @@ const MIGRATIONS = [
   );
   CREATE INDEX money_events_job ON money_events(job_id);
   `,
+  // Enterprise projects the agent judged (src/projects) are threads of kind project, so each is
+  // evaluated once per page version. SQLite cannot alter a CHECK, so the table is rebuilt.
+  {
+    rebuild: true,
+    sql: `
+  CREATE TABLE threads_new (
+    id INTEGER PRIMARY KEY,
+    platform TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('message','request','order','project')),
+    customer TEXT,
+    service TEXT,
+    status TEXT,
+    language TEXT,
+    last_inbound_at TEXT,
+    last_outbound_at TEXT,
+    created_at TEXT NOT NULL,
+    meta TEXT,
+    UNIQUE (platform, external_id)
+  );
+  INSERT INTO threads_new (id, platform, external_id, kind, customer, service, status, language, last_inbound_at, last_outbound_at, created_at, meta)
+    SELECT id, platform, external_id, kind, customer, service, status, language, last_inbound_at, last_outbound_at, created_at, meta FROM threads;
+  DROP TABLE threads;
+  ALTER TABLE threads_new RENAME TO threads;
+  CREATE INDEX threads_platform_status ON threads(platform, status);
+  `,
+  },
 ];
 
 export const TABLES = ['threads', 'messages', 'quotes', 'jobs', 'payments', 'reviews', 'events', 'money_events'];
@@ -153,14 +180,25 @@ export function openLedger(path) {
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
   const version = db.prepare('PRAGMA user_version').get().user_version;
   for (let v = version; v < MIGRATIONS.length; v++) {
+    const m = typeof MIGRATIONS[v] === 'string' ? { sql: MIGRATIONS[v] } : MIGRATIONS[v];
+    // A table rebuild drops a table other tables reference, which needs foreign keys off; the pragma
+    // only takes effect outside a transaction, so it brackets the transaction and the keys are checked
+    // before the commit.
+    if (m.rebuild) db.exec('PRAGMA foreign_keys = OFF');
     db.exec('BEGIN');
     try {
-      db.exec(MIGRATIONS[v]);
+      db.exec(m.sql);
+      if (m.rebuild) {
+        const broken = db.prepare('PRAGMA foreign_key_check').all();
+        if (broken.length) throw new Error('migration ' + (v + 1) + ' left ' + broken.length + ' broken foreign keys, first in ' + broken[0].table);
+      }
       db.exec(`PRAGMA user_version = ${v + 1}`);
       db.exec('COMMIT');
     } catch (err) {
       db.exec('ROLLBACK');
       throw err;
+    } finally {
+      if (m.rebuild) db.exec('PRAGMA foreign_keys = ON');
     }
   }
 

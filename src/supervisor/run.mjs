@@ -3,7 +3,8 @@
 // 5-minute Seoul mark. Every job and platform result, failures included, goes to the ledger events and
 // logs/events-*.jsonl; a job that is not wired yet is recorded as "not wired", never as done.
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, openSync, closeSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, openSync, closeSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { dayKey, isActive } from '../core/clock.mjs';
@@ -29,11 +30,19 @@ export const runDir = (instance) => join(instance.dir, 'run');
 const lockFile = (instance) => join(runDir(instance), 'supervisor.pid');
 const stateFile = (instance) => join(runDir(instance), 'state.json');
 
-// The commit the code on disk comes from. A running process keeps the modules it loaded at start, so a
-// newer commit reaches the supervisor only through a restart.
-export function codeVersion(cwd = repoRoot) {
-  const r = spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8', windowsHide: true });
+const gitOut = (cwd, args) => {
+  const r = spawnSync('git', args, { cwd, encoding: 'utf8', windowsHide: true });
   return r.status === 0 ? r.stdout.trim() : null;
+};
+
+// The code a running supervisor should be on. A process keeps the modules it loaded at start, so newer
+// code reaches it only through a restart. Run from a detached worktree (the scheduled task's deploy
+// copy), it follows refs/heads/main and runs only committed code; run from a branch checkout (a
+// developer's tree), it follows that checkout's HEAD and its files as they are.
+export function codeState(cwd = repoRoot) {
+  const head = gitOut(cwd, ['rev-parse', 'HEAD']);
+  const detached = gitOut(cwd, ['symbolic-ref', '-q', 'HEAD']) === null;
+  return { head, detached, target: detached ? gitOut(cwd, ['rev-parse', 'refs/heads/main']) : head };
 }
 
 // Loads the supervisor's whole static module graph from disk in a fresh process, so a commit that does
@@ -43,6 +52,21 @@ export function probeNewCode(cwd = repoRoot) {
   const script = 'try { await import(' + JSON.stringify(url) + ') } catch (e) { console.error(String(e?.stack ?? e).split("\\n")[0]); process.exit(1) }';
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', script], { cwd, encoding: 'utf8', windowsHide: true, timeout: 60_000 });
   return { ok: r.status === 0, detail: String(r.stderr || r.stdout || r.error?.message || '').trim().split(/\r?\n/)[0] };
+}
+
+// Probes a commit in a temporary worktree, so the deploy copy never checks out code that does not import.
+export function probeCommit(commit, cwd = repoRoot) {
+  const dir = join(tmpdir(), 'fsw-probe-' + process.pid + '-' + Date.now());
+  const add = spawnSync('git', ['worktree', 'add', '--detach', dir, commit], { cwd, encoding: 'utf8', windowsHide: true });
+  if (add.status !== 0) return { ok: false, detail: 'git worktree add failed: ' + String(add.stderr).trim().split(/\r?\n/)[0] };
+  try {
+    return probeNewCode(dir);
+  } finally {
+    if (spawnSync('git', ['worktree', 'remove', '--force', dir], { cwd, windowsHide: true }).status !== 0) {
+      rmSync(dir, { recursive: true, force: true });
+      spawnSync('git', ['worktree', 'prune'], { cwd, windowsHide: true });
+    }
+  }
 }
 
 // What to do at a tick boundary about the code on disk: keep running while HEAD is where the process
@@ -380,13 +404,13 @@ export async function runSupervisor(ctx = {}) {
   const ledger = openLedger(instance.paths.ledger);
   let awake = null;
   try {
-    awake = await holdAwake();
+    awake = await (ctx.holdAwake ?? holdAwake)();
     log('sleep hold by pid ' + awake.pid);
   } catch (err) {
     ledger.addEvent({ kind: 'supervisor.keepalive_failed', payload: { code: err.code ?? null, message: err.message } });
     await notifyOperator(instance, { kind: 'supervisor', title: 'The supervisor could not hold the machine awake', body: err.message, dedupeKey: 'keepalive:' + dayKey() });
   }
-  const keeper = createBrowserKeeper({ instance });
+  const keeper = (ctx.createBrowserKeeper ?? createBrowserKeeper)({ instance });
   let stopping = false;
   let wake = null;
   const stop = (signal) => {
@@ -402,12 +426,23 @@ export async function runSupervisor(ctx = {}) {
   const signals = ['SIGINT', 'SIGTERM', 'SIGBREAK', 'SIGHUP'];
   for (const s of signals) process.on(s, stop);
   process.on('exit', cleanup);
+  const code = ctx.codeState ?? codeState;
+  const probe = ctx.probe ?? ((commit, at) => (at.detached ? probeCommit(commit) : probeNewCode()));
+  const checkout = ctx.checkout ?? ((commit) => gitOut(repoRoot, ['checkout', '--detach', '--quiet', commit]) !== null);
+  const tick = ctx.runTick ?? runTick;
+  const sleep = ctx.sleep ?? ((ms) => new Promise((resolve) => {
+    const t = setTimeout(resolve, ms);
+    wake = () => {
+      clearTimeout(t);
+      resolve();
+    };
+  }));
+  const started = code().head;
+  let rejected = null;
+  let restart = false;
   try {
     const state = readState(instance);
     let current = instance;
-    const started = (ctx.codeVersion ?? codeVersion)();
-    let rejected = null;
-    let restart = false;
     while (!stopping) {
       // The config is read again every tick, so an operator edit (a mode, a budget) applies at the next
       // mark without a restart. A config that no longer parses keeps the last good one and tells the
@@ -420,11 +455,15 @@ export async function runSupervisor(ctx = {}) {
           await notifyOperator(instance, { kind: 'supervisor', title: 'The instance config did not load', body: err.message, dedupeKey: 'config:' + dayKey() });
         }
       }
-      const summary = await runTick({ instance: current, ledger, state, keeper, log, forceMode: ctx.forceMode });
+      const summary = await tick({ instance: current, ledger, state, keeper, log, forceMode: ctx.forceMode });
       if (summary.jobs.length) log('tick ' + summary.jobs.map((j) => j.job + ':' + j.status).join(' ') + ' failures=' + summary.failures);
       if (stopping || ctx.once) break;
-      const head = (ctx.codeVersion ?? codeVersion)();
-      const handover = codeHandover({ started, head, rejected, probe: ctx.probeNewCode ?? probeNewCode });
+      const at = code();
+      const head = at.target;
+      let handover = codeHandover({ started, head, rejected, probe: () => probe(head, at) });
+      // A deploy worktree moves to the probed commit before handing over; one that cannot move keeps
+      // running what it has.
+      if (handover.action === 'restart' && at.detached && !checkout(head)) handover = { action: 'reject', detail: 'git checkout of ' + head.slice(0, 7) + ' failed in ' + repoRoot };
       if (handover.action === 'restart') {
         log('code moved from ' + started.slice(0, 7) + ' to ' + head.slice(0, 7) + '; restarting');
         restart = true;
@@ -435,14 +474,7 @@ export async function runSupervisor(ctx = {}) {
         log('code at ' + head.slice(0, 7) + ' does not load; keeping ' + started.slice(0, 7) + ': ' + handover.detail);
         await notifyOperator(instance, { kind: 'supervisor', title: 'New code does not load; the supervisor keeps running ' + started.slice(0, 7), body: handover.detail, dedupeKey: 'code:' + head });
       }
-      const ms = Math.max(0, nextWake(new Date()).getTime() - Date.now());
-      await new Promise((resolve) => {
-        const t = setTimeout(resolve, ms);
-        wake = () => {
-          clearTimeout(t);
-          resolve();
-        };
-      });
+      await sleep(Math.max(0, nextWake(new Date()).getTime() - Date.now()));
       wake = null;
     }
   } finally {

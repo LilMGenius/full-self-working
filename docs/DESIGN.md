@@ -104,7 +104,7 @@ All marks are Seoul time and aligned to minute 0. Every 5 minutes: inbox, orders
 
 The supervisor is one process started by a per-user scheduled task at logon and re-checked hourly at :00; a pid lock prevents doubles. It keeps the BrowserSkill daemon alive as a child, holds a Windows execution-state request so the machine does not idle into sleep, runs platform pipelines concurrently with one tab per platform, and runs jobs as separate processes up to `jobs.maxParallel`. Outbound actions respect `activeHours` and each descriptor's pacing (minimum gap between page loads, maximum actions and messages per hour).
 
-A process keeps the modules it loaded, so after each tick the supervisor compares the repository's HEAD with the commit it started from. When HEAD moved and the new code's module graph imports in a fresh process, it exits with code 75 and the task's launcher starts it again; a commit that does not import is reported once and the running code stays. The config is read again every tick, so a config edit needs no restart.
+A process keeps the modules it loaded, and agents edit the main checkout all day, so the scheduled task runs the supervisor from a detached worktree of `main` (`%LOCALAPPDATA%\fsw\code`, or `FSW_CODE_DIR`) that only ever holds committed code. After each tick the supervisor compares that worktree with `main`; when `main` moved and the new commit's module graph imports in a temporary worktree, it checks the commit out and exits with code 75, and the launcher starts it again at once. A commit that does not import is reported once and the running code stays. The launcher restarts a supervisor that crashed after five minutes, and the config is read again every tick, so a config edit needs no restart.
 
 ## Browser
 

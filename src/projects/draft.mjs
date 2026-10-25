@@ -1,9 +1,9 @@
 // Proposals for 크몽 엔터프라이즈 projects: the brain writes the parts (the need, an answer to every item
 // the client asked for, a phased plan, the AI production note) through runCodex with a JSON schema; this
 // module composes the text, checks the plan against the project and the cost floor, gates it, retries
-// once with the violations, and asks an independent critic on a different model before any automatic
-// send. sendDecision is the policy (config platforms.kmong.proposals) that turns the result into a send
-// or an operator approval.
+// once with the violations, and asks an independent critic on a different model. improveProposal redrafts
+// with the critic's problems while the critic fails, at most MAX_REWRITES times. sendDecision is the policy
+// (config platforms.kmong.proposals) that turns the result into a send or an operator approval.
 import { gateOutbound } from '../policy/gate.mjs';
 import { runCodex as defaultRunCodex } from '../brain/codex.mjs';
 import { loadGateRules } from '../brain/respond.mjs';
@@ -12,6 +12,7 @@ import { FIT_RANK } from './score.mjs';
 
 export const DEFAULT_CRITIC_MODEL = 'cpa/claude-opus-5-5';
 export const DEFAULT_MIN_CRITIC_SCORE = 0.75;
+export const MAX_REWRITES = 2;
 export const PILOT_RE = /시범|파일럿|pilot|PoC|POC|개념\s*검증|테스트\s*구축|1차\s*구축/i;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -72,12 +73,20 @@ export function sendDecision({ policy, mode, sendingHours, fit, totalKRW, critic
 
 export const fitMeets = (fit, minFit) => FIT_RANK[fit] >= FIT_RANK[minFit];
 
+// The smallest total the platform's form takes for this project: its descriptor ratio of the budget,
+// rounded up to 10,000 KRW (kmong prints 최소 1540만원 for a 2200만원 budget). 0 when either is unknown.
+export function minimumKRW(project, descriptor) {
+  const ratio = descriptor?.enterprise?.minProposalRatio;
+  if (!Number.isFinite(project?.amountKRW) || !(ratio > 0)) return 0;
+  return Math.ceil((project.amountKRW * ratio) / 10_000) * 10_000;
+}
+
 // ---- the brain's parts ----
 
 export const PROPOSAL_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['need', 'answers', 'phases', 'aiNote', 'closing', 'claimsUsed'],
+  required: ['need', 'answers', 'phases', 'terms', 'aiNote', 'closing', 'claimsUsed'],
   properties: {
     need: { type: 'string', description: 'two or three sentences restating what the client needs and why, in your own words' },
     answers: {
@@ -93,7 +102,7 @@ export const PROPOSAL_SCHEMA = {
         required: ['title', 'deliverables', 'startDate', 'endDate', 'priceKRW', 'pilot'],
         properties: {
           title: { type: 'string' },
-          deliverables: { type: 'array', items: { type: 'string' } },
+          deliverables: { type: 'array', description: 'short noun phrases, one per deliverable; no prices, terms or client prerequisites', items: { type: 'string' } },
           startDate: { type: 'string', description: 'YYYY-MM-DD' },
           endDate: { type: 'string', description: 'YYYY-MM-DD' },
           priceKRW: { type: 'integer' },
@@ -101,6 +110,7 @@ export const PROPOSAL_SCHEMA = {
         },
       },
     },
+    terms: { type: 'string', description: 'the commercial terms in one or two sentences: whether the total includes VAT, the tax invoice, how payment is split, what is excluded and how extra work is priced' },
     aiNote: { type: 'string', description: 'how production uses AI tools with human review, plainly' },
     closing: { type: 'string', description: 'one or two sentences: what you need next from the client' },
     claimsUsed: { type: 'array', items: { type: 'string' } },
@@ -110,7 +120,7 @@ export const PROPOSAL_SCHEMA = {
 export function parseParts(data) {
   const bad = (why) => new ProposalError('FSW_PROPOSAL_BAD_DRAFT', 'model draft rejected: ' + why, { data });
   if (!data || typeof data !== 'object') throw bad('not an object');
-  for (const k of ['need', 'aiNote', 'closing']) if (typeof data[k] !== 'string' || !data[k].trim()) throw bad(k);
+  for (const k of ['need', 'terms', 'aiNote', 'closing']) if (typeof data[k] !== 'string' || !data[k].trim()) throw bad(k);
   if (!Array.isArray(data.answers) || !data.answers.every((a) => typeof a?.item === 'string' && typeof a?.answer === 'string')) throw bad('answers');
   if (!Array.isArray(data.phases) || !data.phases.length) throw bad('phases');
   for (const [i, p] of data.phases.entries()) {
@@ -135,18 +145,19 @@ export function composeText(parts) {
   out.push('[진행 계획]');
   parts.phases.forEach((p, i) => {
     out.push(i + 1 + '단계 ' + p.title.trim() + ' (' + p.startDate + ' ~ ' + p.endDate + ', ' + won(p.priceKRW) + ')');
-    out.push('결과물: ' + p.deliverables.map((d) => d.trim()).join(', '));
+    for (const d of p.deliverables.map((x) => x.trim()).filter(Boolean)) out.push('- ' + d);
   });
-  out.push('합계 ' + won(total), '', '[제작 방식]', parts.aiNote.trim(), '', parts.closing.trim());
+  out.push('합계 ' + won(total), '', '[계약 조건]', parts.terms.trim(), '', '[제작 방식]', parts.aiNote.trim(), '', parts.closing.trim());
   return out.join('\n');
 }
 
 const toDay = (now) => dayKey(now).replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3');
 
 // Deterministic checks of the parts against the project: every requested item answered, the plan
-// inside the budget and above the floor, dates that run forward from today and end by the project's
-// end, a pilot first where the client asked for one, and the AI production note.
-export function checkPlan(parts, project, { floorKRW, now = new Date() }) {
+// inside the budget and above both the cost floor and the platform's minimum, dates that run forward
+// from today and end by the project's end, a pilot first where the client asked for one, and the AI
+// production note.
+export function checkPlan(parts, project, { floorKRW, minKRW = 0, now = new Date() }) {
   const v = [];
   const add = (rule, detail) => v.push({ rule: 'plan.' + rule, detail });
   const requested = project.requested ?? [];
@@ -157,6 +168,7 @@ export function checkPlan(parts, project, { floorKRW, now = new Date() }) {
   if (parts.phases.some((p) => p.priceKRW <= 0)) add('price', 'every phase needs a positive price');
   if (Number.isFinite(project.amountKRW) && total > project.amountKRW) add('budget', 'total ' + total + ' KRW is above the budget ' + project.amountKRW + ' KRW');
   if (total < floorKRW) add('floor', 'total ' + total + ' KRW is under the cost floor ' + floorKRW + ' KRW');
+  if (minKRW && total < minKRW) add('minimum', 'total ' + total + ' KRW is under ' + minKRW + ' KRW, the least the platform form takes for this budget');
   const today = toDay(now);
   let prevStart = today;
   parts.phases.forEach((p, i) => {
@@ -188,8 +200,11 @@ function profileLines(profile) {
   ].join('\n');
 }
 
-export function buildProposalPrompt({ project, instance, service, floorKRW, now = new Date(), violations = [], previous = null }) {
+// critique is the critic's verdict on an earlier draft ({score, problems, text}); violations are the gate
+// and plan findings on the draft just written (previous).
+export function buildProposalPrompt({ project, instance, service, floorKRW, minKRW = 0, maxChars = null, now = new Date(), violations = [], previous = null, critique = null }) {
   const requested = project.requested ?? [];
+  const least = Math.max(floorKRW, minKRW);
   const sections = [
     '# Role',
     'You write one proposal for a 크몽 엔터프라이즈 project as the seller below, in Korean 합니다체, plain and specific. Answer only with the JSON object the schema describes; do not run commands or read files.',
@@ -201,11 +216,12 @@ export function buildProposalPrompt({ project, instance, service, floorKRW, now 
     '# Rules',
     '- Restate the need in need, in your own words.',
     '- answers has exactly ' + requested.length + ' entries, one per requested item below, in order. Restate each item as a short phrase in item and answer it concretely: approach, tools, what the client gets, and what you need from them. If something cannot be promised, say what you would do and what decides it.',
-    '- When an item asks for past cases or similar experience, describe the closest projects from my profile by what was built, my role and the stack, and say plainly which part of this project they do not cover. Never answer only that there is nothing to show.',
-    '- phases is a plan of 2 to 5 phases, each with distinct deliverables, start and end dates (YYYY-MM-DD, starting no earlier than ' + toDay(now) + (project.endDate ? ', ending by ' + project.endDate : '') + ') and a price in KRW rounded to 10,000. The total must be at most the budget ' + project.amountKRW + ' KRW and at least ' + floorKRW + ' KRW. Price it as a fair offer for the scope, not automatically at the budget.' + (PILOT_RE.test(project.description) ? ' The client asked for a pilot: phase 1 is the pilot (pilot true) with its own deliverable and acceptance check.' : ' Set pilot true only on a pilot phase.'),
+    '- When an item asks for past cases or similar experience, describe the closest projects from my profile by what was built, my role and the stack, and say plainly which part of this project they do not cover. Never answer only that there is nothing to show. For experience the profile does not show (a platform, a payment gateway, a language), name the nearest real work and how you would cover the gap (a pilot, a test environment, a review step); never claim it.',
+    '- phases is a plan of 2 to 5 phases, each with distinct deliverables, start and end dates (YYYY-MM-DD, starting no earlier than ' + toDay(now) + (project.endDate ? ', ending by ' + project.endDate + ' with a few working days of buffer before it' : '') + ') and a price in KRW rounded to 10,000. The total must be at most the budget ' + project.amountKRW + ' KRW and at least ' + least + ' KRW. Price it as a fair offer for the scope, not automatically at the budget; when the scope does not fit the budget, keep the core inside it and name the rest as options with a price range.' + (PILOT_RE.test(project.description) ? ' The client asked for a pilot: phase 1 is the pilot (pilot true) with its own deliverable and acceptance check.' : ' Set pilot true only on a pilot phase.') + (project.startDate ? ' If the plan starts after the client\'s start date ' + project.startDate + ', say why in need or closing.' : ''),
+    '- deliverables are short noun phrases. Prices, VAT, the tax invoice, payment terms and exclusions go in terms; what you need from the client goes in closing.',
     '- aiNote says plainly that production uses AI tools and every deliverable is reviewed by me before delivery.',
     '- Never write a phone number, e-mail, URL, domain, messenger ID or meeting link, and never suggest paying outside 크몽. No client or employer names. No numbers about experience unless they are approved claims. No guarantees you cannot keep.',
-    '- Plain text: no markdown, no em dash, no middle dot between words (write 과 or a comma), no hype words, no emoji.',
+    '- Plain text: no markdown, no em dash, no middle dot between words (write 과 or a comma), no hype words, no emoji. Write every amount with thousands separators and 원 (500,000원).' + (maxChars ? ' The composed proposal must stay under ' + maxChars + ' characters, headings included, so keep each answer to what the client needs to decide.' : ''),
     '- List every profile fact you used in claimsUsed.',
     '',
     '# Project (catalog service: ' + service + ')',
@@ -220,6 +236,9 @@ export function buildProposalPrompt({ project, instance, service, floorKRW, now 
     '# Requested items (answer each)',
     ...(requested.length ? requested.map((r, i) => i + 1 + '. ' + r) : ['(none listed)']),
   ];
+  if (critique) {
+    sections.push('', '# A reviewer scored your previous draft ' + critique.score + ' of 1', 'Previous text: ' + JSON.stringify(critique.text ?? ''), 'Problems the reviewer found:', ...(critique.problems ?? []).map((p) => '- ' + p), 'Write new parts that keep what was right and fix every problem.');
+  }
   if (violations.length) {
     sections.push('', '# Your previous draft was blocked', 'Previous text: ' + JSON.stringify(previous ?? ''), 'Violations (rule: detail):', ...violations.map((x) => '- ' + x.rule + ': ' + x.detail), 'Write new parts that keep the intent and fix every violation.');
   }
@@ -231,13 +250,16 @@ export async function draftProposal(project, ctx) {
   if (!instance || !descriptor || !service || !Number.isFinite(floorKRW)) throw new TypeError('draftProposal needs instance, descriptor, service and floorKRW');
   const brain = instance.config?.brain ?? {};
   const lessonsRules = ctx.lessonsRules ?? loadGateRules(instance);
+  const minKRW = minimumKRW(project, descriptor);
+  const maxChars = Number.isInteger(descriptor.limits?.proposal?.maxChars) ? descriptor.limits.proposal.maxChars : null;
+  const critique = ctx.critique ?? null;
   const attempt = async (extra) => {
-    const { data } = await runCodex({ prompt: buildProposalPrompt({ project, instance, service, floorKRW, now, ...extra }), schema: PROPOSAL_SCHEMA, model: ctx.model ?? brain.model, effort: ctx.effort ?? brain.effort, timeoutMs: ctx.timeoutMs ?? brain.timeoutMs });
+    const { data } = await runCodex({ prompt: buildProposalPrompt({ project, instance, service, floorKRW, minKRW, maxChars, now, critique, ...extra }), schema: PROPOSAL_SCHEMA, model: ctx.model ?? brain.model, effort: ctx.effort ?? brain.effort, timeoutMs: ctx.timeoutMs ?? brain.timeoutMs });
     const parts = parseParts(data);
     const text = composeText(parts);
-    const plan = checkPlan(parts, project, { floorKRW, now });
+    const plan = checkPlan(parts, project, { floorKRW, minKRW, now });
     const gate = gateOutbound({ platform: 'kmong', kind: 'proposal', text, thread: { stage: 'pre_order' } }, { descriptor, instance, lessonsRules });
-    const proposal = { text, totalKRW: plan.totalKRW, phases: parts.phases, answers: parts.answers, claimsUsed: parts.claimsUsed, service, floorKRW };
+    const proposal = { text, totalKRW: plan.totalKRW, phases: parts.phases, answers: parts.answers, terms: parts.terms, claimsUsed: parts.claimsUsed, service, floorKRW };
     return { proposal, gate, violations: [...plan.violations, ...gate.violations] };
   };
   const first = await attempt({});
@@ -298,5 +320,34 @@ export async function criticize(project, proposal, ctx) {
   } catch (err) {
     return { pass: false, error: (err.code ? err.code + ': ' : '') + err.message, model: policy.criticModel };
   }
+}
+
+// Drafts, asks the critic and, while the critic fails with problems it can name, redrafts with them, at
+// most maxRewrites times. The result is the first passing draft, or else the best-scoring one that passed
+// the gate, with every round's verdict in history. A draft the gate and plan block twice ends the loop:
+// with nothing better it comes back not ok, as draftProposal reports it. ctx.critique starts the loop from
+// an earlier verdict ({score, problems, text}), as when an approval waiting on a weak draft is reworked.
+export async function improveProposal(project, ctx) {
+  const { maxRewrites = MAX_REWRITES } = ctx;
+  const history = [];
+  let best = null;
+  let critique = ctx.critique ?? null;
+  let modelCalls = 0;
+  for (let round = 0; round <= maxRewrites; round++) {
+    const draft = await draftProposal(project, { ...ctx, critique });
+    modelCalls += draft.modelCalls;
+    if (!draft.ok) {
+      history.push({ round, blocked: draft.violations.map((v) => v.rule) });
+      if (!best) return { ...draft, critic: null, history, rewrites: round, modelCalls };
+      break;
+    }
+    const critic = await criticize(project, draft.proposal, ctx);
+    modelCalls += 1;
+    history.push({ round, score: critic.score ?? null, pass: critic.pass, error: critic.error ?? null, problems: critic.problems ?? [] });
+    if (!best || (critic.score ?? -1) > (best.critic.score ?? -1)) best = { ...draft, critic };
+    if (critic.pass || critic.error || !(critic.problems ?? []).length) break;
+    critique = { score: critic.score, problems: critic.problems, text: draft.proposal.text };
+  }
+  return { ...best, history, rewrites: history.length - 1, modelCalls };
 }
 

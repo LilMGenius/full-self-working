@@ -1,6 +1,7 @@
 // fsw projects: 크몽 엔터프라이즈 projects by hand. list and show read and judge without writing; draft
-// writes a proposal draft under instance/proposals/<id>.draft.json; propose sends that draft (or only
-// fills the form with --dry-run); run is one pass of the hourly supervisor job; status reads sent ones.
+// writes the improved proposal (draft, critic, rewrites) under instance/proposals/<id>.draft.json; propose
+// sends that draft (or only fills the form with --dry-run); revise reworks an open proposal approval
+// through the improve loop; run is one pass of the hourly supervisor job; status reads sent ones.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadInstance } from '../core/instance.mjs';
@@ -10,11 +11,11 @@ import { loadGateRules } from '../brain/respond.mjs';
 import { gateOutbound } from '../policy/gate.mjs';
 import { loadDescriptor } from '../platforms/registry.mjs';
 import { openProjectReader, openProjectSeller } from '../platforms/kmong/projects.mjs';
-import { criticize, draftProposal, proposalPolicy, proposalsLeft, usedToday } from '../projects/draft.mjs';
+import { improveProposal, proposalPolicy, proposalsLeft, usedToday } from '../projects/draft.mjs';
 import { markProject, rankProjects, rememberJudgement, scoreProject } from '../projects/score.mjs';
-import { projectsJob, proposalsDir, readJobState, readStatuses, saveProposalRecord } from '../projects/job.mjs';
+import { projectsJob, proposalsDir, readJobState, readStatuses, reviseApproval, saveProposalRecord } from '../projects/job.mjs';
 
-const USAGE = 'usage: fsw projects list [--category it|design|marketing|video|planning|all] [--pages N] | show <id> | draft <id> | propose <id> [--dry-run] | run | status';
+const USAGE = 'usage: fsw projects list [--category it|design|marketing|video|planning|all] [--pages N] | show <id> | draft <id> | propose <id> [--dry-run] | revise <approvalId> | run | status';
 
 export function parseArgs(argv) {
   const out = { positional: [] };
@@ -80,15 +81,25 @@ export async function run(argv, ctx = {}) {
         log('project ' + id + ' is dropped: ' + verdict.reason);
         return 1;
       }
-      const draft = await draftProposal(project, { instance, descriptor, service: verdict.service, floorKRW: verdict.floorKRW });
-      const critic = draft.ok ? await criticize(project, draft.proposal, { instance, policy }) : null;
+      const best = await improveProposal(project, { instance, descriptor, service: verdict.service, floorKRW: verdict.floorKRW, policy });
       mkdirSync(proposalsDir(instance), { recursive: true });
-      writeFileSync(draftFile(instance, id), JSON.stringify({ at: new Date().toISOString(), project, verdict, ...draft, critic }, null, 2) + '\n');
-      log(draft.proposal.text);
-      log('\n' + JSON.stringify({ ok: draft.ok, totalKRW: draft.proposal.totalKRW, violations: draft.violations, warnings: draft.gate.warnings, critic }, null, 2));
-      return draft.ok ? 0 : 1;
+      writeFileSync(draftFile(instance, id), JSON.stringify({ at: new Date().toISOString(), project, verdict, ...best }, null, 2) + '\n');
+      log(best.proposal.text);
+      log('\n' + JSON.stringify({ ok: best.ok, totalKRW: best.proposal.totalKRW, violations: best.violations, warnings: best.gate.warnings, critic: best.critic, history: best.history }, null, 2));
+      return best.ok ? 0 : 1;
     } finally {
       await reader.close();
+    }
+  }
+
+  if (cmd === 'revise') {
+    if (!idArg) throw new Error(USAGE);
+    const ledger = ctx.ledger ?? openLedger(instance.paths.ledger);
+    try {
+      log(JSON.stringify(await reviseApproval({ instance, ledger, now: new Date(), forceMode: process.env.FSW_FORCE_MODE ?? null }, idArg), null, 2));
+      return 0;
+    } finally {
+      if (!ctx.ledger) ledger.close();
     }
   }
 

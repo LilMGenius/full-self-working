@@ -1,21 +1,22 @@
 // The supervisor's hourly projects job (Seoul minute 0): read new 크몽 엔터프라이즈 projects, judge each
-// page version once, draft proposals for the best within the day's quota, send the ones the policy
-// allows and queue the rest for the operator, send what the operator approved, and read what happened
-// to sent proposals. A proposal that turns into a chat arrives in the 크몽 inbox, which the poll job
-// answers; a meeting, a selection or a close becomes a learning case.
+// page version once, draft proposals for the best within the day's quota and improve each with the
+// critic's problems, send the ones the policy allows, drop the ones only the critic still rejects, queue
+// the rest for the operator, send what the operator approved, and read what happened to sent proposals.
+// A proposal that turns into a chat arrives in the 크몽 inbox, which the poll job answers; a meeting, a
+// selection or a close becomes a learning case.
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { dayKey, isActive } from '../core/clock.mjs';
 import { logEvent } from '../core/log.mjs';
 import { notifyOperator } from '../core/notify.mjs';
-import { closeApproval, listApprovals, queueApproval } from '../brain/approvals.mjs';
+import { closeApproval, getApproval, listApprovals, queueApproval, updateApproval } from '../brain/approvals.mjs';
 import { loadGateRules } from '../brain/respond.mjs';
 import { recordOutcome } from '../learning/outcomes.mjs';
 import { latestAllocation } from '../economics/priority.mjs';
 import { gateOutbound } from '../policy/gate.mjs';
 import { loadDescriptor } from '../platforms/registry.mjs';
 import { CATEGORIES, detailUrl } from '../platforms/kmong/projects.mjs';
-import { criticize, draftProposal, fitMeets, proposalPolicy, proposalsLeft, sendDecision, usedToday } from './draft.mjs';
+import { fitMeets, improveProposal, proposalPolicy, proposalsLeft, sendDecision, usedToday } from './draft.mjs';
 import { FIT_RANK, SUB_ROOT, SUB_SERVICES, markProject, needsJudgement, projectThread, rememberJudgement, scoreProject } from './score.mjs';
 
 export const APPROVAL_KIND = 'project_proposal';
@@ -82,6 +83,36 @@ async function queueProposal(ctx, { project, verdict, proposal, gate, critic, vi
   saveProposalRecord(instance, project.id, { project, score: verdict, proposal, gate, critic: critic ?? null, approvalId: approval.id, status: 'queued', reason });
   return { id: project.id, action: 'queued', approvalId: approval.id, reason };
 }
+
+// What happens to an improved draft (improveProposal): sent when the policy allows it; dropped when the
+// critic alone still stood in the way after every rewrite, since the operator would only be asked to
+// approve a proposal the reviewer would not shortlist; an operator approval for every other hold.
+export function nextStep({ policy, mode, sendingHours, verdict, best }) {
+  if (!best.ok) return { action: 'queue', reason: 'gate or plan blocked the draft twice: ' + best.violations.map((v) => v.rule).join(', ') };
+  const base = { policy, mode, sendingHours, fit: verdict.fit, totalKRW: best.proposal.totalKRW };
+  const decision = sendDecision({ ...base, critic: best.critic });
+  if (decision.action === 'send') return decision;
+  const criticOnly = best.critic && !best.critic.pass && !best.critic.error && sendDecision({ ...base, critic: { pass: true } }).action === 'send';
+  if (!criticOnly) return { action: 'queue', reason: decision.reason };
+  return { action: 'drop', reason: 'critic score ' + best.critic.score + ' after ' + best.rewrites + ' rewrite' + (best.rewrites === 1 ? '' : 's') + ': ' + (best.critic.problems ?? []).slice(0, 3).join('; ') };
+}
+
+// A project the loop will not propose to: the reason stays on its thread and record, and the case goes to
+// learning so the scorer and the playbook can see which projects the profile cannot win.
+function dropProposal(ctx, { project, verdict, best, reason }) {
+  const { instance, ledger } = ctx;
+  markProject(ledger, project.id, 'dropped', { dropReason: reason, proposal: { droppedAt: new Date().toISOString(), totalKRW: best.proposal.totalKRW, criticScore: best.critic?.score ?? null } });
+  ledger.addEvent({ kind: 'project.dropped', platform: 'kmong', ref: project.id, payload: { reason, score: best.critic?.score ?? null, rewrites: best.rewrites } });
+  saveProposalRecord(instance, project.id, { project, score: verdict, proposal: best.proposal, gate: best.gate, critic: best.critic, history: best.history, status: 'dropped', reason });
+  recordOutcome(instance, ledger, { kind: 'lead_lost', platform: 'kmong', service: verdict.service, threadRef: 'project:' + project.id, text: best.proposal.text, note: 'not proposed: ' + reason });
+  return { id: project.id, action: 'dropped', reason };
+}
+
+export const outboundMode = (instance, forceMode) => {
+  const cfg = instance.config?.platforms?.kmong ?? {};
+  const rank = Object.fromEntries(MODES.map((m, i) => [m, i]));
+  return forceMode && rank[forceMode] < rank[cfg.mode] ? forceMode : cfg.mode;
+};
 
 // Sends one gated proposal and records it only when the page showed it.
 async function send(ctx, { seller, project, verdict, proposal, gate, critic, approvalId = null }) {
@@ -178,14 +209,13 @@ export async function projectsJob(ctx) {
   } catch (err) {
     return { status: 'skipped', detail: err.message };
   }
-  const rank = Object.fromEntries(MODES.map((m, i) => [m, i]));
-  const mode = ctx.forceMode && rank[ctx.forceMode] < rank[cfg.mode] ? ctx.forceMode : cfg.mode;
+  const mode = outboundMode(instance, ctx.forceMode);
   const sendingHours = isActive(now, instance.config.activeHours?.outbound ?? ['00:00', '00:00']);
   const descriptor = loadDescriptor('kmong');
   const allocation = latestAllocation(instance);
   const openReader = ctx.openReader ?? (async () => (await import('../platforms/kmong/projects.mjs')).openProjectReader());
   const openSeller = ctx.openSeller ?? (async () => (await import('../platforms/kmong/projects.mjs')).openProjectSeller());
-  const result = { status: 'ok', mode, listed: 0, judged: 0, kept: 0, drafted: [], sent: [], queued: [], errors: [] };
+  const result = { status: 'ok', mode, listed: 0, judged: 0, kept: 0, drafted: [], sent: [], queued: [], dropped: [], errors: [] };
   const reader = await openReader();
   // A signed-in session lives only as long as one step: drafting takes minutes, and the browser daemon
   // drops a session left idle that long, so each read or send opens its own and closes it.
@@ -232,28 +262,26 @@ export async function projectsJob(ctx) {
           const verdict = scoreProject(project, { profile: instance.profile, config: instance.config, descriptor, allocation, minFit: policy.minFit, now });
           rememberJudgement(ledger, project, verdict, now);
           if (!verdict.keep || !fitMeets(verdict.fit, policy.minFit)) continue;
-          const draft = await draftProposal(project, { instance, descriptor, service: verdict.service, floorKRW: verdict.floorKRW, runCodex: ctx.runCodex, now });
+          const best = await improveProposal(project, { instance, descriptor, service: verdict.service, floorKRW: verdict.floorKRW, policy, runCodex: ctx.runCodex, now });
           result.drafted.push(id);
           left -= 1;
-          if (!draft.ok) {
-            result.queued.push(await queueProposal(ctx, { project, verdict, proposal: draft.proposal, gate: draft.gate, violations: draft.violations, reason: 'gate or plan blocked the draft twice: ' + draft.violations.map((v) => v.rule).join(', ') }));
+          const step = nextStep({ policy, mode, sendingHours, verdict, best });
+          if (step.action === 'drop') {
+            result.dropped.push(dropProposal(ctx, { project, verdict, best, reason: step.reason }));
             continue;
           }
-          const pre = sendDecision({ policy, mode, sendingHours, fit: verdict.fit, totalKRW: draft.proposal.totalKRW, critic: { pass: true } });
-          const critic = pre.action === 'send' ? await criticize(project, draft.proposal, { instance, policy, runCodex: ctx.runCodex }) : null;
-          const decision = sendDecision({ policy, mode, sendingHours, fit: verdict.fit, totalKRW: draft.proposal.totalKRW, critic });
-          if (decision.action !== 'send') {
-            result.queued.push(await queueProposal(ctx, { project, verdict, proposal: draft.proposal, gate: draft.gate, critic, reason: decision.reason }));
+          if (step.action === 'queue') {
+            result.queued.push(await queueProposal(ctx, { project, verdict, proposal: best.proposal, gate: best.gate, critic: best.critic, violations: best.ok ? [] : best.violations, reason: step.reason }));
             continue;
           }
-          const r = await useSeller((s) => send(ctx, { seller: s, project, verdict, proposal: draft.proposal, gate: draft.gate, critic }));
+          const r = await useSeller((s) => send(ctx, { seller: s, project, verdict, proposal: best.proposal, gate: best.gate, critic: best.critic }));
           if (r.blocked === 'profile') {
             await profileBlocked(instance, now);
-            result.queued.push(await queueProposal(ctx, { project, verdict, proposal: draft.proposal, gate: draft.gate, critic, reason: '엔터프라이즈 프로필 미등록' }));
+            result.queued.push(await queueProposal(ctx, { project, verdict, proposal: best.proposal, gate: best.gate, critic: best.critic, reason: '엔터프라이즈 프로필 미등록' }));
             break;
           }
           if (r.observed) result.sent.push(id);
-          else result.queued.push(await queueProposal(ctx, { project, verdict, proposal: draft.proposal, gate: draft.gate, critic, reason: 'the form did not take the proposal: ' + (r.res?.reason ?? 'unknown') }));
+          else result.queued.push(await queueProposal(ctx, { project, verdict, proposal: best.proposal, gate: best.gate, critic: best.critic, reason: 'the form did not take the proposal: ' + (r.res?.reason ?? 'unknown') }));
         } catch (err) {
           result.errors.push({ id, code: err.code ?? null, message: err.message });
           ledger.addEvent({ kind: 'project.error', platform: 'kmong', ref: id, payload: { code: err.code ?? null, message: err.message } });
@@ -276,4 +304,76 @@ export async function projectsJob(ctx) {
 }
 
 
+
+
+// Reworks one open proposal approval through the improve loop, starting from the critic's verdict it
+// already holds: a draft the policy would now send goes out and closes the approval; one only the critic
+// still rejects is dropped and the approval closed with the reason; anything else keeps the approval open
+// with the best draft and its verdict, so the operator always reads the strongest version.
+export async function reviseApproval(ctx, approvalId) {
+  const { instance, ledger, now = new Date() } = ctx;
+  const a = getApproval(instance, approvalId);
+  if (a.kind !== APPROVAL_KIND || a.status !== 'open') throw Object.assign(new Error('approval ' + approvalId + ' is not an open proposal approval (' + a.kind + ', ' + a.status + ')'), { code: 'FSW_APPROVAL_STATE' });
+  const policy = proposalPolicy(instance.config);
+  const descriptor = loadDescriptor('kmong');
+  const mode = outboundMode(instance, ctx.forceMode);
+  const sendingHours = isActive(now, instance.config.activeHours?.outbound ?? ['00:00', '00:00']);
+  const openReader = ctx.openReader ?? (async () => (await import('../platforms/kmong/projects.mjs')).openProjectReader());
+  const openSeller = ctx.openSeller ?? (async () => (await import('../platforms/kmong/projects.mjs')).openProjectSeller());
+  const reader = await openReader();
+  let project;
+  try {
+    project = await reader.readProject(a.project.id, { now });
+  } finally {
+    await reader.close();
+  }
+  if (project.status !== 'APPROVAL' || (Number.isInteger(project.deadlineDays) && project.deadlineDays < 0)) {
+    closeApproval(instance, a.id, { status: 'expired', detail: 'project is ' + project.status });
+    return { id: a.id, action: 'expired' };
+  }
+  const verdict = scoreProject(project, { profile: instance.profile, config: instance.config, descriptor, allocation: latestAllocation(instance), minFit: policy.minFit, now });
+  rememberJudgement(ledger, project, verdict, now);
+  if (!verdict.keep) {
+    closeApproval(instance, a.id, { status: 'dropped', detail: verdict.reason });
+    markProject(ledger, project.id, 'dropped', { dropReason: verdict.reason });
+    return { id: a.id, action: 'dropped', reason: verdict.reason };
+  }
+  const critique = a.critic && !a.critic.pass && !a.critic.error && a.critic.problems?.length ? { score: a.critic.score, problems: a.critic.problems, text: a.draft } : null;
+  const best = await improveProposal(project, { instance, descriptor, service: verdict.service, floorKRW: verdict.floorKRW, policy, runCodex: ctx.runCodex, now, critique });
+  const step = nextStep({ policy, mode, sendingHours, verdict, best });
+  const revised = { revisedAt: new Date().toISOString(), history: best.history ?? [] };
+  if (step.action === 'drop') {
+    const r = dropProposal(ctx, { project, verdict, best, reason: step.reason });
+    closeApproval(instance, a.id, { status: 'dropped', detail: step.reason, ...revised });
+    return { id: a.id, ...r };
+  }
+  if (step.action === 'send') {
+    const pageQuota = await (async () => { const s = await openSeller(); try { return await s.quota(); } finally { await s.stop(); } })();
+    if (proposalsLeft({ policy, pageQuota, usedToday: usedToday(ledger, now) }) > 0) {
+      const s = await openSeller();
+      let r;
+      try {
+        r = await send(ctx, { seller: s, project, verdict, proposal: best.proposal, gate: best.gate, critic: best.critic, approvalId: a.id });
+      } finally {
+        await s.stop();
+      }
+      if (r.observed) {
+        closeApproval(instance, a.id, { status: 'sent', detail: 'revised and sent by the improve loop', ...revised });
+        return { id: a.id, action: 'sent', totalKRW: best.proposal.totalKRW };
+      }
+      step.reason = 'the form did not take the proposal: ' + (r.res?.reason ?? 'unknown');
+    } else step.reason = 'no proposals left today';
+  }
+  updateApproval(instance, a.id, {
+    draft: best.ok ? best.proposal.text : a.draft,
+    quote: { amountKRW: best.proposal.totalKRW },
+    proposal: { totalKRW: best.proposal.totalKRW, phases: best.proposal.phases, floorKRW: best.proposal.floorKRW },
+    critic: best.critic ?? null,
+    violations: best.ok ? [] : best.violations,
+    reason: approvalSummary(project, best.proposal, step.reason),
+    ...revised,
+  });
+  saveProposalRecord(instance, project.id, { project, score: verdict, proposal: best.proposal, gate: best.gate, critic: best.critic, history: best.history, approvalId: a.id, status: 'queued', reason: step.reason });
+  return { id: a.id, action: 'kept', reason: step.reason, score: best.critic?.score ?? null };
+}
 

@@ -9,9 +9,10 @@ import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { assertSendable, parseProjectDetail, parseProjectRow, planForm, proposalDays, readbackProblems, REQUESTED_HEADING } from '../src/platforms/kmong/projects.mjs';
-import { checkPlan, composeText, draftProposal, proposalPolicy, proposalsLeft, sendDecision } from '../src/projects/draft.mjs';
-import { projectsJob } from '../src/projects/job.mjs';
-import { listApprovals } from '../src/brain/approvals.mjs';
+import { checkPlan, composeText, draftProposal, minimumKRW, proposalPolicy, proposalsLeft, sendDecision } from '../src/projects/draft.mjs';
+import { projectsJob, reviseApproval } from '../src/projects/job.mjs';
+import { getApproval, listApprovals, queueApproval } from '../src/brain/approvals.mjs';
+import { readCases } from '../src/learning/outcomes.mjs';
 
 const descriptor = loadDescriptor('kmong');
 const NOW = new Date('2026-10-25T03:00:00Z'); // 12:00 Seoul, inside the outbound hours
@@ -67,6 +68,7 @@ const parts = (over = {}) => ({
     { title: '설계와 화면 시안', deliverables: ['설계 문서'], startDate: '2026-11-02', endDate: '2026-11-20', priceKRW: 4000000, pilot: false },
     { title: '개발과 납품', deliverables: ['웹 시스템', '운영 안내'], startDate: '2026-11-23', endDate: '2027-01-15', priceKRW: 10000000, pilot: false },
   ],
+  terms: '합계는 부가세 포함 금액이며 전자세금계산서를 발행합니다. 범위 밖 추가 작업은 사전에 견적을 드립니다.',
   aiNote: '제작에는 AI 도구를 쓰고, 모든 결과물은 제가 직접 검토한 뒤 납품합니다.',
   closing: '사용자 수와 기존 데이터 형식을 알려 주시면 일정을 확정하겠습니다.',
   claimsUsed: [],
@@ -135,7 +137,8 @@ const goodCodex = (critic = { score: 0.9, needRestated: true, everyItemAnswered:
 test('the job sends within the quota, queues what the policy holds, and proposes each project once', async () => {
   const instance = makeInstance({ maxPerDay: 2, minFit: 'strong', autoMaxKRW: 15000000 });
   const ledger = openLedger(':memory:');
-  const many = [1, 2, 3].map((id) => project({ id, title: '웹 시스템 ' + id, amount: 20000000 + id }));
+  // Budgets where the 14,000,000 KRW plan stays above the 70% the form takes.
+  const many = [1, 2, 3].map((id) => project({ id, title: '웹 시스템 ' + id, amount: 19000000 + id }));
   const f = fakeSurfaces(many);
   const r1 = await projectsJob({ instance, ledger, now: NOW, openReader: f.openReader, openSeller: f.openSeller, runCodex: goodCodex() });
   assert.equal(r1.sent.length, 2, JSON.stringify(r1));
@@ -149,24 +152,87 @@ test('the job sends within the quota, queues what the policy holds, and proposes
   ledger.close();
 });
 
-test('a draft above autoMaxKRW or under the critic threshold becomes an approval', async () => {
-  for (const [policy, codex, why] of [
-    [{ maxPerDay: 5, minFit: 'strong', autoMaxKRW: 1000000 }, goodCodex(), /autoMaxKRW/],
-    [{ maxPerDay: 5, minFit: 'strong', autoMaxKRW: 50000000 }, goodCodex({ score: 0.4, needRestated: true, everyItemAnswered: false, claimsBacked: true, pricePlausible: true, problems: ['item 2 skipped'] }), /critic score 0.4/],
-  ]) {
-    const instance = makeInstance(policy);
-    const ledger = openLedger(':memory:');
-    const f = fakeSurfaces([project()]);
-    const r = await projectsJob({ instance, ledger, now: NOW, openReader: f.openReader, openSeller: f.openSeller, runCodex: codex });
-    assert.equal(f.proposed.length, 0);
-    assert.equal(r.queued.length, 1);
-    const [a] = listApprovals(instance, { status: 'open' });
-    assert.equal(a.kind, 'project_proposal');
-    assert.equal(a.orderItem, true);
-    assert.match(a.reason, why);
-    assert.match(a.reason, /^크몽 엔터프라이즈 제안 검토/);
-    ledger.close();
-  }
+// Drafts and critic verdicts in order; every prompt is kept so a test can read what the model was told.
+function seqCodex(critics) {
+  const prompts = { draft: [], critic: [] };
+  let n = 0;
+  const run = async ({ schema, prompt }) => {
+    if (schema.required.includes('score')) {
+      prompts.critic.push(prompt);
+      return { data: critics[Math.min(n++, critics.length - 1)] };
+    }
+    prompts.draft.push(prompt);
+    return { data: parts() };
+  };
+  return { run, prompts };
+}
+const verdict = (score, problems = []) => ({ score, needRestated: true, everyItemAnswered: score >= 0.75, claimsBacked: true, pricePlausible: true, problems });
+
+test('a draft above autoMaxKRW becomes an approval that carries the critic verdict', async () => {
+  const instance = makeInstance({ maxPerDay: 5, minFit: 'strong', autoMaxKRW: 1000000 });
+  const ledger = openLedger(':memory:');
+  const f = fakeSurfaces([project()]);
+  const r = await projectsJob({ instance, ledger, now: NOW, openReader: f.openReader, openSeller: f.openSeller, runCodex: goodCodex() });
+  assert.deepEqual([f.proposed.length, r.queued.length, r.dropped.length], [0, 1, 0]);
+  const [a] = listApprovals(instance, { status: 'open' });
+  assert.deepEqual([a.kind, a.orderItem, a.critic.score], ['project_proposal', true, 0.9]);
+  assert.match(a.reason, /^크몽 엔터프라이즈 제안 검토.*autoMaxKRW/);
+  ledger.close();
+});
+
+test('a draft the critic keeps failing is rewritten twice with its problems, then dropped instead of waiting on the operator', async () => {
+  const instance = makeInstance({ maxPerDay: 5, minFit: 'strong', autoMaxKRW: 50000000 });
+  const ledger = openLedger(':memory:');
+  const f = fakeSurfaces([project()]);
+  const codex = seqCodex([verdict(0.4, ['item 2 skipped'])]);
+  const r = await projectsJob({ instance, ledger, now: NOW, openReader: f.openReader, openSeller: f.openSeller, runCodex: codex.run });
+  assert.deepEqual([f.proposed.length, r.queued.length, r.dropped.length, listApprovals(instance).length], [0, 0, 1, 0]);
+  assert.deepEqual([codex.prompts.draft.length, codex.prompts.critic.length], [3, 3]);
+  assert.doesNotMatch(codex.prompts.draft[0], /A reviewer scored/);
+  for (const p of codex.prompts.draft.slice(1)) assert.match(p, /A reviewer scored your previous draft 0\.4 of 1[\s\S]*- item 2 skipped/);
+  assert.match(r.dropped[0].reason, /critic score 0\.4 after 2 rewrites: item 2 skipped/);
+  assert.equal(ledger.listThreads({ platform: 'kmong' }).find((t) => t.kind === 'project').status, 'dropped');
+  assert.deepEqual(readCases(instance).map((c) => c.kind), ['lead_lost']);
+  ledger.close();
+});
+
+test('a rewrite the critic passes is sent', async () => {
+  const instance = makeInstance({ maxPerDay: 5, minFit: 'strong', autoMaxKRW: 50000000 });
+  const ledger = openLedger(':memory:');
+  const f = fakeSurfaces([project()]);
+  const codex = seqCodex([verdict(0.4, ['vague schedule']), verdict(0.85)]);
+  const r = await projectsJob({ instance, ledger, now: NOW, openReader: f.openReader, openSeller: f.openSeller, runCodex: codex.run });
+  assert.deepEqual([r.sent, r.dropped.length, codex.prompts.draft.length], [[900001], 0, 2]);
+  ledger.close();
+});
+
+test('an open approval held only by a weak critic verdict is reworked from that verdict and dropped when it stays weak', async () => {
+  const instance = makeInstance({ maxPerDay: 5, minFit: 'strong', autoMaxKRW: 50000000 });
+  const ledger = openLedger(':memory:');
+  const f = fakeSurfaces([project()]);
+  const a = await queueApproval(instance, { orderItem: true, platform: 'kmong', kind: 'project_proposal', threadRef: 'project:900001', reason: 'critic score 0.3 below 0.75', draft: 'old draft text', project: { id: 900001, title: 't', amountKRW: 20000000 }, critic: { pass: false, score: 0.3, problems: ['no past cases given'] } });
+  const codex = seqCodex([verdict(0.5, ['still thin'])]);
+  const r = await reviseApproval({ instance, ledger, now: NOW, openReader: f.openReader, openSeller: f.openSeller, runCodex: codex.run }, a.id);
+  assert.equal(r.action, 'dropped');
+  assert.match(codex.prompts.draft[0], /scored your previous draft 0\.3 of 1[\s\S]*old draft text[\s\S]*- no past cases given/);
+  assert.deepEqual([getApproval(instance, a.id).status, f.proposed.length], ['dropped', 0]);
+  const big = await queueApproval(instance, { orderItem: true, platform: 'kmong', kind: 'project_proposal', threadRef: 'project:900001', reason: 'total above autoMaxKRW', draft: 'old', project: { id: 900001, title: 't', amountKRW: 20000000 }, critic: null });
+  instance.config.platforms.kmong.proposals.autoMaxKRW = 1000000;
+  const kept = await reviseApproval({ instance, ledger, now: NOW, openReader: f.openReader, openSeller: f.openSeller, runCodex: goodCodex() }, big.id);
+  const after = getApproval(instance, big.id);
+  assert.deepEqual([kept.action, after.status, after.critic.score, after.draft === composeText(parts())], ['kept', 'open', 0.9, true]);
+  ledger.close();
+});
+
+test('the plan keeps to the least the platform form takes for the budget', () => {
+  assert.equal(minimumKRW({ amountKRW: 22000000 }, descriptor), 15400000);
+  assert.equal(minimumKRW({ amountKRW: null }, descriptor), 0);
+  const p = parseProjectDetail({ id: 1, title: 't', description: row().content, amount: 20000000, deadline: 5, status: 'APPROVAL', projectType: 'OUTSOURCING', answers: [] }, { now: NOW });
+  assert.deepEqual(checkPlan(parts(), p, { floorKRW: 1000000, minKRW: 14000000, now: NOW }).violations, []);
+  assert.deepEqual(checkPlan(parts(), p, { floorKRW: 1000000, minKRW: 15000000, now: NOW }).violations.map((v) => v.rule), ['plan.minimum']);
+  const text = composeText(parts());
+  assert.match(text, /- 설계 문서\n2단계/);
+  assert.match(text, /\[계약 조건\]\n합계는 부가세 포함/);
 });
 
 test('a signed-in session is opened per step, and one that fails to close leaves the work recorded', async () => {

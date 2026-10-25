@@ -2,9 +2,10 @@
 // profile or page enters the repository.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { join } from 'node:path';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
 import {
-  STEPS, careerEntries, desiredSkills, gateTexts, introCopy, isSignedOut, parseStackResult, periodOf, planList, prizeEntries, sameCompany, skillCandidates, writePace,
+  STEPS, careerEntries, desiredSkills, gateTexts, introCopy, isSignedOut, parseStackResult, periodOf, pickPortfolio, planList, portfolioCandidates, prizeEntries, sameCompany, skillCandidates, writePace,
 } from '../src/platforms/wishket/onboarding.mjs';
 
 const instance = {
@@ -34,6 +35,35 @@ test('steps carry ids and the path each is detected on', () => {
   assert.deepEqual(STEPS.map((s) => s.id), ['identity', 'introduction', 'employment', 'prize', 'skills', 'education', 'portfolio', 'availability']);
   assert.ok(STEPS.find((s) => s.id === 'identity').detect.path.test('/accounts/settings/modify_identity/'));
   assert.ok(STEPS.find((s) => s.id === 'prize').detect.path.test('/partners/p/someone/prize/update/'));
+});
+
+test('the portfolio item is the AI project with an image, a period and a rate, written without company names or addresses', () => {
+  const ctx = { instance: { ...instance, paths: { portfolio: 'pf' }, profile: { ...instance.profile, projects: [
+    { name: 'Landing pair', url: 'https://engine.example', role: 'Main committer', role_ko: '주 커미터', stack: ['HTML'] },
+    { name: 'Engine', url: 'https://engine.example', role: 'Founder of the company building it', role_ko: '개발사 창업자', stack: ['Node.js', 'LLM agents'] },
+    { name: 'Tool', url: '', role: 'Author', role_ko: '저자', stack: ['JavaScript'] },
+  ] } }, descriptor: loadDescriptor('wishket') };
+  const image = [{ src: 'media/x.jpg', kind: 'image' }];
+  const items = [
+    { id: 'site', source: 'background', title_ko: '예시상호 회사 사이트', title_en: 'Site', summary_ko: '회사 사이트입니다.', media: image, period: { start: '2025-01', end: '2025-03' }, participation: { rate: 100 } },
+    { id: 'tool', source: 'background', title_ko: '도구', title_en: 'Tool', summary_ko: '웹 화면을 만드는 도구입니다.', media: image, period: { start: '2026-01', end: '2026-02' } },
+    { id: 'engine', source: 'background', title_ko: '엔진', title_en: 'Engine', summary_ko: 'AI 에이전트로 게임을 만드는 엔진입니다.', url: 'https://engine.example', media: image, period: { start: '2026-08', end: null }, participation: { rate: 96 } },
+    { id: 'bare', source: 'background', title_ko: 'AI 챗봇', title_en: 'Bare', summary_ko: 'AI 챗봇입니다.', media: [], period: { start: '2026-01', end: null }, participation: { rate: 100 } },
+  ];
+  const all = portfolioCandidates(ctx.instance, items, { month: '2026-10' });
+  assert.equal(all.find((c) => c.id === 'site').why, 'names the operator or a company');
+  assert.equal(all.find((c) => c.id === 'bare').why, 'no image');
+  assert.equal(all.find((c) => c.id === 'tool').form.participation_rate, '100');
+  const pick = pickPortfolio(all, ctx);
+  assert.equal(pick.id, 'engine');
+  // The project is found by name before its address, which another project shares.
+  assert.equal(pick.form.role, '개발사 창업자');
+  assert.equal(pick.form.skills, 'Node.js*!*LLM agents');
+  assert.deepEqual([pick.form.date_started, pick.form.date_ended, pick.form.participation_rate], ['2026.08.', '2026.10.', '96']);
+  assert.deepEqual(pick.form.field_subcategory, ['gen_ai', 'game_reward', 'saas_solution']);
+  assert.deepEqual([pick.form.category, pick.form.subcategory], [['develop'], ['web']]);
+  assert.ok(!/https?:|engine\.example/.test(pick.form.description));
+  assert.equal(pick.image, join('pf', 'media/x.jpg'));
 });
 
 test('periodOf reads dotted months, present and a single month', () => {

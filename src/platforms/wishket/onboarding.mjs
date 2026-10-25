@@ -20,6 +20,9 @@
 // - Education and certificates are offered to individual and team partners only; an individual business
 //   partner (개인 사업자) sees them as 사용 불가 on /partners/p/<user>/info/update/.
 import { gateOutbound, identityParts, namePattern } from '../../policy/gate.mjs';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { isEligible, rankPortfolio } from '../../portfolio/rank.mjs';
 
 const BASE = 'https://www.wishket.com';
 const IDENTITY_URL = BASE + '/accounts/settings/modify_identity/';
@@ -192,6 +195,71 @@ export function gateTexts(texts, ctx) {
     violations.push(...g.violations.map((v) => v.rule + ' ' + v.detail));
   }
   return violations;
+}
+
+// ---- portfolio planning ----
+
+// 위시켓 asks for one portfolio item before a partner applies to projects (mapped 2026-10-26 at
+// /partners/p/<user>/portfolio/update/add/). Its form takes a title, 업무 범위 (category: develop, design,
+// plan), 카테고리 (subcategory: web, android, ios, pc, embedded, etc), up to three 분야 (field_subcategory
+// values), skills joined by *!*, start and end month as YYYY.MM., a participation rate, an optional
+// client and role, a description (5,000 characters) and at least one image. The page deletes text that
+// carries an e-mail, phone, company name or homepage, so the text names what was built and how.
+// Keywords in an item's text pick the 분야; the item chosen is the best ranked one with an image and a
+// dated period whose text passes, preferring one that lands in an AI 분야, since 위시켓's web and AI
+// projects are the ones this operator answers.
+const FIELD_WORDS = [
+  [/\bAI\b|LLM|에이전트|agent/i, 'gen_ai'],
+  [/챗봇|chatbot/i, 'chat_gpt_chatbot'],
+  [/LLM/i, 'llm'],
+  [/랜딩|landing/i, 'landing_introduction_page'],
+  [/게임|game/i, 'game_reward'],
+  [/회사 사이트|홈페이지|website/i, 'website_board'],
+  [/SaaS|솔루션|엔진|engine/i, 'saas_solution'],
+];
+const AI_FIELDS = new Set(['gen_ai', 'chat_gpt_chatbot', 'llm']);
+const URLISH = /https?:\/\/|www\.|\b[\w-]+\.(?:com|ai|io|net|kr|co|dev|app)\b/i;
+const ym = (s) => String(s ?? '').replace(/^(\d{4})-(\d{2}).*$/, '$1.$2.');
+
+export function portfolioFields(text) {
+  return [...new Set(FIELD_WORDS.filter(([re]) => re.test(text)).map(([, f]) => f))].slice(0, 3);
+}
+
+// One candidate per eligible item: the form fields it would fill, or why it cannot be used. An item's
+// period ({ start: 'YYYY-MM', end: 'YYYY-MM' or null for ongoing work }) and participation ({ rate })
+// are facts read from the project's own record, such as its repository's creation date and the
+// operator's share of its commits; ongoing work ends at the current month, and only a project the
+// profile lists with the role Author counts as 100 percent without a recorded rate.
+export function portfolioCandidates(instance, items, { month }) {
+  const m = masker(instance);
+  const projects = instance.profile?.projects ?? [];
+  return rankPortfolio(items.filter(isEligible)).map((item) => {
+    const project = projects.find((p) => p.name === item.title_en) ?? projects.find((p) => item.url && p.url === item.url) ?? {};
+    const image = (item.media ?? []).find((x) => x.kind === 'image');
+    const title = item.title_ko ?? item.title_en ?? '';
+    const role = project.role_ko ?? project.role ?? '';
+    const rate = item.participation?.rate ?? (/^Author$/.test(project.role ?? '') ? 100 : null);
+    const ongoing = !item.period?.end;
+    const description = [item.summary_ko ?? '', role && '역할: ' + role, project.stack?.length && '사용 기술: ' + project.stack.join(', '), ongoing && '현재 진행 중인 프로젝트입니다.'].filter(Boolean).join('\n');
+    const texts = [title, description, role];
+    const why = !image ? 'no image' : !item.period?.start ? 'no period' : !rate ? 'no participation rate' : texts.some((t) => m.hits(t)) ? 'names the operator or a company' : texts.some((t) => URLISH.test(t)) ? 'carries an address' : null;
+    const fields = portfolioFields([title, item.summary_ko, item.title_en, item.summary_en].join(' '));
+    return {
+      id: item.id,
+      why,
+      ai: fields.some((f) => AI_FIELDS.has(f)),
+      image: image ? join(instance.paths?.portfolio ?? '', image.src) : null,
+      form: { title, category: ['develop'], subcategory: ['web'], field_subcategory: fields, skills: (project.stack ?? []).join('*!*'), date_started: ym(item.period?.start), date_ended: ym(item.period?.end ?? month), participation_rate: String(rate ?? ''), role, description, caption: title },
+    };
+  });
+}
+
+export function pickPortfolio(candidates, ctx) {
+  const usable = candidates.filter((c) => !c.why && c.form.field_subcategory.length).map((c) => {
+    const bad = gateTexts([c.form.title, c.form.description], ctx);
+    return bad.length ? { ...c, why: 'refused by the gate: ' + bad.join('; ') } : c;
+  }).filter((c) => !c.why);
+  return usable.find((c) => c.ai) ?? usable[0] ?? null;
 }
 
 // ---- page reads and writes ----
@@ -402,12 +470,75 @@ async function educationStep(session, user) {
   return result('education', 'unmapped', 'education is offered for this partner type and its form is not mapped yet');
 }
 
-async function portfolioStep(session, user) {
+async function portfolioCount(session, user) {
   await go(session, BASE + user);
   const text = await session.evaluate(() => document.body.innerText);
-  const count = Number(text.match(/포트폴리오\s*\n\s*(\d+)/)?.[1] ?? NaN);
-  if (count > 0) return result('portfolio', 'done', count + ' portfolio item(s) listed');
-  return result('portfolio', 'needs-operator', '위시켓 requires a portfolio item before applying to 외주 projects; an item needs images and the client\'s permission for portfolio use, which the operator gives');
+  return Number(text.match(/포트폴리오\s*\n\s*(\d+)/)?.[1] ?? NaN);
+}
+
+const seoulMonth = (now = Date.now()) => new Date(now + 9 * 3_600_000).toISOString().slice(0, 7);
+
+function readItemsFile(instance) {
+  const file = join(instance.paths.portfolio, 'items.json');
+  if (!existsSync(file)) return [];
+  const j = JSON.parse(readFileSync(file, 'utf8'));
+  return Array.isArray(j) ? j : j.items ?? [];
+}
+
+// Fills the add form as the page's own controls do (jQuery change events wake its validation and
+// progress bar), attaches the image through the page's hidden file input, then presses 등록, which
+// posts the form and follows the redirect it answers with.
+async function addPortfolio(session, user, pick) {
+  await go(session, BASE + user + 'portfolio/update/add/');
+  const f = pick.form;
+  await session.fill('#portfolio-form input[name=title]', f.title);
+  await session.evaluate((f) => {
+    const $ = window.jQuery;
+    for (const name of ['category', 'subcategory', 'field_subcategory']) for (const v of f[name]) $('#portfolio-form input[name="' + name + '"][value="' + v + '"]').prop('checked', true).trigger('change');
+    $('#portfolio-form .field-chip').each((_, chip) => { if ($(chip).find('input:checked').length) $(chip).addClass('selected'); });
+    $('#portfolio-form input[name="skills"]').val(f.skills).trigger('change');
+  }, f);
+  for (const name of ['date_started', 'date_ended', 'participation_rate', 'role']) if (f[name]) await session.fill('#portfolio-form input[name=' + name + ']', f[name]);
+  await session.fill('#portfolio-form textarea[name=description]', f.description);
+  const box = await session.evaluate(() => {
+    window.jQuery('.portfolio-img-add').first().trigger('click');
+    const boxes = document.querySelectorAll('#portfolio-img-box-list .portfolio-img-content-box');
+    const target = boxes[boxes.length - 1]?.getAttribute('data-target');
+    const input = document.querySelector('.temporary-image');
+    if (!target || !input) return null;
+    input.setAttribute('data-target', target);
+    input.removeAttribute('hidden');
+    return target;
+  });
+  if (!box) return 'the form added no image box';
+  await session.setFiles('.temporary-image', pick.image);
+  await sleep(2500);
+  const attached = await session.evaluate((t) => !!document.querySelector('#portfolio-img-box-list .portfolio-img-content-box[data-target="' + t + '"] input.image_file')?.files?.length, box);
+  if (!attached) return 'the page did not take the image';
+  if (f.caption) await session.fill('#portfolio-form input[name=caption_' + box + ']', f.caption);
+  await session.evaluate(() => [...document.querySelectorAll('.btn-submit')].find((b) => b.getBoundingClientRect().width > 0)?.setAttribute('data-fsw', 'portfolio-submit'));
+  const before = await session.evaluate(() => location.href);
+  await session.click('[data-fsw=portfolio-submit]');
+  for (let i = 0; i < 30; i++) {
+    await sleep(1000);
+    const now = await session.evaluate(() => location.href);
+    if (now !== before) return null;
+  }
+  const errors = await session.evaluate(() => [...document.querySelectorAll('#portfolio-form .error')].map((e) => e.getAttribute('name') ?? e.querySelector('[name]')?.getAttribute('name') ?? e.className).slice(0, 8));
+  return '등록 did not leave the form; marked fields: ' + (errors.join(', ') || 'none');
+}
+
+async function portfolioStep(session, ctx, user) {
+  if ((await portfolioCount(session, user)) > 0) return result('portfolio', 'done', 'a portfolio item is listed');
+  const pick = pickPortfolio(portfolioCandidates(ctx.instance, readItemsFile(ctx.instance), { month: seoulMonth() }), ctx);
+  if (!pick) return result('portfolio', 'needs-operator', 'no portfolio item has an image, a period and text 위시켓 keeps; add one to portfolio/items.json');
+  const plan = pick.id + ' as ' + pick.form.field_subcategory.join('/') + ', ' + pick.form.date_started + ' to ' + pick.form.date_ended;
+  if (!ctx.apply) return result('portfolio', 'filled', 'dry run: would add ' + plan);
+  const failed = await addPortfolio(session, user, pick);
+  if (failed) return result('portfolio', 'needs-operator', failed);
+  ctx.ledger?.addEvent({ kind: 'platform.profile_edit', platform: 'wishket', ref: 'portfolio', payload: { item: pick.id } });
+  if ((await portfolioCount(session, user)) > 0) return result('portfolio', 'done', 'added ' + plan + ' and read back');
+  return result('portfolio', 'needs-operator', 'added ' + pick.id + ', but the profile still lists no portfolio item');
 }
 
 async function availabilityStep(session, user) {
@@ -484,7 +615,7 @@ export async function onboard(session, ctx) {
     return listStep(session, ctx, { id: 'skills', menu: 'skill', url: BASE + u + 'skill/update/', desired: names.map((n) => ({ key: n, fields: { title: n } })), keyOfPage: (i) => i.title });
   });
   await run('education', async () => educationStep(session, await userOf()));
-  await run('portfolio', async () => portfolioStep(session, await userOf()));
+  await run('portfolio', async () => portfolioStep(session, ctx, await userOf()));
   await run('availability', async () => availabilityStep(session, await userOf()));
   return out;
 }

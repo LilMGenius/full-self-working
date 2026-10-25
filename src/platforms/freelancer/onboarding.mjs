@@ -3,7 +3,6 @@
 // dry run types and reads back without saving. Values come from config.onboarding.freelancer and the
 // profile; every typed text passes the outbound gate as kind profile first. Bids and deposits are never
 // part of onboarding.
-import { existsSync } from 'node:fs';
 import { Needs, clickMatch, googleSignIn, needs, pathOf, readIdentity, sleep, typeInto, waitFor, walkWizard } from '../onboarding.mjs';
 
 export const START = 'https://www.freelancer.com/new-freelancer/skills';
@@ -31,12 +30,14 @@ export function splitLegalName(name) {
   return { first: words.slice(0, -1).map(cap).join(' '), last: cap(words.at(-1)) };
 }
 
-// Runs in the page: the name fields, and whether the photo area shows an uploaded picture. Before an
-// upload the page shows only the logo and the camera button; asset images are the site's own.
+// Runs in the page: the name fields, whether the photo area shows a picture (before one is taken the
+// page shows only the logo and the camera button; asset images are the site's own) and whether Next
+// is enabled.
 const readPhotoAndName = () => ({
   photo: [...document.querySelectorAll('img')].some((i) => i.getBoundingClientRect().width > 40 && !/\/assets\/|logo/i.test(i.src)),
   first: document.querySelector('#inputFirstName')?.value ?? '',
   last: document.querySelector('#inputLastName')?.value ?? '',
+  next: [...document.querySelectorAll('button')].some((b) => /^Next$/.test(b.innerText.trim()) && !b.disabled),
 });
 
 const norm = (s) => String(s ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -111,40 +112,35 @@ export const HANDLERS = {
     same: (cur, want) => cur === want,
     next: (s) => clickMatch(s, 'button', /^Skip$/),
   },
-  // Mapped 2026-10-26: a camera button in fl-camera-input opens the photo chooser, and #inputFirstName and
-  // #inputLastName take the name; the page asks for the real name, since identity verification checks
-  // it, so the name is the identity file's legal name. Next stays disabled until both names are typed.
+  // Mapped 2026-10-26: #inputFirstName and #inputLastName take the name; the page asks for the real
+  // name, since identity verification checks it, so the name is the identity file's legal name. The
+  // photo comes only from the camera: its button asks for camera access to take "a clear picture of
+  // your face" for identity verification and offers no file upload ("No, thanks" ends in "Cannot connect
+  // to Camera"), so a person takes it. Next stays disabled with one name typed and no photo.
   'profile-details/photo-and-name': {
-    show: (cur, want) => 'read back differs in: ' + ['photo', 'first', 'last'].filter((k) => (k === 'photo' ? !cur.photo : cur[k] !== want[k])).join(', '),
+    show: (cur, want) => 'read back differs in: ' + ['first', 'last'].filter((k) => cur[k] !== want[k]).join(', '),
     read: (s) => s.evaluate(readPhotoAndName),
     want: (ctx) => {
       const id = readIdentity(ctx);
       if (id instanceof Needs) return id;
       const name = splitLegalName(id.legalNameEn);
-      if (!name) return needs('the identity file lacks person.legal_name_en as given and family name');
-      const photo = ctx.instance.config?.onboarding?.photo;
-      if (!photo || !existsSync(photo)) return needs('set config onboarding.photo to a photo of you');
-      return { photo, ...name };
+      return name ? { private: 'legal first and last name', ...name } : needs('the identity file lacks person.legal_name_en as given and family name');
     },
-    same: (cur, want) => cur.photo === true && cur.first === want.first && cur.last === want.last,
+    same: (cur, want) => cur.first === want.first && cur.last === want.last,
     write: async (s, want, cur) => {
       if (cur.first !== want.first) await typeInto(s, '#inputFirstName', want.first);
       if (cur.last !== want.last) await typeInto(s, '#inputLastName', want.last);
-      if (cur.photo) return;
-      // The upload tool presses the camera button and answers the chooser it opens with the file.
-      await s.setFiles('fl-camera-input button', want.photo);
-      // A crop dialog may follow; its confirm button saves the picture.
-      for (let i = 0; i < 15; i++) {
-        await sleep(1000);
-        if ((await s.evaluate(readPhotoAndName)).photo) return;
-        if (await clickMatch(s, '[role=dialog] button, fl-modal button, .ModalContainer button', /^(Save|Upload|Done|Apply|Confirm|Crop|Use photo|Upload photo)$/i)) await sleep(2000);
-      }
-      throw new Error('the photo did not show after the upload; the page outline: ' + JSON.stringify(await s.evaluate(() => ({ dialogs: [...document.querySelectorAll('[role=dialog], fl-modal')].map((d) => d.innerText.replace(/\s+/g, ' ').slice(0, 200)), files: document.querySelectorAll('input[type=file]').length }))));
+    },
+    // With the names typed, a disabled Next means the page waits for the camera picture.
+    pending: async (s) => {
+      const page = await s.evaluate(readPhotoAndName);
+      return page.next ? null : 'the profile photo is taken with the camera for identity verification: on /new-freelancer/profile-details/photo-and-name press the camera button, Continue, allow the camera and take the picture; the names are typed';
     },
   },
 };
 
-const describe = (want) => (Array.isArray(want) ? want.join(', ') : typeof want === 'object' ? JSON.stringify(want) : String(want));
+// A step holding private values describes them by want.private, never by value.
+const describe = (want) => (Array.isArray(want) ? want.join(', ') : want?.private ? want.private : typeof want === 'object' ? JSON.stringify(want) : String(want));
 
 export const onboard = (session, ctx) =>
   walkWizard(session, ctx, {

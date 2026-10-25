@@ -64,7 +64,10 @@ const page = (body, css, { width, height }) => '<!doctype html><html lang="ko"><
 export function mainHtml({ listing, studio, cardShots = [] }) {
   const c = listing.imageCopy.card;
   const panel = cardShots.length
-    ? '<div class="stage">' + cardShots.slice(0, 2).map((s, i) => '<div class="shot ' + (s.width < 600 ? 'phone' : 'desk') + ' s' + i + '"><img src="' + s.src + '" alt=""></div>').join('') + '</div>'
+    ? cardShots[0].sample
+      // A work sample is shown whole, inside the card, since cropping it would hide what was made.
+      ? '<div class="sample-shot shot" style="aspect-ratio:' + cardShots[0].width + '/' + cardShots[0].height + '"><img src="' + cardShots[0].src + '" alt=""></div>'
+      : '<div class="stage">' + cardShots.slice(0, 2).map((s, i) => '<div class="shot ' + (s.width < 600 ? 'phone' : 'desk') + ' s' + i + '"><img src="' + s.src + '" alt=""></div>').join('') + '</div>'
     : '<div class="spec"><div class="spec-h">' + esc(LABELS.included) + '</div>' + listing.imageCopy.included.slice(0, 3).map((t, i) => '<div class="spec-r"><span>' + two(i) + '</span>' + esc(t) + '</div>').join('') + '</div>';
   const css = '.card{position:relative;width:652px;height:488px;overflow:hidden;background:var(--paper);padding:34px 40px}' +
     '.top{display:flex;justify-content:space-between;align-items:center;font-size:15px}.top .badge{font-size:13px}' +
@@ -75,6 +78,7 @@ export function mainHtml({ listing, studio, cardShots = [] }) {
     '.stage{position:absolute;right:-30px;bottom:-26px;width:330px;height:196px}' +
     '.stage .desk{position:absolute;right:0;bottom:0;width:330px;height:206px}' +
     '.stage .phone{position:absolute;left:-40px;bottom:-14px;width:112px;aspect-ratio:390/600;border-radius:14px;border:3px solid var(--ink)}' +
+    '.sample-shot{position:absolute;right:40px;bottom:34px;width:300px;max-height:250px;border-radius:12px}.sample-shot img{object-fit:contain;background:#fff}' +
     '.spec{position:absolute;right:-12px;bottom:-12px;width:318px;padding:18px 24px 26px;background:var(--ink);color:var(--on-ink);border-radius:14px 0 0 0}' +
     '.spec-h{font-size:12px;color:var(--on-ink-muted);font-weight:600;margin-bottom:8px;letter-spacing:.02em}' +
     '.spec-r{display:flex;gap:12px;font-size:15px;line-height:1.35;font-weight:560;padding:6px 0;border-top:1px solid rgba(244,241,235,.12)}.spec-r span{color:var(--accent);font-weight:700}';

@@ -128,3 +128,31 @@ test('a named market run replaces only the pairs it read and keeps the rest of t
   assert.equal(samples.filter((r) => r.platform === 'soomgo').length, targetsFor('soomgo').length);
   assert.equal(samples.filter((r) => r.platform === 'kmong').length, targetsFor('kmong').length);
 });
+
+test('a new day that cannot read a platform keeps its recent samples with their old dates, and drops them after a week', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'fsw-market-'));
+  const instance = { config: { platforms: { kmong: { enabled: true, mode: 'auto' }, soomgo: { enabled: true, mode: 'auto' } } }, paths: { market: join(dir, 'market') } };
+  let soomgoDown = false;
+  const page = (url) => {
+    if (url.startsWith('https://kmong.com/')) return { total: '1,000', cards: [{ href: '/gig/1', text: '제목\n10,000원~\n판매자' }] };
+    if (url === 'https://soomgo.com/prices') return soomgoDown ? [] : targetsFor('soomgo').map((t) => [t.category, '/prices/' + encodeURIComponent(t.category)]);
+    return guideText('평균 비용은 건당 100,000원이에요. 최저 비용은 50,000원이고 최고 비용은 300,000원이 책정되었답니다.');
+  };
+  const fakeSession = () => {
+    let url = null;
+    return { navigate: async (u) => { url = u; }, evaluate: async () => page(url) };
+  };
+  const on = (iso) => ({ instance, log: () => {}, now: () => new Date(iso), withPage: async (platform, fn) => fn(fakeSession()) });
+  await run([], on('2026-10-24T15:00:00Z'));
+  soomgoDown = true;
+  await run([], on('2026-10-25T15:00:00Z'));
+  let summary = latestSummary(instance);
+  assert.equal(summary.day, '20261026');
+  const soomgo = summary.entries.filter((e) => e.platform === 'soomgo');
+  assert.equal(soomgo.length, targetsFor('soomgo').length);
+  assert.ok(soomgo.every((e) => e.observedAt === '2026-10-24T15:00:00.000Z'));
+  await run([], on('2026-11-02T15:00:00Z'));
+  summary = latestSummary(instance);
+  assert.equal(summary.day, '20261103');
+  assert.equal(summary.entries.filter((e) => e.platform === 'soomgo').length, 0);
+});

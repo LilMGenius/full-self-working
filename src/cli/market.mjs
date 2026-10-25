@@ -3,13 +3,15 @@
 // price read. A category that fails twice is reported by name. The day's files hold every (platform,
 // category) pair read that day: a run replaces the samples of the pairs it read and keeps the rest, so
 // sampling one platform by name or retrying one category never erases what an earlier run of the same
-// day read.
+// day read. A new day's first run starts from the newest earlier samples for the pairs it cannot read,
+// when they are at most CARRY_DAYS old, so one failed sampling day does not empty a platform's price
+// rows; carried samples keep their own observedAt, which the summary and the price table show.
 // Market pages are public, so a platform is sampled before any account exists there, in the owned
 // headless browser at the descriptor's page gap; the operator's signed-in Chrome, and with it any seller
 // account, takes no part. A platform priced in another currency is sampled only with the day's exchange
 // rates (src/economics/fx.mjs); when they cannot be read, its categories fail by name and none of its
 // pages load.
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createPacingGuard } from '../browser/driver.mjs';
 import { dayKey } from '../core/clock.mjs';
@@ -44,6 +46,14 @@ export function targetsFor(platform, catalog = services) {
 const withoutTime = (entries) => JSON.stringify(entries.map(({ observedAt, ...rest }) => rest));
 const pairKey = (row) => row.platform + '\u0000' + row.category;
 const readSamples = (file) => (existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
+
+export const CARRY_DAYS = 7;
+
+// The newest samples file of a day before this one, or [] when there is none.
+function previousSamples(dir, day) {
+  const file = readdirSync(dir).filter((f) => /^samples-\d{8}\.jsonl$/.test(f) && f < `samples-${day}.jsonl`).sort().at(-1);
+  return file ? readSamples(join(dir, file)) : [];
+}
 
 async function withOwnedPage(platform, fn) {
   const renderer = await openRenderer();
@@ -121,7 +131,10 @@ export async function run(argv, ctx = {}) {
   const summaryFile = join(dir, `summary-${day}.json`);
   const samplesFile = join(dir, `samples-${day}.jsonl`);
   const read = new Set(rows.map(pairKey));
-  const dayRows = [...readSamples(samplesFile).filter((r) => !read.has(pairKey(r))), ...rows];
+  const fresh = (r) => now().getTime() - Date.parse(r.observedAt) <= CARRY_DAYS * 86_400_000;
+  const carried = existsSync(samplesFile) ? [] : previousSamples(dir, day).filter((r) => !read.has(pairKey(r)) && fresh(r));
+  if (carried.length) log(`market carried ${new Set(carried.map(pairKey)).size} pairs this run could not read from an earlier day`);
+  const dayRows = [...carried, ...readSamples(samplesFile).filter((r) => !read.has(pairKey(r))), ...rows];
   const entries = summarizeDay(dayRows);
   const unchanged = existsSync(summaryFile) && withoutTime(JSON.parse(readFileSync(summaryFile, 'utf8'))) === withoutTime(entries);
   if (unchanged) log(`market unchanged: summary-${day}.json`);

@@ -1,6 +1,8 @@
 // fsw market: sample every enabled platform's market for the services in services.json, then write
 // samples-<day>.jsonl and summary-<day>.json, the files latestSummary and fsw price read. A category
-// that fails twice is reported by name and left out of the day's summary.
+// that fails twice is reported by name. The day's files hold every (platform, category) pair read that
+// day: a run replaces the samples of the pairs it read and keeps the rest, so sampling one platform by
+// name or retrying one category never erases what an earlier run of the same day read.
 // Listing pages and price guides are public, so they are read in the owned headless browser at the
 // descriptor's page gap; the operator's signed-in Chrome, and with it the seller account, takes no part.
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
@@ -27,6 +29,8 @@ export function targetsFor(platform, catalog = services) {
 }
 
 const withoutTime = (entries) => JSON.stringify(entries.map(({ observedAt, ...rest }) => rest));
+const pairKey = (row) => row.platform + '\u0000' + row.category;
+const readSamples = (file) => (existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
 
 async function withOwnedPage(platform, fn) {
   const renderer = await openRenderer();
@@ -83,17 +87,19 @@ export async function run(argv, ctx = {}) {
   for (const e of errors) log(`market ${e.platform}/${e.category} failed: ${e.message}`);
   if (!rows.length) throw Object.assign(new Error('market sampling read no rows'), { code: 'FSW_MARKET_EMPTY', errors });
 
-  const entries = summarizeDay(rows);
   const day = ctx.day ?? dayKey(now());
   const dir = ensureDir(instance.paths.market);
   const summaryFile = join(dir, `summary-${day}.json`);
   const samplesFile = join(dir, `samples-${day}.jsonl`);
+  const read = new Set(rows.map(pairKey));
+  const dayRows = [...readSamples(samplesFile).filter((r) => !read.has(pairKey(r))), ...rows];
+  const entries = summarizeDay(dayRows);
   const unchanged = existsSync(summaryFile) && withoutTime(JSON.parse(readFileSync(summaryFile, 'utf8'))) === withoutTime(entries);
   if (unchanged) log(`market unchanged: summary-${day}.json`);
   else {
-    writeAtomic(samplesFile, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+    writeAtomic(samplesFile, dayRows.map((r) => JSON.stringify(r)).join('\n') + '\n');
     writeAtomic(summaryFile, JSON.stringify(entries, null, 2) + '\n');
-    log(`market written: summary-${day}.json (${entries.length} entries from ${rows.length} samples)`);
+    log(`market written: summary-${day}.json (${entries.length} entries from ${dayRows.length} samples, ${rows.length} read now)`);
   }
   return { written: !unchanged, summaryFile, samplesFile, entries, errors, exitCode: errors.length ? 1 : 0 };
 }

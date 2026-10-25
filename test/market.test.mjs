@@ -95,3 +95,36 @@ test('fsw market retries a failed category once, reports what still fails and wr
   const again = await run([], ctx);
   assert.equal(again.written, false);
 });
+
+test('a named market run replaces only the pairs it read and keeps the rest of the day', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'fsw-market-'));
+  const instance = { config: { platforms: { kmong: { enabled: true, mode: 'auto' }, soomgo: { enabled: true, mode: 'auto' } } }, paths: { market: join(dir, 'market') } };
+  const [broken] = targetsFor('kmong');
+  let price = '10,000';
+  let failing = null;
+  const page = (url) => {
+    if (url.startsWith('https://kmong.com/')) return url === failing ? { total: null, cards: [] } : { total: '1,000', cards: [{ href: '/gig/1', text: `제목\n${price}원~\n판매자` }] };
+    if (url === 'https://soomgo.com/prices') return targetsFor('soomgo').map((t) => [t.category, '/prices/' + encodeURIComponent(t.category)]);
+    return guideText('평균 비용은 건당 100,000원이에요. 최저 비용은 50,000원이고 최고 비용은 300,000원이 책정되었답니다.');
+  };
+  const fakeSession = () => {
+    let url = null;
+    return { navigate: async (u) => { url = u; }, evaluate: async () => page(url) };
+  };
+  const ctx = { instance, log: () => {}, now: () => new Date('2026-10-25T03:00:00Z'), withPage: async (platform, fn) => fn(fakeSession()) };
+  await run([], ctx);
+
+  price = '20,000';
+  failing = listingUrl(broken.def);
+  const named = await run(['kmong'], ctx);
+  assert.deepEqual(named.errors.map(({ platform, category }) => [platform, category]), [['kmong', broken.category]]);
+  const { entries } = latestSummary(instance);
+  assert.equal(entries.filter((e) => e.platform === 'soomgo').length, targetsFor('soomgo').length);
+  const kmong = entries.filter((e) => e.platform === 'kmong');
+  assert.equal(kmong.length, targetsFor('kmong').length);
+  assert.equal(kmong.find((e) => e.category === broken.category).median, 10000);
+  assert.ok(kmong.filter((e) => e.category !== broken.category).every((e) => e.median === 20000));
+  const samples = readFileSync(named.samplesFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.equal(samples.filter((r) => r.platform === 'soomgo').length, targetsFor('soomgo').length);
+  assert.equal(samples.filter((r) => r.platform === 'kmong').length, targetsFor('kmong').length);
+});

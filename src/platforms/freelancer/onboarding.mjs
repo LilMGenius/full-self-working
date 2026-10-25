@@ -33,6 +33,22 @@ export const skillOfResult = (text) => String(text ?? '').replace(/\s*\(\d[\d,]*
 
 const SEARCH = 'input[placeholder="Search a skill"]';
 
+// A search result reads "Name (N jobs)", or the bare name when the skill has no open jobs.
+export const resultPattern = (skill) => new RegExp('^' + skill.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:\\s*\\(|$)', 'i');
+
+// Types one skill into the search and clicks its result. The list sometimes stays empty after the first
+// typing (on 2026-10-26, for 3 of 12 skills the jobs API lists), so an empty list is typed once more after
+// a pause before the skill counts as missing.
+export async function addSkill(s, skill, { timeoutMs = 10000, pauseMs = 3000 } = {}) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt) await sleep(pauseMs);
+    await typeInto(s, SEARCH, skill);
+    const listed = await waitFor(s, (name) => [...document.querySelectorAll('.SkillsContent-text')].some((e) => e.getBoundingClientRect().width > 0 && e.innerText.replace(/\s*\(\d[\d,]*\s+jobs?\)\s*$/i, '').trim().toLowerCase() === name.toLowerCase()), skill, { timeoutMs });
+    if (listed) return clickMatch(s, '.SkillsContent-text', resultPattern(skill));
+  }
+  return false;
+}
+
 export const HANDLERS = {
   // Mapped 2026-10-25: a search box lists matching skills as .SkillsContent-text "Name (N jobs)";
   // clicking one adds it to fl-skills-selected (at most 20). The choice is saved by Next.
@@ -46,9 +62,7 @@ export const HANDLERS = {
     write: async (s, want, cur) => {
       const missing = [];
       for (const skill of want.filter((w) => !cur.some((c) => norm(c) === norm(w)))) {
-        await typeInto(s, SEARCH, skill);
-        const listed = await waitFor(s, (name) => [...document.querySelectorAll('.SkillsContent-text')].some((e) => e.getBoundingClientRect().width > 0 && e.innerText.replace(/\s*\(\d[\d,]*\s+jobs?\)\s*$/i, '').trim().toLowerCase() === name.toLowerCase()), skill, { timeoutMs: 8000 });
-        if (!listed || !(await clickMatch(s, '.SkillsContent-text', new RegExp('^' + skill.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\(', 'i')))) {
+        if (!(await addSkill(s, skill))) {
           const shown = await s.evaluate(() => [...document.querySelectorAll('.SkillsContent-text')].filter((e) => e.getBoundingClientRect().width > 0).map((e) => e.innerText.trim()).slice(0, 6));
           missing.push(skill + ' (listed: ' + shown.map(skillOfResult).join(' / ') + ')');
         }

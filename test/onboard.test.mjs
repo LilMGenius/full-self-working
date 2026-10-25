@@ -6,7 +6,7 @@ import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { parseArgs, run } from '../src/cli/onboard.mjs';
 import { blockOf, dayLabel, humanize, readIdentity, walkWizard } from '../src/platforms/onboarding.mjs';
-import { parseSelectedSkills, skillOfResult } from '../src/platforms/freelancer/onboarding.mjs';
+import { addSkill, parseSelectedSkills, resultPattern, skillOfResult } from '../src/platforms/freelancer/onboarding.mjs';
 import { HANDLERS as UPWORK, employmentEntries, onboard, parseEmploymentCard, parsePeriod, splitTitle, stepOfUrl, upworkSpecialties } from '../src/platforms/upwork/onboarding.mjs';
 import { tempDir } from './tmp.mjs';
 
@@ -106,6 +106,22 @@ test('a sign-in page stops the walk as the operator\'s to fix, never as a finish
   assert.equal(out.length, 1);
   assert.equal(out[0].state, 'needs-operator');
   assert.match(out[0].detail, /sign in to freelancer/);
+});
+
+test('freelancer types a skill again when its search list stays empty, and clicks a result with no job count', async () => {
+  const typed = [];
+  const clicked = [];
+  const session = {
+    // waitFor asks with the skill name, and the list renders only after the second typing.
+    evaluate: async (fn, arg) => (typeof arg === 'string' ? typed.length >= 2 : arg?.selector === '.SkillsContent-text' ? new RegExp(arg.spec.re, arg.spec.flags).test('Kubernetes') : true),
+    click: async (sel) => { clicked.push(sel); },
+    typeKeys: async (_sel, text) => { typed.push(text); },
+  };
+  assert.equal(await addSkill(session, 'Kubernetes', { timeoutMs: 30, pauseMs: 0 }), true);
+  assert.deepEqual(typed, ['Kubernetes', 'Kubernetes']);
+  assert.equal(clicked.length, 3);
+  assert.ok(resultPattern('Node.js').test('Node.js (1,203 jobs)'));
+  assert.ok(!resultPattern('Kubernetes').test('Kubernetes Engine (4 jobs)'));
 });
 
 test('freelancer skill results and the selected panel read as plain skill names', () => {

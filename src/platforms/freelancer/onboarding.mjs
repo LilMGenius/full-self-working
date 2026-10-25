@@ -3,7 +3,7 @@
 // dry run types and reads back without saving. Values come from config.onboarding.freelancer and the
 // profile; every typed text passes the outbound gate as kind profile first. Bids and deposits are never
 // part of onboarding.
-import { clickMatch, clickVisible, needs, pathOf, sleep, typeInto, waitFor, walkWizard } from '../onboarding.mjs';
+import { clickMatch, googleSignIn, needs, pathOf, readIdentity, sleep, typeInto, waitFor, walkWizard } from '../onboarding.mjs';
 
 export const START = 'https://www.freelancer.com/new-freelancer/skills';
 const BASE = '/new-freelancer/';
@@ -71,5 +71,8 @@ export const onboard = (session, ctx) =>
     stepOfUrl,
     describe,
     advance: (s) => clickMatch(s, 'button', /^Next$/),
+    // Mapped 2026-10-26: the login page renders Google's button in a gsi/button iframe beside a
+    // Continue with Facebook button.
+    signIn: (s, ctx) => googleSignIn(s, { framed: true, email: readIdentity(ctx).googleEmail }),
   });
 

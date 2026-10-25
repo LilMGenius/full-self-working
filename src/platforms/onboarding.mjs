@@ -308,15 +308,21 @@ export function readIdentity(ctx) {
 // signed-in account with data-identifier set to its email; picking one closes the popup and posts the
 // token to the page that opened it, so that page must stay open in the same session until it leaves
 // the sign-in path. A password or second-factor prompt is the operator's.
-export async function googleSignIn(session, { button, email, timeoutMs = 60000, wait = sleep }) {
+export async function googleSignIn(session, { button, framed = false, email, timeoutMs = 60000, wait = sleep }) {
   if (!email) throw new Error('no Google account to sign in with; set person.google_login_email in the identity file');
-  if (!(await clickMatch(session, 'button, a, [role=button]', button))) throw new Error('no ' + button + ' button on ' + (await session.evaluate(() => location.pathname)));
+  // A site that renders Google's own button (an accounts.google.com/gsi/button iframe) is clicked
+  // through the semantic tree, where the frame's button names the account; a text match on the page
+  // can hit a hidden button of another provider.
+  const pressed = framed ? await clickObserved(session, new RegExp('button "[^"]*' + escapeRe(email))) : await clickMatch(session, 'button, a, [role=button]', button);
+  if (!pressed) throw new Error('no Google sign-in button on ' + (await session.evaluate(() => location.pathname)));
   const bsk = session.session;
   let tab = null;
   for (let i = 0; i < 15 && !tab; i++) {
     await wait(1000);
     tab = (await bsk.tabList({ scope: 'all' })).tabs.find((t) => /^https:\/\/accounts\.google\.com\//.test(t.url)) ?? null;
   }
+  // A button that already names the account may sign in without showing the chooser.
+  if (!tab && !SIGN_IN_PATH.test(await session.evaluate(() => location.pathname))) return session.evaluate(() => location.pathname);
   if (!tab) throw new Error('the Google account chooser did not open');
   if (tab.scope !== 'agent') await bsk.tabBorrow(tab.tab_id, { confirmationTimeoutMs: 180000 });
   const inTab = async (fn, arg) => {
@@ -325,8 +331,8 @@ export async function googleSignIn(session, { button, email, timeoutMs = 60000, 
   };
   const chooser = await inTab(() => ({ accounts: [...document.querySelectorAll('[data-identifier]')].map((e) => e.getAttribute('data-identifier')), password: !!document.querySelector('input[type=password]') }));
   if (chooser.password || !chooser.accounts.includes(email)) throw new Error('Google asked for a password or does not list ' + email + '; sign in to Google in Chrome first');
-  await inTab((id) => document.querySelector('[data-identifier="' + id + '"]').setAttribute('data-fsw-account', '1'), email);
-  await bsk.click('[data-fsw-account]', { tabId: tab.tab_id });
+  // The chooser ignores a synthetic click on its row, so the row is clicked through the tree too.
+  if (!(await clickObserved(session, new RegExp(escapeRe(email)), { tabId: tab.tab_id }))) throw new Error('the chooser row for the account was not clickable');
   // A first sign-in to a site shows a consent page with a Continue button before the popup closes.
   const until = Date.now() + timeoutMs;
   while (Date.now() < until) {
@@ -365,4 +371,20 @@ export async function pickDate(session, trigger, ymd, { picker = '.air3-datepick
   const day = new RegExp('^\\w+, ' + dayLabel(ymd));
   if (!(await clickMatch(session, picker + ' button[data-test^=date-]', day))) throw new Error('the date picker shows no day ' + ymd);
 }
+
+
+// Clicks the first element of the engine's semantic tree (observe) whose line matches pattern. The tree
+// reaches into cross-origin frames, where Google renders its sign-in button and where a DOM query
+// cannot see, and gives refs the engine clicks as a person would. Mapped 2026-10-26 on freelancer:
+// the button reads 'button "Continue as <name>, <email>. Opens in new tab"' inside the gsi iframe.
+export async function clickObserved(session, pattern, { tabId, maxTokens = 3000 } = {}) {
+  const tree = await session.session.observe({ tabId, maxTokens });
+  const line = String(tree?.text ?? '').split(/\n/).find((l) => /@e\d+/.test(l) && pattern.test(l));
+  const ref = line?.match(/@(e\d+)/)?.[1];
+  if (!ref) return false;
+  await session.session.click(ref, { tabId });
+  return true;
+}
+
+const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 

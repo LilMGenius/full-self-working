@@ -57,6 +57,9 @@ Before anything is opened, an item is parked from its list row alone when the pl
 | `src/jobs/run.mjs` | `runJob(jobId, ctx)` | executes a recipe in jobs/<id>/work |
 | `src/learning/*.mjs` | `recordOutcome`, `writeLessons`, `refreshPlaybook` | re0-memo then re0 over the playbook |
 | `src/supervisor/run.mjs` | `runSupervisor(ctx)` | the daemon |
+| `src/cli/init.mjs` | `initInstance(dir)`, `run(argv)` | copies `examples/instance` into a new directory, never overwrites, fails with `FSW_INSTANCE_EXISTS` |
+| `src/profile/*.mjs` | `loadSources(inputs)`, `draftProfile(sources)`, `verifyDraft(raw, sources)`, `buildReview(...)`, `validateProfile(p)` | `fsw profile build` drafts `profile.draft.json` through `runCodex`; a claim survives only when its quote is found at its cited source line and its words and numbers are inside the quote; `fsw profile accept` promotes the draft |
+| `src/cli/doctor.mjs` | `runChecks(ctx)`, `run(argv)` | one line per requirement, exit 1 when a required check fails; every probe is injectable |
 | `bin/fsw.mjs` | CLI | tick, run, status, probe, market, price, publish, learn, approve, schedule |
 
 ## Ledger

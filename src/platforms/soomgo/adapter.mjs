@@ -7,6 +7,7 @@ import { openSession } from '../../browser/driver.mjs';
 import { loadDescriptor } from '../registry.mjs';
 import { AdapterRefusal, squash } from '../kit.mjs';
 import { parseCash, parseChats, parseChatThread, parseProfile, parseRequestDetail, parseRequests } from './parse.mjs';
+import { readServices } from './services.mjs';
 
 const BASE = 'https://soomgo.com';
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -396,6 +397,9 @@ export async function openSoomgo({ session } = {}) {
       const login = await adapter.login();
       return { profile, cash: login.cash };
     },
+
+    // Offered services with whether their request items are set (src/platforms/soomgo/services.mjs).
+    services: () => readServices(s),
 
     stop: () => s.stop(),
   };

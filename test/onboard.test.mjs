@@ -6,6 +6,8 @@ import { test } from 'node:test';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { parseArgs, run } from '../src/cli/onboard.mjs';
+import { walkWizard } from '../src/platforms/onboarding.mjs';
+import { parseSelectedSkills, skillOfResult } from '../src/platforms/freelancer/onboarding.mjs';
 import { employmentEntries, onboard, parseEmploymentCard, parsePeriod, splitTitle, stepOfUrl, upworkSpecialties } from '../src/platforms/upwork/onboarding.mjs';
 
 function instance() {
@@ -97,3 +99,18 @@ test('a profile text the gate refuses is never typed and names the setting to ch
   assert.deepEqual(typed, []);
 });
 
+
+test('a sign-in page stops the walk as the operator\'s to fix, never as a finished wizard', async () => {
+  const session = { navigate: async () => 'https://www.freelancer.com/login?next=%252Fnew-freelancer%252Fskills', evaluate: async () => null };
+  const out = await walkWizard(session, { apply: false }, { name: 'freelancer', steps: [], handlers: {}, startUrl: 'x', stepUrl: null, stepOfUrl: () => null, describe: String });
+  assert.equal(out.length, 1);
+  assert.equal(out[0].state, 'needs-operator');
+  assert.match(out[0].detail, /sign in to freelancer/);
+});
+
+test('freelancer skill results and the selected panel read as plain skill names', () => {
+  assert.equal(skillOfResult('Web Scraping  (42 jobs)'), 'Web Scraping');
+  assert.equal(skillOfResult('Node.js (1,203 jobs)'), 'Node.js');
+  assert.deepEqual(parseSelectedSkills('2 out of 20 skills selected\nWeb Scraping\nNode.js\n'), ['Web Scraping', 'Node.js']);
+  assert.deepEqual(parseSelectedSkills('0 skills selected\nSelect at least one skill to help us recommend customized jobs for you.'), []);
+});

@@ -9,7 +9,10 @@ export const START = 'https://www.freelancer.com/new-freelancer/skills';
 const BASE = '/new-freelancer/';
 export const MAX_SKILLS = 20;
 
-export const STEPS = [{ id: 'skills', detect: { path: BASE + 'skills', heading: /tell us your top skills/i } }];
+export const STEPS = [
+  { id: 'skills', detect: { path: BASE + 'skills', heading: /tell us your top skills/i } },
+  { id: 'linked-accounts', detect: { path: BASE + 'linked-accounts', heading: /link your accounts/i } },
+];
 
 export const stepOfUrl = (url) => {
   const path = pathOf(url);
@@ -78,6 +81,15 @@ export const HANDLERS = {
       }
       if (missing.length) throw new Error('Freelancer lists no skill named ' + missing.join(', '));
     },
+  },
+  // Mapped 2026-10-26: offers Facebook and LinkedIn imports of photo, name and e-mail, with Back, Skip
+  // and Next. The profile steps after it take those values from the instance, so no account is linked
+  // and Skip leaves the step.
+  'linked-accounts': {
+    read: async () => 'not linked',
+    want: () => 'not linked',
+    same: (cur, want) => cur === want,
+    next: (s) => clickMatch(s, 'button', /^Skip$/),
   },
 };
 

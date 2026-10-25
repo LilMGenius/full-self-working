@@ -6,7 +6,7 @@ import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { parseArgs, run } from '../src/cli/onboard.mjs';
 import { blockOf, dayLabel, humanize, readIdentity, walkWizard } from '../src/platforms/onboarding.mjs';
-import { addSkill, parseSelectedSkills, resultPattern, skillOfResult } from '../src/platforms/freelancer/onboarding.mjs';
+import { HANDLERS as FREELANCER, STEPS as FREELANCER_STEPS, addSkill, parseSelectedSkills, resultPattern, skillOfResult } from '../src/platforms/freelancer/onboarding.mjs';
 import { HANDLERS as UPWORK, employmentEntries, onboard, parseEmploymentCard, parsePeriod, splitTitle, stepOfUrl, upworkSpecialties } from '../src/platforms/upwork/onboarding.mjs';
 import { tempDir } from './tmp.mjs';
 
@@ -134,6 +134,18 @@ test('freelancer skill results and the selected panel read as plain skill names'
   assert.deepEqual(parseSelectedSkills('2 out of 20 skills selected\nWeb Scraping\nNode.js\n'), ['Web Scraping', 'Node.js']);
   assert.deepEqual(parseSelectedSkills('996 jobs matching your skills\nWeb Scraping\nNode.js'), ['Web Scraping', 'Node.js']);
   assert.deepEqual(parseSelectedSkills('0 skills selected\nSelect at least one skill to help us recommend customized jobs for you.'), []);
+});
+
+test('freelancer linked-accounts links nothing and leaves by Skip', async () => {
+  const h = FREELANCER['linked-accounts'];
+  assert.ok(FREELANCER_STEPS.some((s) => s.id === 'linked-accounts'));
+  assert.ok(h.same(await h.read(), h.want({})));
+  let spec;
+  const clicked = [];
+  const session = { evaluate: async (_fn, arg) => ((spec = arg.spec), new RegExp(spec.re, spec.flags).test('Skip')), click: async (sel) => { clicked.push(sel); } };
+  assert.equal(await h.next(session), true);
+  assert.ok(!new RegExp(spec.re, spec.flags).test('Next'));
+  assert.equal(clicked.length, 1);
 });
 
 test('a run within the cooldown of the last one stops before opening the browser, unless forced', async () => {

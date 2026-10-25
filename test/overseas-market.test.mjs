@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { jobsUrl, parseJobs, parseProjects, projectsUrl, sample as sampleFreelancer } from '../src/platforms/freelancer/market.mjs';
 import { filterQuery, listUrl, parseCard as parseWishketCard, sample as sampleWishket } from '../src/platforms/wishket/market.mjs';
+import { parseSearch, sample as sampleFiverr, searchUrl } from '../src/platforms/fiverr/market.mjs';
+import { challengeOf } from '../src/platforms/kit.mjs';
 import { latestSummary } from '../src/economics/market.mjs';
 import { run, targetsFor } from '../src/cli/market.mjs';
 
@@ -29,19 +31,19 @@ test('a freelancer project is a sample at its converted budget midpoint, and hou
   assert.deepEqual(parseJobs([{ id: 32, name: 'Logo Design' }, { name: 'no id' }]), new Map([['Logo Design', 32]]));
 });
 
-test('the freelancer sampler resolves jobs by name and fails a missing job or a non-JSON answer by name', async () => {
+test('the freelancer sampler resolves jobs by name and fails a missing job or an unreadable answer by name', async () => {
   const targets = [{ category: 'Logo Design' }, { category: 'Banner Design' }, { category: 'No Such Job' }];
   const pages = new Map([
     [jobsUrl(targets.map((t) => t.category)), success([{ id: 32, name: 'Logo Design' }, { id: 26, name: 'Banner Design' }])],
     [projectsUrl(32, 30), success({ total_count: 2, projects: [project(1), project(2)] })],
-    [projectsUrl(26, 30), { title: 'Just a moment...', text: 'Checking your browser' }],
+    [projectsUrl(26, 30), { title: '502 Bad Gateway', text: 'Bad gateway' }],
   ]);
   let url;
   const session = { navigate: async (u) => { url = u; }, evaluate: async () => pages.get(url) };
   const { rows, errors } = await sampleFreelancer(session, targets, { fx, now: () => new Date('2026-10-25T03:00:00Z') });
   assert.deepEqual(rows.map((r) => [r.platform, r.category, r.rank, r.priceKRW, r.listingTotal]), [['freelancer', 'Logo Design', 1, 168000, 2], ['freelancer', 'Logo Design', 2, 168000, 2]]);
   assert.deepEqual(errors.map((e) => e.category), ['Banner Design', 'No Such Job']);
-  assert.match(errors[0].message, /Just a moment/);
+  assert.match(errors[0].message, /502 Bad Gateway/);
   assert.match(errors[1].message, /no Freelancer job named No Such Job/);
 });
 
@@ -110,7 +112,7 @@ test('the wishket sampler encodes each field filter in the page, reads a second 
     navigate: async (u) => { loaded.push(u); url = u; },
     evaluate: async (fn, arg) => {
       if (typeof arg === 'string') return 'ENC:' + arg;
-      if (url === 'https://www.wishket.com/project/') return [['랜딩ㆍ소개 페이지', '45'], ['ChatGPTㆍ챗봇', '29']];
+      if (url === 'https://www.wishket.com/project/') return { title: '프로젝트 찾기', text: '', fields: [['랜딩ㆍ소개 페이지', '45'], ['ChatGPTㆍ챗봇', '29']] };
       return lists.get(url);
     },
   };
@@ -121,4 +123,49 @@ test('the wishket sampler encodes each field filter in the page, reads a second 
   assert.deepEqual(skipped, [{ category: '랜딩ㆍ소개 페이지', reason: 'budget negotiable', count: 1 }, { category: 'ChatGPTㆍ챗봇', reason: 'budget negotiable', count: 1 }]);
   assert.deepEqual(errors.map((e) => e.category), ['ChatGPTㆍ챗봇', '없는 분야']);
   assert.match(errors[1].message, /no project field named 없는 분야/);
+});
+
+const perseus = (over = {}) => JSON.stringify({ currency: { name: 'USD', rate: 1 }, appData: { pagination: { total: 230152 } }, listings: [{ gigs: [
+  { gig_url: '/studio/logo', title: 'minimal logo', price_i: 15, buying_review_rating_count: 202, buying_review_rating: 4.8, seller_level: 'level_two_seller', is_pro: false },
+  { gig_url: '/new/logo', title: 'new logo', price_i: 5 },
+  { gig_url: '/free/logo', title: 'no price', price_i: 0 },
+] }], ...over });
+
+test('a fiverr search yields each gig\'s starting price in KRW, and a display currency other than USD fails by name', () => {
+  const { total, gigs } = parseSearch(perseus(), fx);
+  assert.equal(total, 230152);
+  assert.deepEqual(gigs[0], { url: 'https://www.fiverr.com/studio/logo', title: 'minimal logo', priceKRW: 18000, priceUSD: 15, fromPrice: true, reviews: 202, rating: 4.8, sellerLevel: 'level_two_seller', pro: false, fx: { currency: 'USD', krwPerUnit: 1200, date: '2026-10-23', source: fx.source } });
+  assert.deepEqual(gigs.map((g) => [g.priceUSD, g.reviews, g.rating]), [[15, 202, 4.8], [5, 0, null]]);
+  assert.throws(() => parseSearch(perseus({ currency: { name: 'KRW', rate: 1400 } }), fx), /display currency KRW at rate 1400/);
+});
+
+test('bot walls are named by vendor, and the first one ends a sampler\'s reads for every later target', async () => {
+  assert.equal(challengeOf({ title: 'It needs a human touch', text: 'ERRCODE PXCR10002539' }), 'perimeterx');
+  assert.equal(challengeOf({ title: 'Attention Required! | Cloudflare', text: 'Sorry, you have been blocked' }), 'cloudflare');
+  assert.equal(challengeOf({ title: 'Logo Design Jobs', text: 'Find jobs' }), null);
+  const loaded = [];
+  const session = { navigate: async (u) => { loaded.push(u); }, evaluate: async () => ({ title: 'It needs a human touch', text: 'Press & Hold', props: null }) };
+  const targets = [{ category: 'logo design' }, { category: 'video editing' }, { category: 'copywriting' }];
+  const { rows, errors } = await sampleFiverr(session, targets, { fx });
+  assert.equal(rows.length, 0);
+  assert.deepEqual(loaded, [searchUrl('logo design')]);
+  assert.deepEqual(errors.map((e) => [e.category, e.challenge]), [['logo design', 'perimeterx'], ['video editing', 'perimeterx'], ['copywriting', 'perimeterx']]);
+});
+
+test('the market run reports a bot challenge by name and does not retry it', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'fsw-overseas-'));
+  const instance = { config: { platforms: { kmong: { enabled: true, mode: 'auto' }, fiverr: { enabled: false, mode: 'observe' } } }, paths: { market: join(dir, 'market') } };
+  const opened = [];
+  const withPage = async (platform, fn) => {
+    opened.push(platform);
+    let url;
+    const page = () => (url.startsWith('https://kmong.com/') ? { total: '10', cards: [{ href: '/gig/1', text: '제목\n50,000원~\n판매자' }] } : { title: 'It needs a human touch', text: 'PXCR10002539', props: null });
+    return fn({ navigate: async (u) => { url = u; }, evaluate: async () => page() });
+  };
+  const result = await run([], { instance, log: () => {}, now: () => new Date('2026-10-25T03:00:00Z'), withPage, loadFx: async () => fx });
+  assert.equal(opened.filter((p) => p === 'fiverr').length, 1);
+  const walls = result.errors.filter((e) => e.platform === 'fiverr');
+  assert.equal(walls.length, targetsFor('fiverr').length);
+  assert.ok(walls.every((e) => e.challenge === 'perimeterx' && /perimeterx bot challenge on https:\/\/www\.fiverr\.com\/search\/gigs/.test(e.message)));
+  assert.equal(result.exitCode, 1);
 });

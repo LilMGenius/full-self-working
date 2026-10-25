@@ -26,6 +26,9 @@ const SAMPLERS = {
   soomgo: '../platforms/soomgo/market.mjs',
   freelancer: '../platforms/freelancer/market.mjs',
   wishket: '../platforms/wishket/market.mjs',
+  fiverr: '../platforms/fiverr/market.mjs',
+  // upwork has none: its public job search needs a login and answered the owned browser with a
+  // Cloudflare block on 2026-10-25, so its market waits for the signed-in adapter.
 };
 
 // One target per distinct category label, since several services can share one.
@@ -93,6 +96,7 @@ export async function run(argv, ctx = {}) {
       }
     }
     // The second pass retries what the first could not read, since one slow load fails a category.
+    // A bot challenge is final for the day: a retry would only load the same wall again.
     for (let pass = 1; pass <= 2 && pending.length; pass += 1) {
       let failed;
       try {
@@ -102,10 +106,10 @@ export async function run(argv, ctx = {}) {
         // A retried category's counts replace its first-pass counts.
         for (const s of result.skipped ?? []) skipped.set([platform, s.category, s.reason].join('\u0000'), { platform, ...s });
       } catch (err) {
-        failed = pending.map(({ category }) => ({ category, message: err.message }));
+        failed = pending.map(({ category }) => ({ category, message: err.message, ...(err.challenge ? { challenge: err.challenge } : {}) }));
       }
-      if (pass === 2) errors.push(...failed.map((e) => ({ platform, ...e })));
-      pending = pending.filter((t) => failed.some((e) => e.category === t.category));
+      errors.push(...failed.filter((e) => pass === 2 || e.challenge).map((e) => ({ platform, ...e })));
+      pending = pending.filter((t) => failed.some((e) => e.category === t.category && !e.challenge));
     }
   }
   for (const e of errors) log(`market ${e.platform}/${e.category} failed: ${e.message}`);

@@ -7,6 +7,7 @@
 // by name. Job ids are read by name from the jobs endpoint on every run instead of being kept here.
 // The endpoints are those of the public API documented at https://developers.freelancer.com.
 import { fxNote, toKRW } from '../../economics/fx.mjs';
+import { ChallengeError, challengeOf, sampleEach } from '../kit.mjs';
 
 const BASE = 'https://www.freelancer.com';
 const API = BASE + '/api/projects/0.1';
@@ -26,6 +27,8 @@ function pageBody() {
 
 export function apiResult(body, url) {
   if (body?.json?.status === 'success') return body.json.result;
+  const challenge = challengeOf(body ?? {});
+  if (challenge) throw new ChallengeError(challenge, url);
   throw new Error('no success answer from ' + url + ': ' + (body?.json?.message ?? body?.title ?? 'not JSON'));
 }
 
@@ -69,28 +72,24 @@ export function parseProjects(result, fx) {
 
 const SKIP_REASON = { notFixed: 'not fixed price', noBudget: 'no budget range', currency: 'currency without a rate' };
 
-// One row per kept project. A job with no priced project fails its category by name.
+// One row per kept project. A job with no priced project fails its category by name, and a bot
+// challenge ends the run's reads.
 export async function sample(session, targets, { now = () => new Date(), fx, limit = 30 } = {}) {
   const jobsAt = jobsUrl(targets.map((t) => t.category));
   await session.navigate(jobsAt, { settle: 500 });
   const ids = parseJobs(apiResult(await session.evaluate(pageBody), jobsAt));
   const rows = [];
-  const errors = [];
   const skipped = [];
-  for (const { category } of targets) {
-    try {
-      const id = ids.get(category);
-      if (!id) throw new Error('no Freelancer job named ' + category);
-      const url = projectsUrl(id, limit);
-      await session.navigate(url, { settle: 500 });
-      const { total, projects, skipped: counts } = parseProjects(apiResult(await session.evaluate(pageBody), url), fx);
-      for (const [reason, count] of Object.entries(counts)) if (count) skipped.push({ category, reason: SKIP_REASON[reason], count });
-      if (!projects.length) throw new Error('no fixed-price project with a budget range on ' + url);
-      const observedAt = now().toISOString();
-      projects.forEach((p, i) => rows.push({ platform: 'freelancer', category, query: url, rank: i + 1, ...p, listingTotal: total, observedAt }));
-    } catch (err) {
-      errors.push({ category, message: err.message });
-    }
-  }
+  const errors = await sampleEach(targets, async ({ category }) => {
+    const id = ids.get(category);
+    if (!id) throw new Error('no Freelancer job named ' + category);
+    const url = projectsUrl(id, limit);
+    await session.navigate(url, { settle: 500 });
+    const { total, projects, skipped: counts } = parseProjects(apiResult(await session.evaluate(pageBody), url), fx);
+    for (const [reason, count] of Object.entries(counts)) if (count) skipped.push({ category, reason: SKIP_REASON[reason], count });
+    if (!projects.length) throw new Error('no fixed-price project with a budget range on ' + url);
+    const observedAt = now().toISOString();
+    projects.forEach((p, i) => rows.push({ platform: 'freelancer', category, query: url, rank: i + 1, ...p, listingTotal: total, observedAt }));
+  });
   return { rows, errors, skipped };
 }

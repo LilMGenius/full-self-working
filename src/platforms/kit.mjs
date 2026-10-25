@@ -35,3 +35,42 @@ export function seoulYear(now = new Date()) {
 }
 
 export const lines = (text) => String(text ?? '').split(/\n/).map((l) => l.trim()).filter(Boolean);
+
+// Bot walls seen on public market pages, named by vendor. A sampler stops at the first one, since every
+// later load meets the same wall, and the day's report says which wall it was.
+const CHALLENGES = [
+  ['perimeterx', /px-captcha|PXCR\d|It needs a human touch|Press & Hold/i],
+  ['cloudflare', /Just a moment\.\.\.|Attention Required! \| Cloudflare|Sorry, you have been blocked|cf-chl-|Checking your browser before accessing/i],
+];
+
+export function challengeOf({ title = '', text = '' } = {}) {
+  const page = String(title ?? '') + '\n' + String(text ?? '');
+  return CHALLENGES.find(([, re]) => re.test(page))?.[0] ?? null;
+}
+
+export class ChallengeError extends Error {
+  constructor(challenge, url) {
+    super(challenge + ' bot challenge on ' + url);
+    this.code = 'FSW_MARKET_CHALLENGE';
+    this.challenge = challenge;
+  }
+}
+
+// Runs fn on each market target in order. A target that throws fails by name; a bot challenge fails it
+// and every target after it, none of which loads.
+export async function sampleEach(targets, fn) {
+  const errors = [];
+  for (const [i, target] of targets.entries()) {
+    try {
+      await fn(target);
+    } catch (err) {
+      if (!err.challenge) {
+        errors.push({ category: target.category, message: err.message });
+        continue;
+      }
+      for (const t of targets.slice(i)) errors.push({ category: t.category, message: err.message, challenge: err.challenge });
+      break;
+    }
+  }
+  return errors;
+}

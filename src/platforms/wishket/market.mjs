@@ -5,19 +5,26 @@
 // 결정), a monthly amount and a 기간제 project are skipped and counted by name. The list keeps its filter
 // in a d parameter compressed with the site's own lz-string (LZString.compressToBase64), so the query is
 // encoded in the page; field ids are read from the list's own filter inputs by label on every run.
-import { toInt } from '../kit.mjs';
+import { ChallengeError, challengeOf, sampleEach, toInt } from '../kit.mjs';
 
 const BASE = 'https://www.wishket.com';
 const PER_PAGE = 10;
 
-const pageFields = () => [...document.querySelectorAll('input[name=pf]')].map((i) => [i.getAttribute('data-name'), i.value]);
+const pageFields = () => ({
+  title: document.title,
+  text: (document.body?.innerText ?? '').slice(0, 2000),
+  fields: [...document.querySelectorAll('input[name=pf]')].map((i) => [i.getAttribute('data-name'), i.value]),
+});
 const encodeFilter = (query) => window.LZString?.compressToBase64(query) ?? null;
 
 function pageCards() {
   const text = (box, sel) => box.querySelector(sel)?.innerText?.replace(/\s+/g, ' ').trim() ?? null;
+  const boxes = [...document.querySelectorAll('.project-info-box')];
   return {
+    title: document.title,
+    text: boxes.length ? '' : (document.body?.innerText ?? '').slice(0, 2000),
     total: (document.body.innerText.match(/([\d,]+)개의 프로젝트/) || [])[1] ?? null,
-    cards: [...document.querySelectorAll('.project-info-box')].map((box) => ({
+    cards: boxes.map((box) => ({
       href: box.querySelector('a.project-link')?.getAttribute('href') ?? null,
       title: text(box, 'a.project-link'),
       status: text(box, '.project-organic-info > .project-status-label > .status-mark'),
@@ -58,26 +65,32 @@ export function parseCard(card) {
   };
 }
 
-// One row per priced project across the pages read. A field with no priced project fails by name.
+// One row per priced project across the pages read. A field with no priced project fails by name, and a
+// bot challenge ends the run's reads.
 export async function sample(session, targets, { now = () => new Date(), pages = 2 } = {}) {
-  await session.navigate(BASE + '/project/', { settle: 3000 });
-  const fields = new Map(await session.evaluate(pageFields));
+  const indexUrl = BASE + '/project/';
+  await session.navigate(indexUrl, { settle: 3000 });
+  const index = await session.evaluate(pageFields);
+  const wall = challengeOf(index);
+  if (wall) throw new ChallengeError(wall, indexUrl);
+  const fields = new Map(index.fields);
   const rows = [];
-  const errors = [];
   const skipped = [];
-  for (const { category } of targets) {
+  const errors = await sampleEach(targets, async ({ category }) => {
+    const id = fields.get(category);
+    if (!id) throw new Error('no project field named ' + category + ' on ' + indexUrl);
+    const seen = new Set();
+    const counts = {};
+    let total = null;
     try {
-      const id = fields.get(category);
-      if (!id) throw new Error('no project field named ' + category + ' on ' + BASE + '/project/');
-      const seen = new Set();
-      const counts = {};
-      let total = null;
       for (let page = 1; page <= pages && (page === 1 || total > (page - 1) * PER_PAGE); page += 1) {
         const encoded = await session.evaluate(encodeFilter, filterQuery(id, page));
         if (!encoded) throw new Error('the project list no longer offers LZString to encode its filter');
         const url = listUrl(encoded);
         await session.navigate(url, { settle: 3000 });
         const listing = await session.evaluate(pageCards);
+        const challenge = challengeOf(listing);
+        if (challenge) throw new ChallengeError(challenge, url);
         if (page === 1) total = toInt(listing.total);
         const observedAt = now().toISOString();
         for (const card of listing.cards) {
@@ -89,11 +102,10 @@ export async function sample(session, targets, { now = () => new Date(), pages =
           }
         }
       }
+    } finally {
       for (const [reason, count] of Object.entries(counts)) skipped.push({ category, reason, count });
-      if (!seen.size) throw new Error('no project with a stated budget in ' + category);
-    } catch (err) {
-      errors.push({ category, message: err.message });
     }
-  }
+    if (!seen.size) throw new Error('no project with a stated budget in ' + category);
+  });
   return { rows, errors, skipped };
 }

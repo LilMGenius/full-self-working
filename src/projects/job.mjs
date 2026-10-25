@@ -86,7 +86,7 @@ async function queueProposal(ctx, { project, verdict, proposal, gate, critic, vi
 // Sends one gated proposal and records it only when the page showed it.
 async function send(ctx, { seller, project, verdict, proposal, gate, critic, approvalId = null }) {
   const { instance, ledger } = ctx;
-  const res = await seller.propose(project, proposal, { gate });
+  const res = await seller.propose(project, proposal, { gate, taxInvoice: instance.business?.taxInvoice ?? null });
   saveProposalRecord(instance, project.id, { project, score: verdict, proposal, gate, critic: critic ?? null, send: { at: new Date().toISOString(), observed: res.observed, reason: res.reason ?? null, code: res.code ?? null, steps: res.steps }, ...(approvalId ? { approvalId } : {}) });
   if (res.code === 'FSW_KMONG_ENTERPRISE_PROFILE') return { observed: false, blocked: 'profile', res };
   if (!res.observed) {

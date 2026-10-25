@@ -86,13 +86,18 @@
       "maxChars": "unknown"
     },
     "proposal": {
-      "maxChars": "unknown"
+      "maxChars": 3000
     }
   },
-  "limitsNotes": "listing is the service description cap shown on the gig edit form (20000, minimum 100); FAQ and request fields there are 255 each. Message, quote and profile caps were not observed. proposal is the enterprise 제안하기 form, which renders only after the enterprise profile is registered; propose() refuses a text longer than the field's maxLength it reads.",
+  "limitsNotes": "listing is the service description cap shown on the gig edit form (20000, minimum 100); FAQ and request fields there are 255 each. Message, quote and profile caps were not observed. proposal is the 제안 내용 field of the enterprise 제안하기 dialog, read 2026-10-25 on an enterprise project: it has no maxLength attribute, its counter reads 0/3000 and the page cuts a longer text at 3000.",
   "enterprise": {
     "feeRate": 0.132,
-    "notes": "크몽 엔터프라이즈 projects (/enterprise/requests) are brokered contracts: the fee is 13.2% of the total contract amount, charged when the contract is concluded, in place of the per-order seller tiers. Proposing needs an enterprise profile (/enterprise/seller/profile) with a resume PDF and a portfolio entry; the daily proposal quota shows on /seller/proposals.",
+    "minProposalRatio": 0.7,
+    "proposalAcknowledgements": [
+      "실제 미팅 진행 후 요구명세서에 따라 실제 계약금액은 달라질 수 있음을 확인했습니다",
+      "엔터프라이즈 중개 수수료는 총 계약 대금의 13.2%이며, 계약 체결 (중개 완료) 시점에 부과됨을 확인하고 이에 동의합니다"
+    ],
+    "notes": "크몽 엔터프라이즈 projects (/enterprise/requests) are brokered contracts: the fee is 13.2% of the total contract amount, charged when the contract is concluded, in place of the per-order seller tiers. Proposing needs an enterprise profile (/enterprise/seller/profile) with a resume PDF and a portfolio entry; the daily proposal quota shows on /seller/proposals. The 제안하기 dialog takes the amount in 만원 and prints its own floor (최소 1540만원 for a 2200만원 budget on 2026-10-25, so minProposalRatio 0.7 is one observation that planForm checks against the page every time), the length in days, whether a tax invoice can be issued, the text, up to six optional files and the two acknowledgements above, which planForm ticks only while their wording is unchanged.",
     "source": "https://kmong.com/enterprise/seller/profile"
   },
   "rankingSignals": [

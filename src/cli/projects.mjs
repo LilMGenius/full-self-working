@@ -117,7 +117,7 @@ export async function run(argv, ctx = {}) {
           return 1;
         }
       }
-      const res = await seller.propose(saved.project, saved.proposal, { gate, dryRun: Boolean(args.dryRun) });
+      const res = await seller.propose(saved.project, saved.proposal, { gate, dryRun: Boolean(args.dryRun), taxInvoice: instance.business?.taxInvoice ?? null });
       const out = join(proposalsDir(instance), id + (args.dryRun ? '.dryrun.json' : '.send.json'));
       writeFileSync(out, JSON.stringify({ at: new Date().toISOString(), ...res, form: res.form ?? null }, null, 2) + '\n');
       log(JSON.stringify({ observed: res.observed, submitted: res.submitted, reason: res.reason ?? null, code: res.code ?? null, status: res.status ?? null, steps: res.steps.map((s) => s.step) }, null, 2));

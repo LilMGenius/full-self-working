@@ -178,14 +178,14 @@ function pageProposalForm() {
   const scope = dialogs.at(-1) ?? document;
   const fields = [...scope.querySelectorAll('input, textarea, select, [contenteditable=true]')].filter((e) => e.type !== 'hidden' && (vis(e) || e.type === 'file')).map((e, i) => {
     e.setAttribute('data-fsw', 'field-' + i);
-    return { ref: 'field-' + i, tag: e.tagName, type: e.type ?? null, name: e.name || null, placeholder: e.placeholder || null, maxLength: e.maxLength > 0 ? e.maxLength : null, accept: e.accept || null, required: !!e.required || e.getAttribute('aria-required') === 'true', label: labelOf(e), value: e.value ?? e.innerText ?? '' };
+    return { ref: 'field-' + i, tag: e.tagName, type: e.type ?? null, name: e.name || null, placeholder: e.placeholder || null, maxLength: e.maxLength > 0 ? e.maxLength : null, accept: e.accept || null, required: !!e.required || e.getAttribute('aria-required') === 'true', label: labelOf(e), value: e.value ?? e.innerText ?? '', checked: e.type === 'checkbox' || e.type === 'radio' ? e.checked : null };
   });
   return {
     url: location.href,
     dialogs: dialogs.map((d) => d.innerText.trim().slice(0, 600)),
     registrationNeeded: dialogs.some((d) => /엔터프라이즈 프로필 등록/.test(d.innerText)),
     fields,
-    buttons: [...scope.querySelectorAll('button')].filter(vis).map((b) => ({ text: b.innerText.trim().slice(0, 40), disabled: !!b.disabled })).filter((b) => b.text),
+    buttons: [...scope.querySelectorAll('button')].filter(vis).map((b) => ({ text: b.innerText.trim().slice(0, 40), disabled: !!b.disabled, className: String(b.className ?? '').slice(0, 120), pressed: b.getAttribute('aria-pressed') ?? b.getAttribute('aria-checked') ?? b.getAttribute('data-state') ?? null })).filter((b) => b.text),
     counters: [...scope.querySelectorAll('*')].filter((e) => !e.children.length && /^[0-9][0-9,]*\s*[/]\s*[0-9,]+/.test(e.innerText?.trim() ?? '')).map((e) => e.innerText.trim()),
   };
 }
@@ -205,6 +205,25 @@ function pageSetField({ ref, value }) {
     el.dispatchEvent(new Event('change', { bubbles: true }));
   }
   return { ok: true, value: el.isContentEditable ? el.innerText : el.value };
+}
+
+// A required acknowledgement: ticks the box through its label, which is what React listens to.
+function pageCheck(ref) {
+  const el = document.querySelector('[data-fsw="' + ref + '"]');
+  if (!el) return { ok: false, reason: 'no field ' + ref };
+  if (!el.checked) (el.closest('label') ?? el).click();
+  return { ok: el.checked, checked: el.checked };
+}
+
+// One button of a choice pair (세금계산서 발행 여부: 가능 or 불가능) in the open dialog.
+function pageChoose(text) {
+  const vis = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const dialogs = [...document.querySelectorAll('[role=dialog],[role=alertdialog]')].filter(vis);
+  const scope = dialogs.at(-1) ?? document;
+  const b = [...scope.querySelectorAll('button')].filter(vis).find((x) => x.innerText.trim() === text);
+  if (!b || b.disabled) return { ok: false, reason: 'no enabled ' + text + ' button' };
+  b.click();
+  return { ok: true };
 }
 
 function pageMarkSubmit(labels) {
@@ -238,26 +257,63 @@ function pageAfterSubmit() {
 export const SUBMIT_LABELS = ['제안서 보내기', '제안 보내기', '제안하기', '제출하기', '보내기'];
 export const CONFIRM_LABELS = ['확인', '제안하기', '보내기', '제출하기'];
 const AMOUNT_LABEL = /금액|견적|예산|가격|비용/;
+const TAX_CHOICES = { true: '가능', false: '불가능' };
 
-// Which field takes what. The longest free-text field takes the proposal text and a field labelled as an
-// amount takes the total; any other required field is one this code does not know how to fill, which
-// stops the send instead of guessing.
-export function planForm(form, proposal) {
+// The proposal's length in days, first start to last end inclusive, which the form asks for.
+export function proposalDays(phases) {
+  const starts = (phases ?? []).map((p) => Date.parse(p.startDate + 'T00:00:00Z')).filter(Number.isFinite);
+  const ends = (phases ?? []).map((p) => Date.parse(p.endDate + 'T00:00:00Z')).filter(Number.isFinite);
+  if (!starts.length || !ends.length) return null;
+  return Math.round((Math.max(...ends) - Math.min(...starts)) / 86_400_000) + 1;
+}
+
+// The character limit of a field without a maxLength attribute, read from its counter (0/3000).
+export const counterLimit = (counters) => Math.max(0, ...(counters ?? []).map((c) => toInt(String(c).split('/')[1]) ?? 0)) || null;
+
+// Which field takes what. Mapped on 2026-10-25 (an enterprise project): 제안할 예산 (name=amount, in 만원, with the
+// floor the page prints as "최소 1540만원" for a 2200만원 budget), 제안할 진행 기간 (name=days), the 세금계산서
+// 발행 여부 buttons, 제안 내용 (name=content, no maxLength attribute and a 0/3000 counter; the page cuts a
+// longer text), up to six optional files and two [필수] acknowledgements. Each acknowledgement is ticked only
+// when it matches one of the descriptor's enterprise.proposalAcknowledgements, so a changed term, a new fee
+// rate included, stops the send. Any other required field stops it too instead of being guessed.
+export function planForm(form, proposal, { taxInvoice = null, acknowledgements = [] } = {}) {
   const problems = [];
   const fills = [];
+  const text = (form.dialogs ?? []).join('\n');
   const texts = form.fields.filter((f) => f.tag === 'TEXTAREA' || f.type === 'textarea' || f.tag === 'DIV');
-  const main = [...texts].sort((a, b) => (b.maxLength ?? 1e9) - (a.maxLength ?? 1e9))[0];
+  const main = texts.find((f) => f.name === 'content') ?? [...texts].sort((a, b) => (b.maxLength ?? 1e9) - (a.maxLength ?? 1e9))[0];
   if (!main) problems.push('no free-text field for the proposal');
   else {
-    if (main.maxLength && [...proposal.text].length > main.maxLength) problems.push('the proposal has ' + [...proposal.text].length + ' characters and the field takes ' + main.maxLength);
+    const limit = main.maxLength ?? counterLimit(form.counters);
+    if (limit && [...proposal.text].length > limit) problems.push('the proposal has ' + [...proposal.text].length + ' characters and the field takes ' + limit);
     fills.push({ ref: main.ref, value: proposal.text, as: 'text' });
   }
-  const amount = form.fields.find((f) => f.tag === 'INPUT' && ['text', 'number', 'tel'].includes(f.type) && AMOUNT_LABEL.test(f.label + ' ' + (f.placeholder ?? '')));
-  if (amount) fills.push({ ref: amount.ref, value: String(proposal.totalKRW), as: 'amount' });
+  const amount = form.fields.find((f) => f.name === 'amount') ?? form.fields.find((f) => f.tag === 'INPUT' && ['text', 'number', 'tel'].includes(f.type) && AMOUNT_LABEL.test(f.label + ' ' + (f.placeholder ?? '')));
+  if (amount) {
+    const unit = /예산\s*\n?\s*만원/.test(text) ? 10_000 : 1;
+    const minimum = toInt(text.match(/최소\s*([\d,]+)\s*만원/)?.[1]);
+    if (proposal.totalKRW % unit) problems.push('the total ' + proposal.totalKRW + ' KRW is not a whole number of ' + unit + ' KRW');
+    else if (minimum !== null && proposal.totalKRW < minimum * 10_000) problems.push('the total ' + proposal.totalKRW + ' KRW is under the form floor of ' + minimum + '만원');
+    else fills.push({ ref: amount.ref, value: String(proposal.totalKRW / unit), as: 'amount' });
+  }
+  const daysField = form.fields.find((f) => f.name === 'days');
+  if (daysField) {
+    const days = proposalDays(proposal.phases);
+    if (!days || days < 1) problems.push('the plan has no dates to give the form a length in days');
+    else fills.push({ ref: daysField.ref, value: String(days), as: 'days' });
+  }
+  if ((form.buttons ?? []).some((b) => b.text === TAX_CHOICES.true) && (form.buttons ?? []).some((b) => b.text === TAX_CHOICES.false)) {
+    if (typeof taxInvoice !== 'boolean') problems.push('the form asks whether a tax invoice can be issued and business.taxInvoice does not say');
+    else fills.push({ choice: TAX_CHOICES[taxInvoice], other: TAX_CHOICES[!taxInvoice], as: 'choice' });
+  }
+  for (const f of form.fields.filter((x) => x.type === 'checkbox' && /^\[필수\]/.test(x.label ?? ''))) {
+    if (acknowledgements.some((a) => (f.label ?? '').includes(a))) fills.push({ ref: f.ref, as: 'check' });
+    else problems.push('unknown required acknowledgement: ' + f.label);
+  }
   for (const f of form.fields) {
     if (fills.some((x) => x.ref === f.ref)) continue;
     if (f.type === 'file' && f.required) problems.push('required attachment ' + (f.label || f.ref) + ' (' + (f.accept || 'any') + ')');
-    else if (f.required && f.type !== 'file') problems.push('required field ' + (f.label || f.placeholder || f.ref) + ' has no mapping');
+    else if (f.required && f.type !== 'file' && f.type !== 'checkbox') problems.push('required field ' + (f.label || f.placeholder || f.ref) + ' has no mapping');
   }
   return { fills, problems };
 }
@@ -265,9 +321,20 @@ export function planForm(form, proposal) {
 export function readbackProblems(form, fills) {
   const out = [];
   for (const fill of fills) {
+    if (fill.as === 'choice') {
+      const [chosen, other] = [fill.choice, fill.other].map((t) => (form.buttons ?? []).find((b) => b.text === t));
+      // The pair marks its choice with aria-pressed (seen 2026-10-25); without it, only a difference in
+      // class between the two buttons can show which one is on.
+      const shown = chosen && other && (chosen.pressed !== null || other.pressed !== null ? String(chosen.pressed) === 'true' && String(other.pressed) !== 'true' : chosen.className !== other.className);
+      if (!chosen || !other) out.push('choice ' + fill.choice + ' disappeared');
+      else if (!shown) out.push('choice ' + fill.choice + ' does not show as selected');
+      continue;
+    }
     const f = form.fields.find((x) => x.ref === fill.ref);
     if (!f) out.push(fill.as + ' field disappeared');
-    else if (fill.as === 'amount' ? String(toInt(f.value)) !== fill.value : squash(f.value) !== squash(fill.value)) out.push(fill.as + ' field holds something else than what was written');
+    else if (fill.as === 'check') {
+      if (f.checked !== true) out.push('acknowledgement ' + (f.label ?? f.ref) + ' is not ticked');
+    } else if (fill.as === 'amount' || fill.as === 'days' ? String(toInt(f.value)) !== fill.value : squash(f.value) !== squash(fill.value)) out.push(fill.as + ' field holds something else than what was written');
   }
   return out;
 }
@@ -343,7 +410,8 @@ export async function openProjectSeller({ session } = {}) {
     },
     // Opens the form, fills it, reads every field back and submits only when gate.ok and not dryRun;
     // then the proposal must show on /seller/proposals. A dry run verifies the submit control and leaves.
-    async propose(project, proposal, { gate, dryRun = false } = {}) {
+    // taxInvoice answers the form's 세금계산서 발행 여부 (business.taxInvoice).
+    async propose(project, proposal, { gate, dryRun = false, taxInvoice = null } = {}) {
       const steps = [];
       const fail = (reason, extra = {}) => ({ observed: false, submitted: false, reason, steps, ...extra });
       assertSendable(proposal, gate);
@@ -359,12 +427,13 @@ export async function openProjectSeller({ session } = {}) {
       let form = await s.evaluate(pageProposalForm);
       steps.push({ step: 'form', url: form.url, dialogs: form.dialogs, fields: form.fields.map(({ value, ...f }) => f), buttons: form.buttons, counters: form.counters });
       if (form.registrationNeeded) return fail('the enterprise profile is not registered; 제안하기 opens the registration dialog', { code: 'FSW_KMONG_ENTERPRISE_PROFILE', form });
-      const plan = planForm(form, proposal);
+      const plan = planForm(form, proposal, { taxInvoice, acknowledgements: loadDescriptor('kmong').enterprise?.proposalAcknowledgements ?? [] });
       steps.push({ step: 'plan', fills: plan.fills.map((f) => ({ ref: f.ref, as: f.as })), problems: plan.problems });
       if (plan.problems.length) return fail('form: ' + plan.problems.join('; '), { code: 'FSW_KMONG_FORM_UNMAPPED', form });
       for (const fill of plan.fills) {
-        const r = await s.evaluate(pageSetField, { ref: fill.ref, value: fill.value }, { timeoutMs: 60_000 });
+        const r = fill.as === 'check' ? await s.evaluate(pageCheck, fill.ref) : fill.as === 'choice' ? await s.evaluate(pageChoose, fill.choice) : await s.evaluate(pageSetField, { ref: fill.ref, value: fill.value }, { timeoutMs: 60_000 });
         if (!r.ok) return fail(r.reason, { form });
+        await wait(300);
       }
       await wait(1000);
       form = await s.evaluate(pageProposalForm);

@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
-import { assertSendable, parseProjectDetail, parseProjectRow, planForm, REQUESTED_HEADING } from '../src/platforms/kmong/projects.mjs';
+import { assertSendable, parseProjectDetail, parseProjectRow, planForm, proposalDays, readbackProblems, REQUESTED_HEADING } from '../src/platforms/kmong/projects.mjs';
 import { checkPlan, composeText, draftProposal, proposalPolicy, proposalsLeft, sendDecision } from '../src/projects/draft.mjs';
 import { projectsJob } from '../src/projects/job.mjs';
 import { listApprovals } from '../src/brain/approvals.mjs';
@@ -185,3 +185,53 @@ test('a signed-in session is opened per step, and one that fails to close leaves
   assert.ok(opened >= 2, 'the quota read and the send each open their own session');
   ledger.close();
 });
+
+// The 제안하기 dialog as it read on 2026-10-25 (an enterprise project), with synthetic values.
+const ACKS = descriptor.enterprise.proposalAcknowledgements;
+const dialog = (over = {}) => ({
+  dialogs: ['제안할 예산\n만원\n프로젝트 예산 2000만원\n\n입력 가능한 예산 : 최소 1400만원 ~\n\n제안할 진행 기간\n일\n세금계산서 발행 여부\n가능\n불가능\n제안 내용\n\n0/3000\n\n[필수] ' + ACKS[0] + '.\n[필수] ' + ACKS[1] + '.\n제안하기'],
+  fields: [
+    { ref: 'field-0', tag: 'INPUT', type: 'text', name: 'amount', maxLength: 5, required: false, label: '입력 가능한 예산 : 최소 1400만원 ~', value: '' },
+    { ref: 'field-1', tag: 'INPUT', type: 'text', name: 'days', maxLength: 4, required: false, label: '제안할 진행 기간', value: '' },
+    { ref: 'field-2', tag: 'TEXTAREA', type: 'textarea', name: 'content', maxLength: null, required: false, label: '제안 내용', value: '' },
+    { ref: 'field-3', tag: 'INPUT', type: 'file', required: false, label: '파일첨부', accept: '*' },
+    { ref: 'field-4', tag: 'INPUT', type: 'checkbox', required: false, label: '[필수] ' + ACKS[0] + '.', checked: false },
+    { ref: 'field-5', tag: 'INPUT', type: 'checkbox', required: false, label: '[필수] ' + ACKS[1] + '.', checked: false },
+  ],
+  buttons: [{ text: '가능', className: 'b', pressed: 'false' }, { text: '불가능', className: 'b', pressed: 'false' }, { text: '제안하기', className: 'c', pressed: null }],
+  counters: ['0/3000'],
+  ...over,
+});
+const offer = (over = {}) => ({ text: composeText(parts()), totalKRW: 14000000, phases: parts().phases, ...over });
+
+test('the proposal form takes the total in 만원 above its floor, the length in days, the tax answer and only known acknowledgements', () => {
+  const opts = { taxInvoice: true, acknowledgements: ACKS };
+  const plan = planForm(dialog(), offer(), opts);
+  assert.deepEqual(plan.problems, []);
+  assert.deepEqual(plan.fills.map((f) => [f.as, f.value ?? f.choice ?? f.ref]), [['text', offer().text], ['amount', '1400'], ['days', '75'], ['choice', '가능'], ['check', 'field-4'], ['check', 'field-5']]);
+  assert.deepEqual(planForm(dialog(), offer({ text: 'x'.repeat(3001) }), opts).problems, ['the proposal has 3001 characters and the field takes 3000']);
+  assert.match(planForm(dialog(), offer({ totalKRW: 13990000 }), opts).problems.join(), /under the form floor of 1400만원/);
+  assert.match(planForm(dialog(), offer(), { acknowledgements: ACKS }).problems.join(), /tax invoice/);
+  const changed = dialog();
+  changed.fields[5] = { ...changed.fields[5], label: '[필수] 엔터프라이즈 중개 수수료는 총 계약 대금의 15%이며, 계약 체결 시점에 부과됩니다.' };
+  assert.match(planForm(changed, offer(), opts).problems.join(), /unknown required acknowledgement/);
+  assert.equal(proposalDays([{ startDate: '2026-11-02', endDate: '2026-11-02' }]), 1);
+});
+
+test('the read back sees an unticked acknowledgement, the wrong choice and a cut text', () => {
+  const opts = { taxInvoice: false, acknowledgements: ACKS };
+  const { fills } = planForm(dialog(), offer(), opts);
+  const filled = (over) => {
+    const f = dialog(over);
+    f.fields = f.fields.map((x) => ({ ...x, value: { amount: '1400', days: '75', content: offer().text }[x.name] ?? x.value, checked: x.type === 'checkbox' ? true : x.checked }));
+    return f;
+  };
+  const pressed = (yes, no) => [{ text: '가능', className: 'b', pressed: yes }, { text: '불가능', className: 'b', pressed: no }];
+  assert.deepEqual(readbackProblems(filled({ buttons: pressed('false', 'true') }), fills), []);
+  assert.deepEqual(readbackProblems(filled({ buttons: pressed('true', 'false') }), fills), ['choice 불가능 does not show as selected']);
+  const cut = filled({ buttons: pressed('false', 'true') });
+  cut.fields[2].value = offer().text.slice(0, 20);
+  cut.fields[4].checked = false;
+  assert.deepEqual(readbackProblems(cut, fills), ['text field holds something else than what was written', 'acknowledgement [필수] ' + ACKS[0] + '. is not ticked']);
+});
+

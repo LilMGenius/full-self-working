@@ -1,6 +1,9 @@
 {
   "service": "video_editing",
-  "version": 1,
+  "version": 2,
+  "notes": [
+    "Cuts, motion, captions and encoding run with ffmpeg 8.x from winget (Gyan.FFmpeg); captions are drawn with the bundled OFL Pretendard, converted to TTF inside the work folder when drawtext needs it."
+  ],
   "hours": {
     "standard": 4,
     "deluxe": 10,
@@ -12,14 +15,14 @@
       "type": "invoke-model-skill",
       "input": "brief.md, ../inputs/",
       "output": "notes/cuts.md",
-      "does": "Write the cut list with timecodes, captions and music cues from the supplied footage."
+      "does": "Write the cut list with timecodes, framing, motion, captions and music cues from the supplied footage or photos and the brief."
     },
     {
       "id": "cut",
       "type": "invoke-model-skill",
       "input": "notes/cuts.md, ../inputs/",
       "output": "video/",
-      "does": "Cut and render video/final.mp4 with ffmpeg and write the captions to video/final.srt."
+      "does": "Cut and render video/final.mp4 with ffmpeg and write the captions to video/final.srt. Fill the whole frame at the target aspect (crop the subject in, or a blurred fill of the same shot; never a small picture on a flat color), give stills slow movement (zoompan or a crop pan) with short crossfades between shots, set captions large and bold with an outline or shadow that reads over a busy photo, inside the platform safe area, then extract a frame every two seconds and look at them before finishing."
     },
     {
       "id": "accept",

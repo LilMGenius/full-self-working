@@ -21,6 +21,8 @@ The repository is generic and publishable. Everything about one operator lives i
 ## Rules
 
 - Platform rules are data in each descriptor and are enforced by `src/policy/gate.mjs`; a rule a script can decide is a gate, never prose in a prompt.
+- Every operator choice is a setting: a mode, cap, answered service, budget, market engine or cadence, or a figure a listing prints is a key in the instance's `config.json` or `profile.json` with its default in `examples/instance`, never a constant one operator picked; `npm run check` (`scripts/check-example.mjs`) fails a key the code reads that the example lacks, and a figure a profile can answer, such as a career length, is derived from its dated roles.
+- A blocked mechanism gets another mechanism before anyone proposes dropping what it served: a platform read that meets a bot wall moves to another engine, cadence or page in its descriptor and settings, and an operator-mandated source leaves only on the operator's word.
 - Money moves only through the channel the platform allows. Contact details and payout accounts are released only where the descriptor permits.
 - A channel that brings no leads is first checked at the platform's own matching settings, since an unset one reads as missing demand; `fsw doctor` warns for each offered soomgo catalog service without request items.
 - A platform timestamp without a zone is read in the zone the page's own relative time confirms, checked live before its parser ships; soomgo request times are Seoul time although nothing in them says so.

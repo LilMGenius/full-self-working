@@ -208,6 +208,7 @@ test('image slot rules are read from the written files', async () => {
 
 test('the form read-back names every field that did not land', () => {
   const l = { ...listingOf(), images: { main: 'm.png', detail: ['d1.jpg'] } };
+  assert.ok(formProblems({ counters: { DESCRIPTION: '5/20000' }, videos: [0, 6] }, { ...l, images: { ...l.images, video: ['v.mp4'] } }).includes('no video'));
   const good = {
     counters: { DESCRIPTION: '500/20000', DESCRIPTION_PROGRESS: '120/20000', DESCRIPTION_PREPARATION: '80/20000' }, packageMode: true,
     packages: l.packages.map((p) => ({ title: p.title, description: p.description })),
@@ -438,6 +439,14 @@ test('listing text refuses SNS handles beside the gate contact rules', async () 
 });
 
 // ---- kmong page shapes the write paths rely on ----
+
+test('phrases the gig form refuses at submit are caught before the browser opens', () => {
+  const l = listingOf();
+  l.description += ' 검색 상위 노출은 보장하지 않습니다.';
+  assert.ok(rulesOf(l).includes('description:kmong.form_refused'));
+  const k = listingOf({ keywords: ['상위노출', '반응형 웹', '홈페이지 제작', '회사 소개 페이지', '웹페이지 제작'] });
+  assert.ok(rulesOf(k).includes('keywords.0:kmong.form_refused'));
+});
 
 test('a /my-gigs row never reads the approval notice of the row below, and edit URLs give their ids', async () => {
   const { parseGigList } = await import('../src/platforms/kmong/parse.mjs');

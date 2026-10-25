@@ -300,6 +300,7 @@ function pageFormState() {
     counters: Object.fromEntries(['DESCRIPTION', 'DESCRIPTION_PROGRESS', 'DESCRIPTION_PREPARATION'].filter((id) => document.getElementById(id)).map((id) => [id, [...document.getElementById(id).querySelectorAll('p')].map((p) => p.innerText.trim()).find((x) => /^[\d,]+\s*\/\s*20000$/.test(x)) ?? null])),
     mainImages: count('메인 이미지'),
     detailImages: count('상세 이미지'),
+    videos: count('동영상'),
     packageMode: document.getElementById('package-type-switch')?.checked ?? null,
     packages: [0, 1, 2].map((i) => ({ title: val('textarea[name="PACKAGE_OPTION_GROUP.valueData.packages.0.values.' + i + '.packageValue"]'), description: val('textarea[name="PACKAGE_OPTION_GROUP.valueData.packages.1.values.' + i + '.packageValue"]') })),
     prices: [...document.querySelectorAll('section#price input[inputmode=numeric]')].slice(0, 3).map((e) => e.value),
@@ -314,8 +315,8 @@ function pageFormState() {
 
 // Marks a file input so the driver can hand it files; the input is hidden, and the upload tool needs a
 // box, so it is shown as a 24 px transparent square until restore.
-function pageRevealFile(index) {
-  const f = [...document.querySelectorAll('section#detailed input[type=file]')][index];
+function pageRevealFile(fieldId) {
+  const f = document.querySelector('#' + fieldId + ' input[type=file]');
   if (!f) return false;
   document.activeElement?.blur?.();
   f.setAttribute('data-fsw', 'file-up');
@@ -417,7 +418,12 @@ function pageAfterSubmit() {
     const r = e.getBoundingClientRect();
     return r.width > 0 && r.height > 0;
   };
-  const errors = [...document.querySelectorAll('p,span,div')].filter((e) => !e.children.length && vis(e) && /(?:해 주세요|할 수 없어요|이상 입력|선택해 주세요)$/.test(e.innerText.trim()) && getComputedStyle(e).color.replace(/\s/g, '').startsWith('rgb(2')).map((e) => e.innerText.trim());
+  // Each error names the field wrapper it sits in (DESCRIPTION, VIDEO_GALLERY ...), since the same text
+  // (최소 1개 이상 등록해 주세요) appears under several fields.
+  const errors = [...document.querySelectorAll('p,span,div')].filter((e) => !e.children.length && vis(e) && /(?:해 주세요|할 수 없어요|이상 입력|선택해 주세요)$/.test(e.innerText.trim()) && getComputedStyle(e).color.replace(/\s/g, '').startsWith('rgb(2')).map((e) => {
+    const field = e.closest('[id]')?.id;
+    return (field && /^[A-Z_]+$/.test(field) ? field + ': ' : '') + e.innerText.trim();
+  });
   const dialogs = [...document.querySelectorAll('[role=dialog],[role=alertdialog]')].filter(vis).map((d) => ({ text: d.innerText.trim().slice(0, 400), buttons: [...d.querySelectorAll('button')].map((b) => b.innerText.trim()).filter(Boolean) }));
   return { url: location.href, errors: [...new Set(errors)].slice(0, 20), dialogs };
 }
@@ -483,6 +489,7 @@ export function formProblems(state, listing) {
   });
   if (!(state.mainImages?.[0] >= 1)) out.push('no main image');
   if (!(state.detailImages?.[0] >= Math.min(1, listing.images.detail.length))) out.push('no detail image');
+  if (listing.images.video?.length && !(state.videos?.[0] >= 1)) out.push('no video');
   if (state.keywords?.[0] !== listing.keywords.length) out.push('keywords read ' + (state.keywords?.[0] ?? 'none') + ' of ' + listing.keywords.length);
   if ((state.faqs ?? []).length !== listing.faqs.length || state.faqs.some((n) => !n)) out.push('faqs read ' + (state.faqs ?? []).length + ' of ' + listing.faqs.length);
   if (state.revisionField !== false && state.revision !== listing.revision) out.push('revision text differs');
@@ -657,8 +664,11 @@ export async function openKmong({ session } = {}) {
       // Images go first: the slot inputs stop taking files once the fields below hold focus and state.
       // A slot that already holds files is left as it is (a re-run keeps the uploaded set) unless
       // replaceImages names it, in which case its files are deleted first.
-      for (const [slot, index, files, fieldId] of [['main', 0, [listing.images.main], 'MAIN_GALLERY'], ['detail', 1, listing.images.detail, 'IMAGE_GALLERY']]) {
-        let count = (await s.evaluate(pageFormState))[slot + 'Images']?.[0] ?? 0;
+      // Video categories (AI 영상) require one file in 동영상; listing.images.video carries it.
+      const slots = [['main', [listing.images.main], 'MAIN_GALLERY', 'mainImages'], ['detail', listing.images.detail, 'IMAGE_GALLERY', 'detailImages']];
+      if (listing.images.video?.length) slots.push(['video', listing.images.video, 'VIDEO_GALLERY', 'videos']);
+      for (const [slot, files, fieldId, stateKey] of slots) {
+        let count = (await s.evaluate(pageFormState))[stateKey]?.[0] ?? 0;
         if (count > 0 && replaceImages.includes(slot)) {
           const cleared = await s.evaluate(pageClearSlot, fieldId, { timeoutMs: 30_000 });
           steps.push({ step: 'images.' + slot + '.clear', ...cleared });
@@ -669,13 +679,13 @@ export async function openKmong({ session } = {}) {
           steps.push({ step: 'images.' + slot, kept: count });
           continue;
         }
-        if (!(await s.evaluate(pageRevealFile, index))) return fail('no file input for the ' + slot + ' image');
+        if (!(await s.evaluate(pageRevealFile, fieldId))) return fail('no file input for the ' + slot + ' slot');
         try {
           await s.setFiles('[data-fsw=file-up]', files);
         } finally {
           await s.evaluate(pageRestoreFile);
         }
-        await wait(4000 + 1500 * files.length);
+        await wait(slot === 'video' ? 20_000 : 4000 + 1500 * files.length);
         steps.push({ step: 'images.' + slot, uploaded: files.length });
       }
 

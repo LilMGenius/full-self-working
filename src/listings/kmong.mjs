@@ -48,6 +48,9 @@ const KEYWORD_RE = /^[\p{Script=Hangul}A-Za-z0-9 ]+$/u;
 // 크몽 rejects unverifiable superlatives (국내 최고, 업계 1위, 100% 보장) in listings.
 const SUPERLATIVE_RE = /국내\s*(?:최고|최초|유일|1\s*위)|업계\s*(?:최고|최초|유일|1\s*위)|100\s*%\s*(?:보장|만족|환불)|최저가|(?<!\d)1\s*위|No\.?\s*1\b|넘버\s*원|가장\s*(?:싸|저렴|빠르|잘)/giu;
 const FORM_BANNED_RE = /[<\u0060]/g;
+// Phrases the gig form itself refuses at submit, read from its errors ('상위 노출'는 입력할 수 없으며
+// 삭제해 주세요, 2026-10-25): search ranking promises, even when negated.
+const FORM_REFUSED_RE = /상위\s*노출|노출\s*보장|1\s*페이지\s*(?:노출|보장)/gu;
 // The 크몽 submit dialog (seen 2026-10-25) makes the seller tick 내 프로필에서 증빙을 완료했어요 and
 // warns that a claim without profile proof gets the gig rejected. A listing therefore describes the
 // service only; the seller's titles, employers and past work live in the seller profile, which keeps
@@ -177,6 +180,7 @@ export function checkListing(l, { descriptor = loadDescriptor('kmong'), instance
     for (const m of text.matchAll(SUPERLATIVE_RE)) add(field, 'listing.superlative', 'unverifiable superlative "' + m[0] + '"');
     for (const m of text.matchAll(CAREER_RE)) add(field, 'listing.career_claim', '"' + m[0] + '" states the seller\'s record, which needs profile proof on 크몽; describe the service instead');
     for (const m of text.matchAll(HANDLE_RE)) add(field, 'contact.handle', '"' + m[0] + '" is an SNS handle, a contact detail kmong refuses');
+    for (const m of text.matchAll(FORM_REFUSED_RE)) add(field, 'kmong.form_refused', 'the kmong form refuses "' + m[0] + '" even in a negation; leave search ranking out');
     const g = gateOutbound({ platform: 'kmong', kind: 'listing', text }, { descriptor, instance, lessonsRules });
     for (const x of g.violations) add(field, x.rule, x.detail);
     // Hype and vanity phrasing only warns in a chat reply; a storefront listing is rejected for it.

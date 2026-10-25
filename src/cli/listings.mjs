@@ -5,7 +5,7 @@
 // service, a matter of taste), job media come from the portfolio, and work samples the agent made for
 // a service sit in listings/_samples/<service>/samples.json. The supervisor runs listingsWatch hourly
 // (review results) and listingsRefresh daily (portfolio changes).
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative } from 'node:path';
 import { loadInstance } from '../core/instance.mjs';
 import { openLedger } from '../core/ledger.mjs';
@@ -62,7 +62,9 @@ const shotRef = (instance, s) => {
 export function planFor(instance, service) {
   const cfg = loadProofs(instance);
   const samples = loadSamples(instance, service);
-  const { gallery, basis } = proofPlan({ service, items: portfolioItems(instance), profile: instance.profile, proofs: cfg.proofs ?? [], samples });
+  // Only still images go into the detail images; a video sample fills the 동영상 slot (renderFor).
+  const stills = samples.filter((s) => /\.(?:png|jpe?g)$/i.test(s.file));
+  const { gallery, basis } = proofPlan({ service, items: portfolioItems(instance), profile: instance.profile, proofs: cfg.proofs ?? [], samples: stills });
   const card = (cfg.services?.[service]?.card ?? []).map((ref) => {
     if (!String(ref).startsWith('sample:')) return { kind: 'capture', id: ref };
     const s = samples.find((x) => 'sample:' + x.id === ref);
@@ -81,7 +83,17 @@ async function renderFor(instance, service, listing, plan, { refreshProofs = fal
   const outDir = join(listingsDir(instance), service);
   const images = await renderListingImages({ listing, studio: studioName(instance), outDir, proofs: cfg.proofs ?? [], plan, proofDir: join(listingsDir(instance), '_proofs'), refreshProofs });
   if (images.violations.length) throw new ListingError('FSW_LISTING_IMAGES', 'rendered images break the slot rules', { violations: images.violations });
-  return { main: relative(outDir, images.main), detail: images.detail.map((f) => relative(outDir, f)), preview190: relative(outDir, images.preview) };
+  // A video category requires one file in 동영상: proofs.json services[service].video names a sample
+  // (sample:<id>), copied beside the images.
+  const ref = cfg.services?.[service]?.video;
+  let video;
+  if (ref) {
+    const s = loadSamples(instance, service).find((x) => 'sample:' + x.id === ref);
+    if (!s) throw new ListingError('FSW_LISTING_NO_SAMPLE', service + ' video names ' + ref + ', which is not in its samples.json');
+    copyFileSync(s.file, join(outDir, 'video-1.mp4'));
+    video = ['video-1.mp4'];
+  }
+  return { main: relative(outDir, images.main), detail: images.detail.map((f) => relative(outDir, f)), preview190: relative(outDir, images.preview), ...(video ? { video } : {}) };
 }
 
 // Re-renders the images of a written spec without asking the brain again (a template change). A spec
@@ -120,7 +132,7 @@ export function readSpec(instance, service) {
   if (!existsSync(file)) throw new ListingError('FSW_LISTING_NO_SPEC', 'no spec for ' + service + '; run fsw listings build ' + service);
   const spec = JSON.parse(readFileSync(file, 'utf8'));
   const dir = join(listingsDir(instance), service);
-  const images = { main: join(dir, spec.images.main), detail: spec.images.detail.map((f) => join(dir, f)) };
+  const images = { main: join(dir, spec.images.main), detail: spec.images.detail.map((f) => join(dir, f)), ...(spec.images.video ? { video: spec.images.video.map((f) => join(dir, f)) } : {}) };
   const table = latestTable(instance.paths.pricing);
   const priceRow = table?.table.rows.find((r) => r.platform === 'kmong' && r.service === service) ?? null;
   const violations = [...checkListing(spec, { instance, lessonsRules: loadGateRules(instance), priceRow }), ...checkImages(images)];

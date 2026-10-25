@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { parseItemModal, parseServiceRows, planItems } from '../src/platforms/soomgo/services.mjs';
+import { addService, parseItemModal, parseServiceRows, planItems } from '../src/platforms/soomgo/services.mjs';
 
 // Synthetic snapshot text in the shape the BrowserSkill snapshot prints for /profile/services.
 const PAGE = [
@@ -76,5 +76,40 @@ test('a label repeated in two groups is matched only inside the wanted group', (
   const modal = parseItemModal(MODAL.replace('"텍스트형"', '"카카오톡"'));
   const plan = planItems(modal, { '챗봇 형태를 선택해주세요.': ['카카오톡'] });
   assert.deepEqual(plan.clicks, [{ heading: '챗봇 형태를 선택해주세요.', label: '카카오톡' }]);
+});
+
+// A page model of the add-service modal as measured on 2026-10-25: a service button only marks the
+// service, and 등록하기 registers every marked one. Page functions run against a minimal document.
+function addServicePage(offered) {
+  const state = { offered: [...offered], modal: null, marked: new Set() };
+  const button = (label, click) => ({ innerText: label, disabled: false, getBoundingClientRect: () => ({ width: 40, height: 20 }), click });
+  const buttons = () => {
+    if (!state.modal) return [button('서비스 추가', () => { state.modal = 'tabs'; })];
+    if (state.modal === 'tabs') return [button('외주', () => { state.modal = '외주'; })];
+    return [
+      button('데이터 크롤링', () => state.marked.add('데이터 크롤링')),
+      button('등록하기', () => { state.offered.push(...state.marked); state.marked.clear(); state.modal = null; }),
+    ];
+  };
+  const session = {
+    navigate: async () => { state.modal = null; state.marked.clear(); },
+    snapshot: async () => state.offered.map((name, i) => '@e' + (i + 1) + ' button "' + name + ' 항목 미설정"').join('\n'),
+    evaluate: async (fn, arg) => {
+      globalThis.document = { querySelectorAll: (selector) => (selector === 'button' ? buttons() : []) };
+      try { return fn(arg); } finally { delete globalThis.document; }
+    },
+  };
+  return { state, session };
+}
+
+test('adding a service marks it and registers it, and a dry run registers nothing', async () => {
+  const wait = async () => {};
+  const dry = addServicePage(['웹 개발']);
+  assert.deepEqual(await addService(dry.session, '데이터 크롤링', { dryRun: true, wait }), { name: '데이터 크롤링', changed: true, saved: false, dryRun: true });
+  assert.deepEqual(dry.state.offered, ['웹 개발']);
+  const real = addServicePage(['웹 개발']);
+  assert.deepEqual(await addService(real.session, '데이터 크롤링', { wait }), { name: '데이터 크롤링', changed: true, saved: true });
+  assert.deepEqual(real.state.offered, ['웹 개발', '데이터 크롤링']);
+  assert.deepEqual(await addService(real.session, '데이터 크롤링', { wait }), { name: '데이터 크롤링', changed: false });
 });
 

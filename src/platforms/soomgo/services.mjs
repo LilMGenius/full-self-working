@@ -123,12 +123,13 @@ const pageClickButton = (label) => {
 };
 
 // Adds a service to the offered ones from the 서비스 추가 modal: its top-level category tab (외주 for
-// outsourcing work), then the service's own button. The modal lists every soomgo service, and a full
-// snapshot of it stalled the browser extension for minutes on 2026-10-25, so inside it buttons are found
-// and clicked by their text in the page. A dry run finds the service's button and reloads the page,
-// which adds nothing. A real run presses it and reports whether the services page then lists the
-// service; its request items are set afterwards with setServiceItems, from a modal that exists only
-// once the service is offered.
+// outsourcing work), then the service's own button, which only marks it, then 등록하기, which registers
+// every marked service. The modal lists every soomgo service, and a full snapshot of it stalled the
+// browser extension for minutes on 2026-10-25, so inside it buttons are found and clicked by their text
+// in the page. A dry run finds the service's button and reloads the page, which adds nothing. A real run
+// marks it, registers it and reports whether the services page then lists the service; its request
+// items are set afterwards with setServiceItems, from a modal that exists only once the service is
+// offered.
 export async function addService(s, name, { category = '외주', dryRun = false, wait = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
   const rows = await readServices(s);
   if (rows.some((r) => r.name === name)) return { name, changed: false };
@@ -151,6 +152,12 @@ export async function addService(s, name, { category = '외주', dryRun = false,
   }
   s.guard?.beforeAction();
   await s.evaluate(pageClickButton, name);
+  await wait(1500);
+  s.guard?.beforeAction();
+  if (!(await s.evaluate(pageClickButton, '등록하기'))) {
+    await s.navigate(`${BASE}/profile/services`);
+    throw new AdapterRefusal('FSW_EDITOR_MISSING', 'no 등록하기 button in the add-service modal');
+  }
   await wait(3500);
   const after = await readServices(s);
   return { name, changed: true, saved: after.some((r) => r.name === name) };

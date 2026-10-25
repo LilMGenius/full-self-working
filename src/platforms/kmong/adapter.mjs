@@ -4,7 +4,7 @@
 // when the thread shows the text as the newest outbound message.
 import { openSession } from '../../browser/driver.mjs';
 import { loadDescriptor } from '../registry.mjs';
-import { AdapterRefusal, squash } from '../kit.mjs';
+import { AdapterRefusal, squash, toInt } from '../kit.mjs';
 import { parseDashboard, parseGigList, parseInbox, parseListingForm, parseOrders, parseProfile, parseThread, ORDER_COUNTERS } from './parse.mjs';
 
 const BASE = 'https://kmong.com';
@@ -126,6 +126,308 @@ function pageListingForm() {
   };
 }
 
+
+// ---- gig form writers (page side). React owns these inputs, so values go through the native setter
+// and an input event; react-select menus open on mousedown and take a click on an option. ----
+
+async function pageFillForm(spec) {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const errors = [];
+  const setValue = (el, value) => {
+    const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, value);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  const labelOf = (el) => {
+    let n = el.parentElement;
+    for (let i = 0; i < 10 && n; i++, n = n.parentElement) {
+      const l = n.querySelector('label');
+      if (l && l.innerText.trim()) return l.innerText.replace(/\*/g, '').trim();
+    }
+    return '';
+  };
+  const pick = async (input, text) => {
+    const control = input.closest('[class*="-control"]');
+    if (control.innerText.trim() === text) return true;
+    control.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
+    await sleep(250);
+    const opt = [...document.querySelectorAll('[class*="-option"]')].find((o) => o.innerText.trim() === text);
+    if (!opt) {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true }));
+      return false;
+    }
+    opt.click();
+    await sleep(250);
+    return control.innerText.trim() === text;
+  };
+  // Rich editors (tiptap): replace the whole document, one paragraph per line.
+  const editors = [...document.querySelectorAll('section#detailed .tiptap.ProseMirror')];
+  const texts = [spec.description, spec.process, spec.preparation];
+  const counters = [];
+  for (const [i, ed] of editors.slice(0, 3).entries()) {
+    ed.focus();
+    document.execCommand('selectAll');
+    document.execCommand('delete');
+    texts[i].split('\n').forEach((line, j) => {
+      if (j) document.execCommand('insertParagraph');
+      if (line) document.execCommand('insertText', false, line);
+    });
+    await sleep(200);
+    let n = ed;
+    let counter = null;
+    for (let k = 0; k < 8 && n && !counter; k++) {
+      n = n.parentElement;
+      counter = [...n.querySelectorAll('p')].map((p) => p.innerText.trim()).find((t) => /^[\d,]+\s*\/\s*20000$/.test(t)) ?? null;
+    }
+    counters.push(counter);
+  }
+  if (editors.length < 3) errors.push('expected 3 rich editors, found ' + editors.length);
+
+  for (const input of document.querySelectorAll('section#detailed input[id^="react-select-gig-metadata-"]')) {
+    const label = labelOf(input);
+    const want = spec.meta[label];
+    if (want && !(await pick(input, want))) errors.push('metadata ' + label + ' has no option ' + want);
+  }
+
+  const sw = document.getElementById('package-type-switch');
+  if (sw && !sw.checked) {
+    sw.click();
+    await sleep(600);
+  }
+  spec.packages.forEach((p, i) => {
+    const title = document.querySelector('textarea[name="PACKAGE_OPTION_GROUP.valueData.packages.0.values.' + i + '.packageValue"]');
+    const desc = document.querySelector('textarea[name="PACKAGE_OPTION_GROUP.valueData.packages.1.values.' + i + '.packageValue"]');
+    if (!title || !desc) errors.push('package ' + i + ' title or description field missing');
+    else {
+      setValue(title, p.title);
+      setValue(desc, p.description);
+    }
+  });
+  [...document.querySelectorAll('section#price input[inputmode=numeric]')].slice(0, 3).forEach((el, i) => el.setAttribute('data-fsw', 'price-' + i));
+
+  const columns = {};
+  for (const input of document.querySelectorAll('section#price input[id^="react-select-"]')) (columns[labelOf(input)] ??= []).push(input);
+  for (const [label, values] of Object.entries(spec.packageSelects)) {
+    const inputs = columns[label] ?? [];
+    if (inputs.length !== 3) {
+      errors.push('package row ' + label + ' has ' + inputs.length + ' selects');
+      continue;
+    }
+    for (const [i, v] of values.entries()) if (v != null && !(await pick(inputs[i], v))) errors.push('package row ' + label + ' column ' + i + ' has no option ' + v);
+  }
+  const boxes = {};
+  for (const box of document.querySelectorAll('section#price input[type=checkbox]:not(#package-type-switch)')) {
+    let n = box.parentElement;
+    let text = '';
+    for (let i = 0; i < 4 && n && !text; i++, n = n.parentElement) text = n.innerText.trim();
+    (boxes[text] ??= []).push(box);
+  }
+  for (const [label, values] of Object.entries(spec.packageChecks)) {
+    const list = boxes[label] ?? [];
+    if (list.length < 3) {
+      errors.push('package row ' + label + ' has ' + list.length + ' checkboxes');
+      continue;
+    }
+    values.forEach((on, i) => {
+      if (list[i].checked !== on) list[i].click();
+    });
+  }
+  // 수정 및 재진행 안내 renders only once package mode is on.
+  const revision = document.querySelector('textarea[name="REVISION.valueData.revision"]');
+  if (!revision) errors.push('the 수정 및 재진행 안내 field is missing');
+  else setValue(revision, spec.revision);
+  return { errors, counters, editors: editors.length };
+}
+
+async function pageFillCore(faqs) {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const sec = document.querySelector('section#core');
+  if (!sec) return { errors: ['section 판매 핵심 정보 missing'] };
+  const head = sec.querySelector(':scope > button');
+  if (head?.getAttribute('aria-expanded') === 'false') {
+    head.click();
+    await sleep(1200);
+  }
+  const setValue = (el, value) => {
+    const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, value);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  const errors = [];
+  const answers = () => [...sec.querySelectorAll('textarea[name^="FAQ.valueData.faqs."]')];
+  const addFaq = [...sec.querySelectorAll('button')].filter((b) => b.innerText.trim() === '추가')[0];
+  while (answers().length < faqs.length && addFaq) {
+    addFaq.click();
+    await sleep(500);
+  }
+  for (const [i, f] of faqs.entries()) {
+    const a = sec.querySelector('textarea[name="FAQ.valueData.faqs.' + i + '.answer"]');
+    let n = a;
+    let q = null;
+    for (let k = 0; k < 6 && n && !q; k++) {
+      n = n.parentElement;
+      q = [...n.querySelectorAll('input[type=text]')].find((x) => x.maxLength === 255) ?? null;
+    }
+    if (!a || !q) {
+      errors.push('faq ' + i + ' fields missing');
+      continue;
+    }
+    setValue(q, f.question);
+    setValue(a, f.answer);
+  }
+  sec.querySelector('input[placeholder="키워드를 입력해 주세요"]')?.setAttribute('data-fsw', 'keyword');
+  return { errors, faqFields: answers().length };
+}
+
+// What the form holds now, read back after filling: the proof that each write landed.
+function pageFormState() {
+  const t = document.body.innerText;
+  const count = (label) => t.match(new RegExp(label + '\\s*\\((\\d+)\\s*/\\s*(\\d+)\\)'))?.slice(1).map(Number) ?? null;
+  const val = (sel) => document.querySelector(sel)?.value ?? null;
+  const sec = document.querySelector('section#core');
+  const kwStart = sec ? sec.innerText.indexOf('엔터를 눌러 등록하기') : -1;
+  return {
+    url: location.href,
+    title: [...document.querySelectorAll('button')].find((b) => b.innerText.trim() === '편집')?.parentElement?.innerText.replace(/편집\s*$/, '').trim() ?? null,
+    counters: [...document.querySelectorAll('section#detailed p')].map((p) => p.innerText.trim()).filter((x) => /^[\d,]+\s*\/\s*20000$/.test(x)),
+    mainImages: count('메인 이미지'),
+    detailImages: count('상세 이미지'),
+    packageMode: document.getElementById('package-type-switch')?.checked ?? null,
+    packages: [0, 1, 2].map((i) => ({ title: val('textarea[name="PACKAGE_OPTION_GROUP.valueData.packages.0.values.' + i + '.packageValue"]'), description: val('textarea[name="PACKAGE_OPTION_GROUP.valueData.packages.1.values.' + i + '.packageValue"]') })),
+    prices: [...document.querySelectorAll('section#price input[inputmode=numeric]')].slice(0, 3).map((e) => e.value),
+    keywords: count('검색 키워드'),
+    keywordText: kwStart >= 0 ? sec.innerText.slice(kwStart, kwStart + 200) : null,
+    faqs: [...document.querySelectorAll('textarea[name^="FAQ.valueData.faqs."]')].map((a) => a.value.length),
+    revision: document.querySelector('textarea[name="REVISION.valueData.revision"]')?.value ?? null,
+    submit: !![...document.querySelectorAll('button')].find((b) => b.innerText.trim() === '제출하기'),
+  };
+}
+
+// Marks a file input so the driver can hand it files; the input is hidden, and the upload tool needs a
+// box, so it is shown as a 24 px transparent square until restore.
+function pageRevealFile(index) {
+  const f = [...document.querySelectorAll('section#detailed input[type=file]')][index];
+  if (!f) return false;
+  document.activeElement?.blur?.();
+  f.setAttribute('data-fsw', 'file-up');
+  f.dataset.fswStyle = f.getAttribute('style') ?? '';
+  f.setAttribute('style', 'display:block!important;position:fixed;left:0;top:0;width:24px;height:24px;opacity:0.01;z-index:2147483647');
+  return true;
+}
+
+function pageRestoreFile() {
+  const f = document.querySelector('[data-fsw=file-up]');
+  if (!f) return false;
+  f.setAttribute('style', f.dataset.fswStyle ?? '');
+  f.removeAttribute('data-fsw');
+  return true;
+}
+
+async function pageNewGig({ root, sub }) {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const button = (t) => [...document.querySelectorAll('button')].find((x) => x.innerText.trim() === t);
+  const opener = (prefix) => [...document.querySelectorAll('button')].find((x) => x.innerText.trim().startsWith(prefix));
+  opener('1차 카테고리')?.click();
+  await sleep(600);
+  if (!button(root)) return { ok: false, reason: 'no 1st level category ' + root };
+  button(root).click();
+  await sleep(600);
+  opener('2차 카테고리')?.click();
+  await sleep(600);
+  if (!button(sub)) return { ok: false, reason: 'no 2nd level category ' + sub };
+  button(sub).click();
+  await sleep(600);
+  const picked = [...document.querySelectorAll('button')].filter((x) => /카테고리\*/.test(x.innerText)).map((x) => x.innerText.replace(/\s+/g, ' ').trim());
+  const ok = picked.some((p) => p.endsWith(root)) && picked.some((p) => p.endsWith(sub));
+  if (ok) button('다음')?.setAttribute('data-fsw', 'next');
+  return { ok, picked };
+}
+
+function pageMarkSubmit() {
+  const b = [...document.querySelectorAll('button')].find((x) => x.innerText.trim() === '제출하기');
+  if (b) b.setAttribute('data-fsw', 'submit');
+  return !!b;
+}
+
+// After 제출하기: field errors the form shows, any dialog, and where the page went.
+function pageAfterSubmit() {
+  const vis = (e) => {
+    const r = e.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  };
+  const errors = [...document.querySelectorAll('p,span,div')].filter((e) => !e.children.length && vis(e) && /(?:해 주세요|할 수 없어요|이상 입력|선택해 주세요)$/.test(e.innerText.trim()) && getComputedStyle(e).color.replace(/\s/g, '').startsWith('rgb(2')).map((e) => e.innerText.trim());
+  const dialogs = [...document.querySelectorAll('[role=dialog],[role=alertdialog]')].filter(vis).map((d) => ({ text: d.innerText.trim().slice(0, 400), buttons: [...d.querySelectorAll('button')].map((b) => b.innerText.trim()).filter(Boolean) }));
+  return { url: location.href, errors: [...new Set(errors)].slice(0, 20), dialogs };
+}
+
+function pageDialogButton(label) {
+  const d = [...document.querySelectorAll('[role=dialog],[role=alertdialog]')].at(-1);
+  const b = d && [...d.querySelectorAll('button')].find((x) => x.innerText.trim() === label);
+  if (!b) return false;
+  b.click();
+  return true;
+}
+
+// The submit dialog's confirmations (내 프로필에서 증빙을 완료했어요, 관련 표현은 삭제했어요). The listing
+// gate keeps both true: no seller-record claim and none of the listed phrases reach a listing.
+function pageTickDialog() {
+  const d = [...document.querySelectorAll('[role=dialog],[role=alertdialog]')].at(-1);
+  const boxes = d ? [...d.querySelectorAll('input[type=checkbox]')] : [];
+  const ticked = [];
+  for (const box of boxes) {
+    if (box.checked) continue;
+    let n = box.parentElement;
+    let text = '';
+    for (let i = 0; i < 4 && n && !text; i++, n = n.parentElement) text = n.innerText.trim().split('\n')[0];
+    box.click();
+    ticked.push(text);
+  }
+  return { ticked, checked: boxes.every((x) => x.checked) };
+}
+
+async function pageRenameGig(title) {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const edit = [...document.querySelectorAll('button')].find((b) => b.innerText.trim() === '편집');
+  if (!edit) return { ok: false, reason: 'no 편집 button beside the title' };
+  edit.click();
+  await sleep(1000);
+  const d = document.querySelector('[role=dialog]');
+  const input = d?.querySelector('input[maxlength="30"]');
+  if (!input) return { ok: false, reason: 'the title dialog did not open' };
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, title);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  await sleep(300);
+  const save = [...d.querySelectorAll('button')].find((b) => b.innerText.trim() === '변경하기');
+  if (!save || save.disabled) return { ok: false, reason: '변경하기 is disabled for this title' };
+  save.click();
+  await sleep(1500);
+  return { ok: true };
+}
+
+
+// Differences between the read-back form and the listing that was written into it.
+export function formProblems(state, listing) {
+  const out = [];
+  const counters = state.counters ?? [];
+  ['description', 'process', 'preparation'].forEach((f, i) => {
+    const n = toInt(counters[i]?.split('/')[0]);
+    if (!n) out.push(f + ' is empty');
+  });
+  if (state.packageMode !== true) out.push('package mode is off');
+  listing.packages.forEach((p, i) => {
+    if (state.packages?.[i]?.title !== p.title) out.push('package ' + i + ' title differs');
+    if (state.packages?.[i]?.description !== p.description) out.push('package ' + i + ' description differs');
+    if (toInt(state.prices?.[i]) !== p.priceKRW) out.push('package ' + i + ' price reads ' + state.prices?.[i]);
+  });
+  if (!(state.mainImages?.[0] >= 1)) out.push('no main image');
+  if (!(state.detailImages?.[0] >= Math.min(1, listing.images.detail.length))) out.push('no detail image');
+  if (state.keywords?.[0] !== listing.keywords.length) out.push('keywords read ' + (state.keywords?.[0] ?? 'none') + ' of ' + listing.keywords.length);
+  if ((state.faqs ?? []).length !== listing.faqs.length || state.faqs.some((n) => !n)) out.push('faqs read ' + (state.faqs ?? []).length + ' of ' + listing.faqs.length);
+  if (state.revision !== listing.revision) out.push('revision text differs');
+  return out;
+}
+
 // ---- adapter ----
 
 export async function openKmong({ session } = {}) {
@@ -233,6 +535,109 @@ export async function openKmong({ session } = {}) {
       const form = await s.evaluate(pageListingForm);
       if (!form.url.includes(`/my-gigs/edit/${gigId}`)) throw new AdapterRefusal('FSW_GIG_FORM', `edit form for ${gigId} did not open (at ${form.url})`);
       return parseListingForm(form);
+    },
+
+    // Creates or updates a gig and submits it for review. listing is a built spec (src/listings/kmong.mjs)
+    // with absolute image paths; listing.gigId reuses a draft. Each step reads the form back, and
+    // nothing is submitted unless every field holds what was written. Returns what /my-gigs showed.
+    async upsertListing(listing, { submit = true } = {}) {
+      const steps = [];
+      const fail = (reason, extra = {}) => ({ observed: false, submitted: false, gigId, reason, steps, ...extra });
+      let gigId = listing.gigId ?? null;
+      const { root, sub } = listing.category ?? {};
+      if (!gigId) {
+        await s.navigate(BASE + '/my-gigs/new', { settle: 7000 });
+        await s.fill('input[placeholder="제목을 입력해 주세요"]', listing.title);
+        const cat = await s.evaluate(pageNewGig, { root, sub });
+        steps.push({ step: 'category', ...cat });
+        if (!cat.ok) return fail(cat.reason ?? 'the categories did not take');
+        await s.click('[data-fsw=next]');
+        await wait(9000);
+        gigId = Number((await s.evaluate(() => location.href)).match(/\/my-gigs\/edit\/(\d+)/)?.[1]) || null;
+        steps.push({ step: 'draft', gigId });
+        if (!gigId) return fail('다음 did not open a draft edit form');
+      } else {
+        await s.navigate(BASE + '/my-gigs/edit/' + gigId + '?rootCategoryId=' + listing.categoryIds.root + '&subCategoryId=' + listing.categoryIds.sub, { settle: 8000 });
+      }
+      let state = await s.evaluate(pageFormState);
+      if (!state.url.includes('/my-gigs/edit/' + gigId)) return fail('the edit form for ' + gigId + ' did not open (at ' + state.url + ')');
+      if (squash(state.title) !== squash(listing.title)) {
+        const r = await s.evaluate(pageRenameGig, listing.title);
+        steps.push({ step: 'title', ...r });
+        if (!r.ok) return fail(r.reason);
+      }
+      // Images go first: the slot inputs stop taking files once the fields below hold focus and state.
+      // A slot that already holds files is left as it is (a re-run keeps the uploaded set).
+      for (const [slot, index, files] of [['main', 0, [listing.images.main]], ['detail', 1, listing.images.detail]]) {
+        const count = (await s.evaluate(pageFormState))[slot + 'Images']?.[0] ?? 0;
+        if (count > 0) {
+          steps.push({ step: 'images.' + slot, kept: count });
+          continue;
+        }
+        if (!(await s.evaluate(pageRevealFile, index))) return fail('no file input for the ' + slot + ' image');
+        try {
+          await s.setFiles('[data-fsw=file-up]', files);
+        } finally {
+          await s.evaluate(pageRestoreFile);
+        }
+        await wait(4000 + 1500 * files.length);
+        steps.push({ step: 'images.' + slot, uploaded: files.length });
+      }
+
+      const form = listing.form ?? { meta: {}, packageSelects: {}, packageChecks: {} };
+      const filled = await s.evaluate(pageFillForm, {
+        description: listing.description,
+        process: listing.process,
+        preparation: listing.preparation,
+        revision: listing.revision,
+        meta: form.meta,
+        packages: listing.packages.map((p) => ({ title: p.title, description: p.description })),
+        packageSelects: { ...form.packageSelects, '작업 기간': listing.packages.map((p) => p.days + '일'), '수정 횟수': listing.packages.map((p) => p.revisions + '회') },
+        packageChecks: form.packageChecks,
+      }, { timeoutMs: 90_000 });
+      steps.push({ step: 'fields', errors: filled.errors, counters: filled.counters });
+      if (filled.errors.length) return fail('form fields: ' + filled.errors.join('; '));
+      for (const [i, p] of listing.packages.entries()) await s.typeKeys('[data-fsw=price-' + i + ']', String(p.priceKRW));
+
+      const core = await s.evaluate(pageFillCore, listing.faqs, { timeoutMs: 30_000 });
+      steps.push({ step: 'core', ...core });
+      if (core.errors?.length) return fail('core fields: ' + core.errors.join('; '));
+      state = await s.evaluate(pageFormState);
+      for (const k of listing.keywords) {
+        if (state.keywordText?.split('\n').some((l) => l.trim() === k)) continue;
+        await s.fill('[data-fsw=keyword]', k);
+        await s.press('Enter', { target: '[data-fsw=keyword]' });
+        await wait(400);
+      }
+
+      state = await s.evaluate(pageFormState);
+      const problems = formProblems(state, listing);
+      steps.push({ step: 'readback', problems });
+      if (problems.length) return fail('read back: ' + problems.join('; '), { state });
+      if (!submit) return { observed: true, submitted: false, gigId, steps, state };
+
+      if (!(await s.evaluate(pageMarkSubmit))) return fail('no 제출하기 button');
+      await s.click('[data-fsw=submit]');
+      await wait(5000);
+      let after = await s.evaluate(pageAfterSubmit);
+      for (let i = 0; i < 2 && after.dialogs.length; i++) {
+        const confirm = after.dialogs.at(-1).buttons.find((b) => ['제출하기', '확인', '제출'].includes(b));
+        const tick = await s.evaluate(pageTickDialog);
+        steps.push({ step: 'dialog', text: after.dialogs.at(-1).text.slice(0, 200), ticked: tick.ticked, pressed: confirm ?? null });
+        if (!confirm || !tick.checked) break;
+        await s.evaluate(pageDialogButton, confirm);
+        await wait(5000);
+        after = await s.evaluate(pageAfterSubmit);
+      }
+      steps.push({ step: 'submit', url: after.url, errors: after.errors });
+      if (after.errors.length) return fail('the form refused the submit: ' + after.errors.join('; '), { submitted: false });
+      await s.navigate(BASE + '/my-gigs', { settle: 7000 });
+      const list = parseGigList(await s.evaluate(() => document.body.innerText));
+      const gig = list.gigs.find((g) => g.gigId === gigId);
+      steps.push({ step: 'my-gigs', found: !!gig, status: gig?.status ?? null });
+      if (!gig) return fail('gig ' + gigId + ' is not listed on /my-gigs after submit', { submitted: true });
+      const submitted = gig.status !== '임시 저장' && gig.status !== '작성 중';
+      return { observed: true, submitted, gigId, status: gig.status, title: gig.title, priceKRW: gig.priceKRW, url: gig.url, counts: list.counts, steps };
     },
 
     stop: () => s.stop(),

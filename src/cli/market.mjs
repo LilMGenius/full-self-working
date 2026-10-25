@@ -6,20 +6,24 @@
 // day read. A new day's first run starts from the newest earlier samples for the pairs it cannot read,
 // when they are at most CARRY_DAYS old, so one failed sampling day does not empty a platform's price
 // rows; carried samples keep their own observedAt, which the summary and the price table show.
-// Market pages are public, so a platform is sampled before any account exists there, in the owned
-// headless browser at the descriptor's page gap; the operator's signed-in Chrome, and with it any seller
-// account, takes no part. A platform priced in another currency is sampled only with the day's exchange
-// rates (src/economics/fx.mjs); when they cannot be read, its categories fail by name and none of its
-// pages load.
+// Market pages are public, so a platform is sampled before any account exists there, at the
+// descriptor's page gap, through its market engine: config.market.engines.<platform>, else the
+// descriptor's market.engine, else owned. owned is a headless browser with a fresh profile; attached is
+// the operator's Chrome through BrowserSkill, for a host whose bot wall stops the owned browser, and it
+// reads only public pages; archive is the newest Wayback capture, loaded in the owned browser, for a
+// sampler that keeps the capture time. A platform priced in another currency is sampled only with the
+// day's exchange rates (src/economics/fx.mjs); when they cannot be read, its categories fail by name and
+// none of its pages load.
 import { existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createPacingGuard } from '../browser/driver.mjs';
+import { archiveSession } from '../browser/archive.mjs';
+import { createPacingGuard, withSession } from '../browser/driver.mjs';
 import { dayKey } from '../core/clock.mjs';
 import { ensureDir, loadInstance } from '../core/instance.mjs';
 import { loadFx } from '../economics/fx.mjs';
 import { summarizeDay } from '../economics/market.mjs';
 import { CATEGORY_FIELD } from '../economics/pricing.mjs';
-import { loadDescriptor } from '../platforms/registry.mjs';
+import { loadDescriptor, MARKET_ENGINES } from '../platforms/registry.mjs';
 import { openRenderer } from '../render/html2png.mjs';
 import services from '../economics/services.json' with { type: 'json' };
 
@@ -72,6 +76,25 @@ async function withOwnedPage(platform, fn) {
   }
 }
 
+const withAttachedPage = (platform, fn) =>
+  withSession('market-' + platform, (s) => fn({ navigate: s.navigate, evaluate: s.evaluate }), { platform, pacing: loadDescriptor(platform).pacing });
+
+const withArchivePage = (platform, fn, { now }) => withOwnedPage(platform, (page) => fn(archiveSession(page, { now, maxAgeDays: CARRY_DAYS })));
+
+const OPENERS = { owned: withOwnedPage, attached: withAttachedPage, archive: withArchivePage };
+
+// A sampler reads through owned and attached unless it lists its engines; archive needs one that keeps
+// the capture time, or an old copy would be dated today.
+const DEFAULT_SAMPLER_ENGINES = ['owned', 'attached'];
+
+export function marketEngine(platform, config, descriptor = loadDescriptor(platform)) {
+  const engine = config?.market?.engines?.[platform] ?? descriptor.market?.engine ?? 'owned';
+  if (!MARKET_ENGINES.includes(engine)) {
+    throw Object.assign(new Error(`market engine ${JSON.stringify(engine)} for ${platform} is not one of ${MARKET_ENGINES.join(', ')}`), { code: 'FSW_MARKET_ENGINE_UNKNOWN' });
+  }
+  return engine;
+}
+
 function writeAtomic(file, body) {
   const tmp = `${file}.${process.pid}.tmp`;
   writeFileSync(tmp, body);
@@ -81,8 +104,8 @@ function writeAtomic(file, body) {
 export async function run(argv, ctx = {}) {
   const log = ctx.log ?? console.log;
   const instance = ctx.instance ?? loadInstance();
-  const open = ctx.withPage ?? withOwnedPage;
   const now = ctx.now ?? (() => new Date());
+  const open = ctx.withPage ?? ((platform, fn, { engine }) => OPENERS[engine](platform, fn, { now }));
   const named = argv.filter((a) => !a.startsWith('-'));
   const asked = named.length ? named : Object.keys(instance.config.platforms ?? {});
   const platforms = asked.filter((id) => id in SAMPLERS);
@@ -94,8 +117,16 @@ export async function run(argv, ctx = {}) {
   const errors = [];
   const skipped = new Map();
   for (const platform of platforms) {
-    const { sample } = await import(SAMPLERS[platform]);
+    const { sample, engines = DEFAULT_SAMPLER_ENGINES } = await import(SAMPLERS[platform]);
     let pending = targetsFor(platform);
+    let engine;
+    try {
+      engine = marketEngine(platform, instance.config);
+      if (!engines.includes(engine)) throw new Error(`the ${platform} sampler cannot read through the ${engine} engine (it reads through ${engines.join(', ')})`);
+    } catch (err) {
+      errors.push(...pending.map(({ category }) => ({ platform, category, message: err.message })));
+      continue;
+    }
     let fx = null;
     if (loadDescriptor(platform).currency !== 'KRW') {
       try {
@@ -110,19 +141,19 @@ export async function run(argv, ctx = {}) {
     for (let pass = 1; pass <= 2 && pending.length; pass += 1) {
       let failed;
       try {
-        const result = await open(platform, (session) => sample(session, pending, { now, fx }));
-        rows.push(...result.rows);
+        const result = await open(platform, (session) => sample(session, pending, { now, fx }), { engine });
+        rows.push(...result.rows.map((r) => ({ ...r, engine })));
         failed = result.errors;
         // A retried category's counts replace its first-pass counts.
         for (const s of result.skipped ?? []) skipped.set([platform, s.category, s.reason].join('\u0000'), { platform, ...s });
       } catch (err) {
         failed = pending.map(({ category }) => ({ category, message: err.message, ...(err.challenge ? { challenge: err.challenge } : {}) }));
       }
-      errors.push(...failed.filter((e) => pass === 2 || e.challenge).map((e) => ({ platform, ...e })));
+      errors.push(...failed.filter((e) => pass === 2 || e.challenge).map((e) => ({ platform, engine, ...e })));
       pending = pending.filter((t) => failed.some((e) => e.category === t.category && !e.challenge));
     }
   }
-  for (const e of errors) log(`market ${e.platform}/${e.category} failed: ${e.message}`);
+  for (const e of errors) log(`market ${e.platform}/${e.category} failed${e.engine ? ` (${e.engine} engine)` : ''}: ${e.message}`);
   for (const s of skipped.values()) log(`market ${s.platform}/${s.category} skipped ${s.count} (${s.reason})`);
   if (!rows.length) throw Object.assign(new Error('market sampling read no rows'), { code: 'FSW_MARKET_EMPTY', errors });
 

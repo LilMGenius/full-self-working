@@ -1,7 +1,7 @@
 // Synthetic pages and rates only: no fixture here is a copied page or a real exchange rate.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { jobsUrl, parseJobs, parseProjects, projectsUrl, sample as sampleFreelancer } from '../src/platforms/freelancer/market.mjs';
@@ -9,7 +9,9 @@ import { filterQuery, listUrl, parseCard as parseWishketCard, sample as sampleWi
 import { parseSearch, sample as sampleFiverr, searchUrl } from '../src/platforms/fiverr/market.mjs';
 import { challengeOf } from '../src/platforms/kit.mjs';
 import { latestSummary } from '../src/economics/market.mjs';
-import { run, targetsFor } from '../src/cli/market.mjs';
+import { marketEngine, run, targetsFor } from '../src/cli/market.mjs';
+import { archiveSession, archiveUrl, captureOf } from '../src/browser/archive.mjs';
+import { validateDescriptor } from '../src/platforms/registry.mjs';
 
 const fx = { date: '2026-10-23', source: 'https://api.frankfurter.dev/v1/latest?base=USD', rates: { INR: 80, KRW: 1200, USD: 1 } };
 const project = (id, over = {}) => ({ id, type: 'fixed', seo_url: 'logo-design/Logo-' + id, title: 'Logo ' + id, currency: { code: 'USD' }, budget: { minimum: 30, maximum: 250 }, bid_stats: { bid_count: 12, bid_avg: 90 }, time_submitted: 1792800000, ...over });
@@ -156,16 +158,65 @@ test('the market run reports a bot challenge by name and does not retry it', asy
   const dir = mkdtempSync(join(tmpdir(), 'fsw-overseas-'));
   const instance = { config: { platforms: { kmong: { enabled: true, mode: 'auto' }, fiverr: { enabled: false, mode: 'observe' } } }, paths: { market: join(dir, 'market') } };
   const opened = [];
-  const withPage = async (platform, fn) => {
-    opened.push(platform);
+  const withPage = async (platform, fn, { engine }) => {
+    opened.push(platform + ':' + engine);
     let url;
     const page = () => (url.startsWith('https://kmong.com/') ? { total: '10', cards: [{ href: '/gig/1', text: '제목\n50,000원~\n판매자' }] } : { title: 'It needs a human touch', text: 'PXCR10002539', props: null });
     return fn({ navigate: async (u) => { url = u; }, evaluate: async () => page() });
   };
   const result = await run([], { instance, log: () => {}, now: () => new Date('2026-10-25T03:00:00Z'), withPage, loadFx: async () => fx });
-  assert.equal(opened.filter((p) => p === 'fiverr').length, 1);
+  assert.deepEqual(opened.filter((p) => p.startsWith('fiverr')), ['fiverr:attached']);
   const walls = result.errors.filter((e) => e.platform === 'fiverr');
   assert.equal(walls.length, targetsFor('fiverr').length);
-  assert.ok(walls.every((e) => e.challenge === 'perimeterx' && /perimeterx bot challenge on https:\/\/www\.fiverr\.com\/search\/gigs/.test(e.message)));
+  assert.ok(walls.every((e) => e.challenge === 'perimeterx' && e.engine === 'attached' && /perimeterx bot challenge on https:\/\/www\.fiverr\.com\/search\/gigs/.test(e.message)));
   assert.equal(result.exitCode, 1);
+});
+
+test('a platform\'s market engine is the operator\'s setting, else its descriptor\'s, else owned, and an unknown one fails by name', () => {
+  assert.equal(marketEngine('fiverr', {}), 'attached');
+  assert.equal(marketEngine('fiverr', { market: { engines: { fiverr: null } } }), 'attached');
+  assert.equal(marketEngine('fiverr', { market: { engines: { fiverr: 'archive' } } }), 'archive');
+  assert.equal(marketEngine('kmong', { market: { engines: { fiverr: 'archive' } } }), 'owned');
+  assert.equal(marketEngine('kmong', { market: { engines: { kmong: 'attached' } } }), 'attached');
+  assert.throws(() => marketEngine('fiverr', { market: { engines: { fiverr: 'proxy' } } }), (err) => err.code === 'FSW_MARKET_ENGINE_UNKNOWN' && /"proxy" for fiverr/.test(err.message));
+  const fiverrDescriptor = JSON.parse(readFileSync(new URL('../src/platforms/descriptors/fiverr.json', import.meta.url), 'utf8'));
+  assert.throws(() => validateDescriptor({ ...fiverrDescriptor, market: { engine: 'stealth' } }), /market\.engine/);
+});
+
+test('the market run opens each platform through its configured engine, and refuses an engine its sampler cannot date', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'fsw-overseas-'));
+  const instance = { config: { platforms: { kmong: { enabled: true, mode: 'auto' }, fiverr: { enabled: false, mode: 'observe' } }, market: { engines: { kmong: 'archive', fiverr: 'owned' } } }, paths: { market: join(dir, 'market') } };
+  const opened = [];
+  const withPage = async (platform, fn, { engine }) => {
+    opened.push(platform + ':' + engine);
+    return fn({ navigate: async () => {}, evaluate: async () => ({ title: 'Fiverr', text: '', props: perseus() }) });
+  };
+  const result = await run([], { instance, log: () => {}, now: () => new Date('2026-10-25T03:00:00Z'), withPage, loadFx: async () => fx });
+  assert.deepEqual([...new Set(opened)], ['fiverr:owned']);
+  const kmong = result.errors.filter((e) => e.platform === 'kmong');
+  assert.equal(kmong.length, targetsFor('kmong').length);
+  assert.ok(kmong.every((e) => /kmong sampler cannot read through the archive engine/.test(e.message)));
+  const samples = readFileSync(result.samplesFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.ok(samples.length > 0 && samples.every((r) => r.platform === 'fiverr' && r.engine === 'owned'));
+});
+
+test('an archive snapshot is dated by its capture, keeps its address, and a missing or stale one fails by name', async () => {
+  assert.equal(captureOf('https://web.archive.org/web/20260128032306id_/https://www.fiverr.com/search/gigs?query=x'), '2026-01-28T03:23:06.000Z');
+  assert.equal(captureOf('https://web.archive.org/web/29991231id_/x'), null);
+  const target = searchUrl('logo design');
+  const captured = 'https://web.archive.org/web/20261020120000id_/' + target;
+  const loaded = [];
+  const page = (href) => ({
+    navigate: async (u) => { loaded.push(u); },
+    evaluate: async (fn) => (String(fn).includes('location.href') ? href : { title: 'Fiverr', text: '', props: perseus() }),
+  });
+  const now = () => new Date('2026-10-25T03:00:00Z');
+  const { rows, errors } = await sampleFiverr(archiveSession(page(captured), { now, maxAgeDays: 7 }), [{ category: 'logo design' }], { fx, now });
+  assert.deepEqual(errors, []);
+  assert.deepEqual(loaded, [archiveUrl(target)]);
+  assert.ok(rows.length === 2 && rows.every((r) => r.observedAt === '2026-10-20T12:00:00.000Z' && r.snapshot === captured));
+  const missing = await sampleFiverr(archiveSession(page('https://web.archive.org/web/29991231id_/' + target), { now, maxAgeDays: 7 }), [{ category: 'logo design' }], { fx, now });
+  assert.match(missing.errors[0].message, /no archive snapshot of https:\/\/www\.fiverr\.com/);
+  const stale = await sampleFiverr(archiveSession(page('https://web.archive.org/web/20170301095312id_/' + target), { now, maxAgeDays: 7 }), [{ category: 'logo design' }], { fx, now });
+  assert.match(stale.errors[0].message, /is from 2017-03-01T09:53:12\.000Z, older than 7 days/);
 });

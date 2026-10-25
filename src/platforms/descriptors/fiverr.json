@@ -42,6 +42,10 @@
     "maxActionsPerHour": 60,
     "maxMessagesPerHour": 20
   },
+  "market": {
+    "engine": "attached",
+    "notes": "The owned headless browser met a PerimeterX challenge on 2026-10-25 and the operator's Chrome read the same search page; Wayback holds search captures from 2016 and 2017 only."
+  },
   "limits": {
     "message": {
       "maxChars": "unknown"

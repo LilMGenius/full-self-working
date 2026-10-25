@@ -9,6 +9,8 @@ export const CONTACT_CLASSES = ['phone', 'email', 'url', 'messenger'];
 const MODELS = ['storefront', 'request_quote', 'bidding', 'contest'];
 const MILESTONES = ['native', 'reorder', 'multi_pay', 'none', 'unknown'];
 const LIMIT_KINDS = ['message', 'quote', 'listing', 'profile'];
+// Browsers a market sampler can read public pages through (src/cli/market.mjs).
+export const MARKET_ENGINES = ['owned', 'attached', 'archive'];
 
 function invalid(id, path, detail) {
   const err = new Error(`descriptor ${id} invalid at ${path}: ${detail}`);
@@ -50,6 +52,8 @@ export function validateDescriptor(d, id = d?.id) {
   }
   const basis = d.fees.sellerTierBasis;
   if (basis !== undefined && !['marginal', 'whole'].includes(basis)) throw invalid(id, 'fees.sellerTierBasis', `unexpected value ${JSON.stringify(basis)}`);
+  const engine = d.market?.engine;
+  if (engine !== undefined && !MARKET_ENGINES.includes(engine)) throw invalid(id, 'market.engine', 'unexpected value ' + JSON.stringify(engine));
   // identity "forbidden" makes the gate block the operator's names (src/policy/gate.mjs identityNames).
   const identity = d.contactPolicy.identity;
   if (identity !== undefined && !['allowed', 'forbidden'].includes(identity)) throw invalid(id, 'contactPolicy.identity', 'unexpected value ' + JSON.stringify(identity));

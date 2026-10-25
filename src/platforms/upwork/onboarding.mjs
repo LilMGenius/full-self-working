@@ -5,6 +5,7 @@
 // upworkSpecialty maps the answered services onto Upwork's category and specialties, and the profile
 // gives roles, education and the overview text, which passes the outbound gate before it is typed.
 import catalog from '../../economics/services.json' with { type: 'json' };
+import { existsSync } from 'node:fs';
 import { answeredServices } from '../../economics/catalog.mjs';
 import { gateOutbound } from '../../policy/gate.mjs';
 import { clickMatch, clickVisible, pageOutline, pathOf, pickOption, result, sleep, typeInto, waitFor } from '../onboarding.mjs';
@@ -27,6 +28,11 @@ export const STEPS = [
   { id: 'skills', detect: { path: BASE + 'skills', heading: /what work are you here to do/i } },
   { id: 'title', detect: { path: BASE + 'title', heading: /add a title to tell the world what you do/i } },
   { id: 'employment', detect: { path: BASE + 'employment', heading: /relevant work experience/i } },
+  { id: 'education', detect: { path: BASE + 'education', heading: /add your education here/i } },
+  { id: 'languages', detect: { path: BASE + 'languages', heading: /which languages you speak/i } },
+  { id: 'overview', detect: { path: BASE + 'overview', heading: /write a bio to tell the world about yourself/i } },
+  { id: 'rate', detect: { path: BASE + 'rate', heading: /set your hourly rate/i } },
+  { id: 'location', detect: { path: BASE + 'location', heading: /a few last details/i } },
 ];
 
 export const stepOfUrl = (url) => {
@@ -69,6 +75,18 @@ export function parsePeriod(period) {
 
 const monthYear = (d) => (d ? MONTHS[d.month - 1] + ' ' + d.year : 'Present');
 
+// The work entry dialog refuses a title of 70 characters or more ("Must be less than 70 characters").
+export const TITLE_MAX = 69;
+
+// A title over the limit loses its trailing parenthetical, which becomes the entry's description.
+export function splitTitle(title) {
+  const t = String(title ?? '').trim();
+  if (t.length <= TITLE_MAX) return { title: t, description: '' };
+  const m = /^(.*?)\s*\(([^()]+)\)$/.exec(t);
+  if (m && m[1].length <= TITLE_MAX) return { title: m[1], description: m[2].charAt(0).toUpperCase() + m[2].slice(1) + '.' };
+  return null;
+}
+
 // The work entries the profile's roles give: one per role whose start month is known. A role without one
 // is listed in skipped, since the form needs a start date.
 export function employmentEntries(profile) {
@@ -76,11 +94,12 @@ export function employmentEntries(profile) {
   const skipped = [];
   for (const role of profile?.roles ?? []) {
     const p = parsePeriod(role.period);
-    if (!p.start || (!p.current && !p.end)) {
+    const t = splitTitle(role.title);
+    if (!p.start || (!p.current && !p.end) || !t) {
       skipped.push(role.org);
       continue;
     }
-    entries.push({ title: role.title, company: role.org, start: p.start, end: p.current ? null : p.end, dates: monthYear(p.start) + ' - ' + monthYear(p.current ? null : p.end) });
+    entries.push({ title: t.title, description: t.description, company: role.org, start: p.start, end: p.current ? null : p.end, dates: monthYear(p.start) + ' - ' + monthYear(p.current ? null : p.end) });
   }
   return { entries, skipped };
 }
@@ -93,6 +112,33 @@ export function parseEmploymentCard(text) {
 }
 
 const sameEntry = (card, e) => norm(card.title) === norm(e.title) && norm(card.company) === norm(e.company) && norm(card.dates) === norm(e.dates);
+
+// Only a real degree goes into Upwork's Degree typeahead; anything else the profile says about the
+// outcome (no degree, passed, course certificates) goes into the description, so no degree is implied.
+const DEGREE = /^(?:B\.|M\.|Ph\.?\s?D|Bachelor|Master|Associate|Doctor)/i;
+
+// "ABU (Example Bay University)" is typed as the full Latin name in the parentheses; a parenthetical in
+// another script ("State exam (국가시험)") is dropped.
+export function schoolName(school) {
+  const m = /^(.*?)\s*\(([^()]+)\)$/.exec(String(school ?? '').trim());
+  if (!m) return String(school ?? '').trim();
+  return /^[\x20-\x7E]+$/.test(m[2]) && m[2].length > m[1].length ? m[2].trim() : m[1].trim();
+}
+
+// Education entries from profile.education: school, degree only when it is one, field, the years the
+// period gives, and a description carrying the outcome.
+export function educationEntries(profile) {
+  return (profile?.education ?? []).map((e) => {
+    const years = [...String(e.period ?? '').matchAll(/(\d{4})/g)].map((m) => Number(m[1]));
+    const degree = DEGREE.test(e.degree ?? '') ? e.degree : '';
+    const outcome = degree ? '' : String(e.degree ?? '').trim();
+    const field = String(e.field ?? '').trim();
+    // A field that is a count or a course list is not a field of study, so it joins the description.
+    const isField = field && !/\d/.test(field) && !/[;]/.test(field);
+    const description = [outcome, isField ? '' : field].filter(Boolean).join('. ');
+    return { school: schoolName(e.school), degree, field: isField ? field : '', from: years[0] ?? null, to: years.at(-1) ?? null, description: description ? description.replace(/\.?$/, '.') : '' };
+  });
+}
 
 // --- page readers (run in the page) ---
 
@@ -118,6 +164,42 @@ function readSkills() {
 
 function readCards() {
   return [...document.querySelectorAll('.carousel-list-item .card-content')].map((c) => c.innerText.trim());
+}
+
+const cardHasSchool = (cards, e) => cards.some((c) => norm(c.split(/\n/)[0]) === norm(e.school));
+
+export const LANGUAGE_LEVELS = ['Basic', 'Conversational', 'Fluent', 'Native or Bilingual'];
+
+export const OVERVIEW_MIN = 100;
+
+// "$27.00" or "27" as a number of dollars; an empty field is null.
+export const parseUsd = (text) => {
+  const n = Number.parseFloat(String(text ?? '').replace(/[^\d.]/g, ''));
+  return Number.isFinite(n) ? n : null;
+};
+
+// The bio: config onboarding.upwork.overview when the operator wrote one, otherwise the profile's English
+// headline and summary, then the English names of the services the instance offers on Upwork.
+export function overviewText(instance, services = catalog) {
+  const set = instance.config?.onboarding?.upwork?.overview;
+  if (set) return set;
+  const p = instance.profile ?? {};
+  // A catalog name starts lower case mid-sentence unless it opens with an acronym (AI automation).
+  const offered = (upworkSpecialties(instance, services)?.services ?? []).map((id) => services[id]?.en).filter(Boolean).map((n) => (/^[A-Z][a-z]/.test(n) ? n[0].toLowerCase() + n.slice(1) : n));
+  const list = offered.length > 1 ? offered.slice(0, -1).join(', ') + ' and ' + offered.at(-1) : offered[0];
+  return [p.headline_en, p.summary_en, list ? 'Here I take on ' + list + '.' : ''].filter(Boolean).join('\n\n');
+}
+
+// Rows of the languages step: English is fixed in the first row (dropdown-label-english), each added
+// language is a pair of dropdowns numbered from 0. An unset dropdown shows "My level is" or "Select language".
+function readLanguages() {
+  const val = (id) => {
+    const t = document.querySelector('[aria-labelledby="' + id + '"]')?.innerText.trim() ?? null;
+    return t && !/^(My level is|Select language)$/i.test(t) ? t : null;
+  };
+  const rows = [{ language: 'English', level: val('dropdown-label-english') }];
+  for (let i = 0; document.querySelector('[aria-labelledby="dropdown-label-language-' + i + '"]'); i++) rows.push({ language: val('dropdown-label-language-' + i), level: val('dropdown-label-proficiency-' + i), index: i });
+  return rows;
 }
 
 // --- steps ---
@@ -167,19 +249,156 @@ const radioStep = (key, values) => ({
 });
 
 export const HANDLERS = {
+  // Mapped 2026-10-25: "Upload photo" opens a dialog with a file input, a crop view and "Attach photo",
+  // which saves at once; the saved portrait shows as an img from /profile-portraits/. Date of birth,
+  // street, city, ZIP and phone are the operator's own (payout identity) and stay with the operator.
+  location: {
+    saves: true,
+    read: (s) => s.evaluate(() => [...document.querySelectorAll('img')].some((i) => i.getBoundingClientRect().width > 0 && /\/profile-portraits\//.test(i.src))),
+    want: (ctx) => {
+      const photo = ctx.instance.config?.onboarding?.photo;
+      return photo && existsSync(photo) ? true : needs('upload a profile photo of yourself, or set config onboarding.photo to a public photo of you');
+    },
+    same: (cur) => cur === true,
+    write: async (s) => {
+      // want is true only when the photo file exists; the path is read again for the upload.
+      await clickVisible(s, 'button[data-qa=open-loader]');
+      if (!(await waitFor(s, () => !!document.querySelector('[role=dialog] input[type=file]')))) throw new Error('the photo dialog did not open');
+      await s.setFiles('[role=dialog] input[type=file]', s.photoPath);
+      if (!(await waitFor(s, () => /Zoom/i.test(document.querySelector('[role=dialog]')?.innerText ?? ''), null, { timeoutMs: 20000 }))) throw new Error('the photo did not load into the crop view');
+      await clickMatch(s, '[role=dialog] button', 'Attach photo');
+      if (!(await waitFor(s, () => !document.querySelector('[role=dialog]'), null, { timeoutMs: 20000 }))) throw new Error('the photo dialog did not close');
+      await sleep(1500);
+    },
+    // What stays with the operator once the photo is in: every required field still empty.
+    pending: async (s) => {
+      const empty = await s.evaluate(() => {
+        const fields = { 'date of birth': 'date-of-birth-label', 'street address': 'street-label', city: 'city-label', 'ZIP code': 'postal-code-label' };
+        const out = Object.entries(fields).filter(([, id]) => !document.querySelector('input[aria-labelledby="' + id + '"]')?.value).map(([name]) => name);
+        if (!document.querySelector('input[type=tel]')?.value) out.push('phone number');
+        return out;
+      });
+      return empty.length ? 'fill ' + empty.join(', ') + ' on the last page (upwork.com/nx/create-profile/location), then press Review your profile and publish it' : null;
+    },
+  },
+  // Mapped 2026-10-25: three currency inputs (hourly rate, service fee, what you get); only the first
+  // is typed, and it reformats on every key, so it is typed key by key.
+  rate: {
+    read: async (s) => parseUsd(await s.evaluate(() => document.querySelector('input[data-test=currency-input]')?.value)),
+    want: (ctx) => {
+      const rate = settings(ctx).hourlyRateUSD;
+      return typeof rate === 'number' && rate >= 3 ? rate : needs('config onboarding.upwork.hourlyRateUSD must be a number of US dollars, 3 or more (Upwork minimum)');
+    },
+    same: (cur, want) => cur !== null && Math.abs(cur - want) < 0.005,
+    write: async (s, want) => {
+      await s.evaluate(() => document.querySelector('input[data-test=currency-input]')?.setAttribute('data-fsw-rate', '1'));
+      await clickVisible(s, 'input[data-fsw-rate]');
+      await s.typeKeys('input[data-fsw-rate]', want.toFixed(2));
+      await s.press('Tab');
+    },
+  },
+  overview: {
+    read: (s) => s.evaluate(readValue, 'textarea[aria-labelledby=overview-label]'),
+    want: (ctx) => {
+      const text = overviewText(ctx.instance);
+      if (text.length < OVERVIEW_MIN) return needs('the overview is ' + text.length + ' characters and Upwork needs ' + OVERVIEW_MIN + '; set config onboarding.upwork.overview or extend profile.summary_en');
+      const refused = gated(ctx, text, 'the overview');
+      return refused ? needs(refused) : text;
+    },
+    same: (cur, want) => norm(cur) === norm(want),
+    write: async (s, want) => {
+      await clickVisible(s, 'textarea[aria-labelledby=overview-label]');
+      await s.fill('textarea[aria-labelledby=overview-label]', want);
+    },
+  },
+  // Mapped 2026-10-25: English is always listed with a level dropdown; "Add a language" appends a
+  // language dropdown and a level dropdown. Levels are a setting, since only the operator can say them.
+  languages: {
+    read: (s) => s.evaluate(readLanguages),
+    want: (ctx) => {
+      const list = settings(ctx).languages ?? [];
+      const bad = list.filter((l) => !l?.language || !LANGUAGE_LEVELS.includes(l.level));
+      if (!list.some((l) => norm(l.language) === 'english') || bad.length) return needs('config onboarding.upwork.languages must list English and each language with a level of ' + LANGUAGE_LEVELS.join(', '));
+      return list;
+    },
+    same: (cur, want) => want.every((w) => cur.some((c) => norm(c.language) === norm(w.language) && norm(c.level) === norm(w.level))),
+    write: async (s, want, cur) => {
+      for (const w of want) {
+        let row = cur.find((c) => norm(c.language) === norm(w.language));
+        if (row && norm(row.level) === norm(w.level)) continue;
+        if (!row) {
+          const empty = (await s.evaluate(readLanguages)).find((c) => c.index !== undefined && !c.language);
+          if (!empty) await clickVisible(s, 'button[data-qa=languages-btn-add]');
+          await sleep(800);
+          row = (await s.evaluate(readLanguages)).find((c) => c.index !== undefined && !c.language);
+          if (!row) throw new Error('Add a language did not add a row');
+          await pickOption(s, '[aria-labelledby="dropdown-label-language-' + row.index + '"]', w.language);
+        }
+        const toggle = row.index === undefined ? '[aria-labelledby=dropdown-label-english]' : '[aria-labelledby="dropdown-label-proficiency-' + row.index + '"]';
+        await pickOption(s, toggle, w.level);
+        await sleep(500);
+      }
+    },
+  },
+  // Mapped 2026-10-25: "Add education" opens a dialog with School, Degree and Field of Study typeaheads
+  // (free text is kept), two year dropdowns under "Dates Attended" (From, To) and a description.
+  education: {
+    saves: true,
+    read: (s) => s.evaluate(readCards),
+    want: (ctx) => {
+      const entries = educationEntries(ctx.instance.profile);
+      if (!entries.length) return needs('profile.education is empty');
+      const refused = gated(ctx, entries.map((e) => [e.school, e.degree, e.field, e.description].filter(Boolean).join(', ')).join('\n'), 'profile.education');
+      return refused ? needs(refused) : entries;
+    },
+    same: (cur, want) => want.every((e) => cardHasSchool(cur, e)),
+    write: async (s, want, cur) => {
+      const D = '[role=dialog] ';
+      if (await s.evaluate(() => !!document.querySelector('[role=dialog]'))) {
+        await clickMatch(s, D + 'button', 'Cancel');
+        await waitFor(s, () => !document.querySelector('[role=dialog]'), null, { timeoutMs: 5000 });
+      }
+      for (const e of want.filter((w) => !cardHasSchool(cur, w))) {
+        if (!(await clickVisible(s, 'a.carousel-list-add-new button, button[data-qa=education-add-btn]'))) throw new Error('no Add education button');
+        if (!(await waitFor(s, () => !!document.querySelector('[role=dialog] input[aria-labelledby=school-label]')))) throw new Error('the education dialog did not open');
+        await typeInto(s, D + 'input[aria-labelledby=school-label]', e.school);
+        if (e.degree) await typeInto(s, D + 'input[aria-labelledby=degree-label]', e.degree);
+        if (e.field) await typeInto(s, D + 'input[aria-labelledby=area-of-study-label]', e.field);
+        await s.evaluate(() => document.querySelectorAll('[role=dialog] [data-test=dropdown-toggle][aria-labelledby=dates-attended-label]').forEach((d, i) => d.setAttribute('data-fsw-date', String(i))));
+        if (e.from) await pickOption(s, D + '[data-fsw-date="0"]', String(e.from));
+        if (e.to) await pickOption(s, D + '[data-fsw-date="1"]', String(e.to));
+        if (e.description) {
+          await clickVisible(s, D + 'textarea[aria-labelledby=description-label]');
+          await s.fill(D + 'textarea[aria-labelledby=description-label]', e.description);
+        }
+        await clickMatch(s, D + 'button', 'Save');
+        if (!(await waitFor(s, () => !document.querySelector('[role=dialog]'), null, { timeoutMs: 10000 }))) {
+          const msg = await s.evaluate(() => document.querySelector('[role=dialog]')?.innerText.replace(/\s+/g, ' ').slice(0, 200));
+          throw new Error('the dialog for ' + e.school + ' did not close: ' + msg);
+        }
+        await sleep(1000);
+      }
+    },
+  },
   // Mapped 2026-10-25: "Add experience" opens a dialog with Title and Company typeaheads (free text is
   // kept), a "currently working" checkbox that hides the end date, month and year dropdowns, and Save.
   employment: {
+    saves: true,
     read: async (s) => (await s.evaluate(readCards)).map(parseEmploymentCard),
     want: (ctx) => {
       const { entries, skipped } = employmentEntries(ctx.instance.profile);
       if (!entries.length) return needs('profile.roles has no role with a start month (YYYY.MM)');
-      const refused = gated(ctx, entries.map((e) => e.title + ', ' + e.company).join('\n'), 'profile.roles');
+      const refused = gated(ctx, entries.map((e) => [e.title, e.company, e.description].filter(Boolean).join(', ')).join('\n'), 'profile.roles');
       return refused ? needs(refused) : Object.assign(entries, { skipped });
     },
     same: (cur, want) => want.every((e) => cur.some((c) => sameEntry(c, e))),
     write: async (s, want, cur) => {
       const D = '[role=dialog] ';
+      // A dialog a failed run left open is cancelled first, so its half-typed entry is never saved.
+      if (await s.evaluate(() => !!document.querySelector('[role=dialog]'))) {
+        await clickMatch(s, D + 'button', 'Cancel');
+        await waitFor(s, () => !document.querySelector('[role=dialog]'), null, { timeoutMs: 5000 });
+      }
       for (const e of want.filter((w) => !cur.some((c) => sameEntry(c, w)))) {
         // The empty list shows a large add link; once one entry is saved it becomes a round Add button.
         if (!(await clickVisible(s, 'a.carousel-list-add-new button, button[data-qa=employment-add-btn]'))) throw new Error('no Add experience button');
@@ -193,6 +412,10 @@ export const HANDLERS = {
         if (e.end) {
           await pickOption(s, D + '[aria-labelledby=end-date-month]', MONTHS[e.end.month - 1]);
           await pickOption(s, D + '[aria-labelledby=end-date-year]', String(e.end.year));
+        }
+        if (e.description) {
+          await clickVisible(s, D + 'textarea[aria-labelledby=description-label]');
+          await s.fill(D + 'textarea[aria-labelledby=description-label]', e.description);
         }
         await clickMatch(s, D + 'button', 'Save');
         if (!(await waitFor(s, () => !document.querySelector('[role=dialog]'), null, { timeoutMs: 10000 }))) {
@@ -289,6 +512,9 @@ async function runStep(session, id, ctx) {
   const cur = await h.read(session);
   if (h.same(cur, want)) return result(id, 'done', describe(want));
   if (!h.write) return result(id, 'needs-operator', 'no writer for this step');
+  // A step whose dialog saves on its own (Save, Attach photo) is only described in a dry run.
+  if (h.saves && !ctx.apply) return result(id, 'filled', 'dry run, not typed since its dialog saves at once: ' + describe(want));
+  session.photoPath = ctx.instance.config?.onboarding?.photo ?? null;
   try {
     await h.write(session, want, cur);
   } catch (err) {
@@ -300,7 +526,9 @@ async function runStep(session, id, ctx) {
 }
 
 const describe = (want) => {
-  if (Array.isArray(want)) return want.map((w) => (typeof w === 'object' ? w.title + ' at ' + w.company + ', ' + w.dates : w)).join('; ') + (want.skipped?.length ? '; left out without a start month: ' + want.skipped.join(', ') : '');
+  if (want === true) return 'profile photo in place';
+  const one = (w) => (typeof w !== 'object' ? w : w.level ? w.language + ' ' + w.level : w.school ? [w.school, w.degree, w.field, w.from && w.from + '-' + w.to].filter(Boolean).join(', ') : w.title + ' at ' + w.company + ', ' + w.dates);
+  if (Array.isArray(want)) return want.map(one).join('; ') + (want.skipped?.length ? '; left out without a start month or over the title limit: ' + want.skipped.join(', ') : '');
   return typeof want === 'object' ? JSON.stringify(want.specialties ?? want) : String(want);
 };
 
@@ -337,6 +565,13 @@ export async function onboard(session, ctx) {
     results.push(r);
     log(r.step + ': ' + r.state + (r.detail ? ' (' + r.detail + ')' : ''));
     if (r.state === 'needs-operator' || r.state === 'unmapped' || only) break;
+    // A step with fields only the operator can fill reports them and ends the walk there.
+    const pending = HANDLERS[id].pending ? await HANDLERS[id].pending(session) : null;
+    if (pending) {
+      results.push(result(id, 'needs-operator', pending));
+      log(id + ': needs-operator (' + pending + ')');
+      break;
+    }
     if (!ctx.apply) {
       // A dry run saves nothing, so the wizard keeps every later step closed; report and stop here
       // unless this step was already saved, in which case the next one is open.

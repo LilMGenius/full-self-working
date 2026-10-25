@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { parseArgs, run } from '../src/cli/onboard.mjs';
-import { employmentEntries, onboard, parseEmploymentCard, parsePeriod, stepOfUrl, upworkSpecialties } from '../src/platforms/upwork/onboarding.mjs';
+import { employmentEntries, onboard, parseEmploymentCard, parsePeriod, splitTitle, stepOfUrl, upworkSpecialties } from '../src/platforms/upwork/onboarding.mjs';
 
 function instance() {
   const dir = mkdtempSync(join(tmpdir(), 'fsw-onboard-'));
@@ -66,6 +66,12 @@ test('specialties follow the answered services by fit, in one category, at most 
   const got = upworkSpecialties({ config: { platforms: { upwork: { services: ['a', 'b', 'd', 'e', 'f'] } } }, profile, services });
   assert.deepEqual(got, { category: 'Dev', specialties: ['AI', 'Web', 'Scripts'], services: ['b', 'a', 'd'] });
   assert.equal(upworkSpecialties({ config: { platforms: { upwork: { services: ['f'] } } }, profile, services }), null);
+});
+
+test('a work title over the dialog limit moves its parenthetical into the description', () => {
+  assert.deepEqual(splitTitle('Pottery teacher (evening classes, weekend workshops and mentoring for two studios)'), { title: 'Pottery teacher', description: 'Evening classes, weekend workshops and mentoring for two studios.' });
+  assert.deepEqual(splitTitle('Engineer (backend)'), { title: 'Engineer (backend)', description: '' });
+  assert.equal(splitTitle('x'.repeat(80)), null);
 });
 
 test('wizard step ids come from the create-profile path only', () => {

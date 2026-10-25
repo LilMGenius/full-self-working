@@ -146,6 +146,12 @@
         "Web Development",
         "JavaScript"
       ],
+      "languages": [
+        {
+          "language": "English",
+          "level": "Conversational"
+        }
+      ],
       "hourlyRateUSD": null
     }
   }

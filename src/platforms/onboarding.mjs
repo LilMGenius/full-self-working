@@ -46,10 +46,18 @@ export async function clickVisible(session, selector) {
   return clickMatch(session, selector, /[\s\S]*/);
 }
 
-// A typeahead or plain text field: click it in view so it takes focus, then type the text key by key.
+// A typeahead or plain text field: click it in view so it takes focus, then type the text key by key. A
+// dialog still animating in refuses focus, so the click and focus are tried three times a second apart.
 export async function typeInto(session, selector, text) {
-  if (!(await clickVisible(session, selector))) throw new Error('no field ' + selector);
-  await session.typeKeys(selector, text);
+  for (let attempt = 1; ; attempt++) {
+    try {
+      if (!(await clickVisible(session, selector))) throw new Error('no field ' + selector);
+      return await session.typeKeys(selector, text);
+    } catch (err) {
+      if (attempt >= 3) throw new Error(selector + ': ' + err.message);
+      await sleep(1000);
+    }
+  }
 }
 
 // A dropdown whose menu lists role=option items: open it, then click the item with this text.

@@ -15,7 +15,7 @@ export function captureOf(href) {
 }
 
 // Wraps an owned page so navigate(url) loads the newest capture of url, and capture() returns
-// {capturedAt, snapshot} for the last load.
+// {capturedAt, snapshot} for the last load. A missing or stale capture is final for the day.
 export function archiveSession(page, { now = () => new Date(), maxAgeDays }) {
   let last = null;
   return {
@@ -24,9 +24,9 @@ export function archiveSession(page, { now = () => new Date(), maxAgeDays }) {
       await page.navigate(archiveUrl(url), opts);
       const snapshot = await page.evaluate(() => location.href);
       const capturedAt = captureOf(snapshot);
-      if (!capturedAt) throw new Error('no archive snapshot of ' + url);
+      if (!capturedAt) throw Object.assign(new Error('no archive snapshot of ' + url), { final: true });
       const ageDays = (now().getTime() - Date.parse(capturedAt)) / 86_400_000;
-      if (ageDays > maxAgeDays) throw new Error(`newest archive snapshot of ${url} is from ${capturedAt}, older than ${maxAgeDays} days`);
+      if (ageDays > maxAgeDays) throw Object.assign(new Error(`newest archive snapshot of ${url} is from ${capturedAt}, older than ${maxAgeDays} days`), { final: true });
       last = { capturedAt, snapshot };
     },
     evaluate: page.evaluate,

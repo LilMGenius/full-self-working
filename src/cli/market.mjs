@@ -137,7 +137,7 @@ export async function run(argv, ctx = {}) {
       }
     }
     // The second pass retries what the first could not read, since one slow load fails a category.
-    // A bot challenge is final for the day: a retry would only load the same wall again.
+    // A bot challenge or a final error is not retried: a retry would only load the same answer again.
     for (let pass = 1; pass <= 2 && pending.length; pass += 1) {
       let failed;
       try {
@@ -149,8 +149,8 @@ export async function run(argv, ctx = {}) {
       } catch (err) {
         failed = pending.map(({ category }) => ({ category, message: err.message, ...(err.challenge ? { challenge: err.challenge } : {}) }));
       }
-      errors.push(...failed.filter((e) => pass === 2 || e.challenge).map((e) => ({ platform, engine, ...e })));
-      pending = pending.filter((t) => failed.some((e) => e.category === t.category && !e.challenge));
+      errors.push(...failed.filter((e) => pass === 2 || e.challenge || e.final).map((e) => ({ platform, engine, ...e })));
+      pending = pending.filter((t) => failed.some((e) => e.category === t.category && !e.challenge && !e.final));
     }
   }
   for (const e of errors) log(`market ${e.platform}/${e.category} failed${e.engine ? ` (${e.engine} engine)` : ''}: ${e.message}`);

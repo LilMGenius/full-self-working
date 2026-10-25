@@ -219,4 +219,16 @@ test('an archive snapshot is dated by its capture, keeps its address, and a miss
   assert.match(missing.errors[0].message, /no archive snapshot of https:\/\/www\.fiverr\.com/);
   const stale = await sampleFiverr(archiveSession(page('https://web.archive.org/web/20170301095312id_/' + target), { now, maxAgeDays: 7 }), [{ category: 'logo design' }], { fx, now });
   assert.match(stale.errors[0].message, /is from 2017-03-01T09:53:12\.000Z, older than 7 days/);
+  assert.ok(missing.errors[0].final && stale.errors[0].final);
+});
+
+test('the market run does not retry a category whose archive snapshot is missing', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'fsw-overseas-'));
+  const instance = { config: { platforms: { fiverr: { enabled: false, mode: 'observe' } }, market: { engines: { fiverr: 'archive' } } }, paths: { market: join(dir, 'market') } };
+  const now = () => new Date('2026-10-25T03:00:00Z');
+  const loaded = [];
+  const page = { navigate: async (u) => { loaded.push(u); }, evaluate: async () => 'https://web.archive.org/web/29991231id_/x' };
+  const withPage = async (platform, fn) => fn(archiveSession(page, { now, maxAgeDays: 7 }));
+  await assert.rejects(run(['fiverr'], { instance, log: () => {}, now, withPage, loadFx: async () => fx }), (err) => err.code === 'FSW_MARKET_EMPTY' && err.errors.length === targetsFor('fiverr').length && err.errors.every((e) => e.final));
+  assert.equal(loaded.length, targetsFor('fiverr').length);
 });

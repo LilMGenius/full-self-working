@@ -56,7 +56,8 @@ export class ChallengeError extends Error {
   }
 }
 
-// Runs fn on each market target in order. A target that throws fails by name; a bot challenge fails it
+// Runs fn on each market target in order. A target that throws fails by name, and an error marked final
+// (a source with nothing to read today) says a retry would fail the same way; a bot challenge fails it
 // and every target after it, none of which loads.
 export async function sampleEach(targets, fn) {
   const errors = [];
@@ -65,7 +66,7 @@ export async function sampleEach(targets, fn) {
       await fn(target);
     } catch (err) {
       if (!err.challenge) {
-        errors.push({ category: target.category, message: err.message });
+        errors.push({ category: target.category, message: err.message, ...(err.final ? { final: true } : {}) });
         continue;
       }
       for (const t of targets.slice(i)) errors.push({ category: t.category, message: err.message, challenge: err.challenge });

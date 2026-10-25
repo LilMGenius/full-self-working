@@ -14,6 +14,10 @@
 // sampler that keeps the capture time. A platform priced in another currency is sampled only with the
 // day's exchange rates (src/economics/fx.mjs); when they cannot be read, its categories fail by name and
 // none of its pages load.
+// config.market.categoriesPerRun.<platform> (else the descriptor's market.categoriesPerRun, else all)
+// bounds how many categories one run reads: those whose newest sample is oldest go first, never-read ones
+// before them, and the rest keep the samples the day carries, so a platform read through the operator's
+// Chrome loads a handful of pages a day and still refreshes every category within CARRY_DAYS.
 import { existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { archiveSession } from '../browser/archive.mjs';
@@ -95,6 +99,22 @@ export function marketEngine(platform, config, descriptor = loadDescriptor(platf
   return engine;
 }
 
+export function categoriesPerRun(platform, config, descriptor = loadDescriptor(platform)) {
+  const n = config?.market?.categoriesPerRun?.[platform] ?? descriptor.market?.categoriesPerRun ?? Infinity;
+  if (n !== Infinity && !(Number.isInteger(n) && n > 0)) {
+    throw Object.assign(new Error(`market categoriesPerRun for ${platform} must be a positive integer, got ${JSON.stringify(n)}`), { code: 'FSW_MARKET_BUDGET_INVALID' });
+  }
+  return n;
+}
+
+// The targets one run reads: the limit stalest by their newest observedAt in known, never-read first,
+// catalog order among equals.
+export function stalestFirst(platform, targets, known, limit) {
+  const newest = new Map();
+  for (const r of known) if (r.platform === platform && (newest.get(r.category) ?? '') < r.observedAt) newest.set(r.category, r.observedAt);
+  return targets.map((t, i) => ({ t, i, at: newest.get(t.category) ?? '' })).sort((a, b) => a.at.localeCompare(b.at) || a.i - b.i).slice(0, limit).map(({ t }) => t);
+}
+
 function writeAtomic(file, body) {
   const tmp = `${file}.${process.pid}.tmp`;
   writeFileSync(tmp, body);
@@ -112,6 +132,12 @@ export async function run(argv, ctx = {}) {
   if (!platforms.length) throw Object.assign(new Error(`no market sampler for ${asked.join(', ') || 'any configured platform'}`), { code: 'FSW_MARKET_NO_SAMPLER' });
   let rates;
   const ratesForRun = () => (rates ??= (ctx.loadFx ?? loadFx)(instance, { now }));
+  const day = ctx.day ?? dayKey(now());
+  const dir = ensureDir(instance.paths.market);
+  const summaryFile = join(dir, `summary-${day}.json`);
+  const samplesFile = join(dir, `samples-${day}.jsonl`);
+  let known;
+  const knownSamples = () => (known ??= [...previousSamples(dir, day), ...readSamples(samplesFile)]);
 
   const rows = [];
   const errors = [];
@@ -123,6 +149,12 @@ export async function run(argv, ctx = {}) {
     try {
       engine = marketEngine(platform, instance.config);
       if (!engines.includes(engine)) throw new Error(`the ${platform} sampler cannot read through the ${engine} engine (it reads through ${engines.join(', ')})`);
+      const limit = categoriesPerRun(platform, instance.config);
+      if (limit < pending.length) {
+        const all = pending.length;
+        pending = stalestFirst(platform, pending, knownSamples(), limit);
+        log(`market ${platform}: reading the ${limit} stalest of ${all} categories (categoriesPerRun)`);
+      }
     } catch (err) {
       errors.push(...pending.map(({ category }) => ({ platform, category, message: err.message })));
       continue;
@@ -157,10 +189,6 @@ export async function run(argv, ctx = {}) {
   for (const s of skipped.values()) log(`market ${s.platform}/${s.category} skipped ${s.count} (${s.reason})`);
   if (!rows.length) throw Object.assign(new Error('market sampling read no rows'), { code: 'FSW_MARKET_EMPTY', errors });
 
-  const day = ctx.day ?? dayKey(now());
-  const dir = ensureDir(instance.paths.market);
-  const summaryFile = join(dir, `summary-${day}.json`);
-  const samplesFile = join(dir, `samples-${day}.jsonl`);
   const read = new Set(rows.map(pairKey));
   const fresh = (r) => now().getTime() - Date.parse(r.observedAt) <= CARRY_DAYS * 86_400_000;
   const carried = existsSync(samplesFile) ? [] : previousSamples(dir, day).filter((r) => !read.has(pairKey(r)) && fresh(r));

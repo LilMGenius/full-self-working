@@ -44,7 +44,8 @@
   },
   "market": {
     "engine": "attached",
-    "notes": "The owned headless browser met a PerimeterX challenge on 2026-10-25 and the operator's Chrome read the same search page; Wayback holds search captures from 2016 and 2017 only."
+    "categoriesPerRun": 5,
+    "notes": "The owned headless browser met a PerimeterX challenge on 2026-10-25 and the operator's Chrome read the same search page; Wayback holds search captures from 2016 and 2017 only. Five searches a run keep the operator's Chrome to a handful of page loads a day and refresh all 13 catalog queries within three days."
   },
   "limits": {
     "message": {

@@ -54,6 +54,8 @@ export function validateDescriptor(d, id = d?.id) {
   if (basis !== undefined && !['marginal', 'whole'].includes(basis)) throw invalid(id, 'fees.sellerTierBasis', `unexpected value ${JSON.stringify(basis)}`);
   const engine = d.market?.engine;
   if (engine !== undefined && !MARKET_ENGINES.includes(engine)) throw invalid(id, 'market.engine', 'unexpected value ' + JSON.stringify(engine));
+  const perRun = d.market?.categoriesPerRun;
+  if (perRun !== undefined && !(Number.isInteger(perRun) && perRun > 0)) throw invalid(id, 'market.categoriesPerRun', 'unexpected value ' + JSON.stringify(perRun));
   // identity "forbidden" makes the gate block the operator's names (src/policy/gate.mjs identityNames).
   const identity = d.contactPolicy.identity;
   if (identity !== undefined && !['allowed', 'forbidden'].includes(identity)) throw invalid(id, 'contactPolicy.identity', 'unexpected value ' + JSON.stringify(identity));

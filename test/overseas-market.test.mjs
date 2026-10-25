@@ -9,7 +9,7 @@ import { filterQuery, listUrl, parseCard as parseWishketCard, sample as sampleWi
 import { parseSearch, sample as sampleFiverr, searchUrl } from '../src/platforms/fiverr/market.mjs';
 import { challengeOf } from '../src/platforms/kit.mjs';
 import { latestSummary } from '../src/economics/market.mjs';
-import { marketEngine, run, targetsFor } from '../src/cli/market.mjs';
+import { categoriesPerRun, marketEngine, run, stalestFirst, targetsFor } from '../src/cli/market.mjs';
 import { archiveSession, archiveUrl, captureOf } from '../src/browser/archive.mjs';
 import { validateDescriptor } from '../src/platforms/registry.mjs';
 
@@ -167,7 +167,7 @@ test('the market run reports a bot challenge by name and does not retry it', asy
   const result = await run([], { instance, log: () => {}, now: () => new Date('2026-10-25T03:00:00Z'), withPage, loadFx: async () => fx });
   assert.deepEqual(opened.filter((p) => p.startsWith('fiverr')), ['fiverr:attached']);
   const walls = result.errors.filter((e) => e.platform === 'fiverr');
-  assert.equal(walls.length, targetsFor('fiverr').length);
+  assert.equal(walls.length, categoriesPerRun('fiverr', instance.config));
   assert.ok(walls.every((e) => e.challenge === 'perimeterx' && e.engine === 'attached' && /perimeterx bot challenge on https:\/\/www\.fiverr\.com\/search\/gigs/.test(e.message)));
   assert.equal(result.exitCode, 1);
 });
@@ -229,6 +229,32 @@ test('the market run does not retry a category whose archive snapshot is missing
   const loaded = [];
   const page = { navigate: async (u) => { loaded.push(u); }, evaluate: async () => 'https://web.archive.org/web/29991231id_/x' };
   const withPage = async (platform, fn) => fn(archiveSession(page, { now, maxAgeDays: 7 }));
-  await assert.rejects(run(['fiverr'], { instance, log: () => {}, now, withPage, loadFx: async () => fx }), (err) => err.code === 'FSW_MARKET_EMPTY' && err.errors.length === targetsFor('fiverr').length && err.errors.every((e) => e.final));
-  assert.equal(loaded.length, targetsFor('fiverr').length);
+  await assert.rejects(run(['fiverr'], { instance, log: () => {}, now, withPage, loadFx: async () => fx }), (err) => err.code === 'FSW_MARKET_EMPTY' && err.errors.length === 5 && err.errors.every((e) => e.final));
+  assert.equal(loaded.length, 5);
+});
+
+test('a run reads at most categoriesPerRun categories, never-read and stalest first, and the operator\'s setting wins', async () => {
+  assert.equal(categoriesPerRun('fiverr', {}), 5);
+  assert.equal(categoriesPerRun('fiverr', { market: { categoriesPerRun: { fiverr: 13 } } }), 13);
+  assert.equal(categoriesPerRun('kmong', {}), Infinity);
+  assert.throws(() => categoriesPerRun('fiverr', { market: { categoriesPerRun: { fiverr: 0 } } }), /positive integer, got 0/);
+  const t = (c) => ({ category: c });
+  const known = [{ platform: 'fiverr', category: 'a', observedAt: '2026-10-24T00:00:00Z' }, { platform: 'fiverr', category: 'a', observedAt: '2026-10-20T00:00:00Z' }, { platform: 'fiverr', category: 'b', observedAt: '2026-10-22T00:00:00Z' }, { platform: 'kmong', category: 'c', observedAt: '2026-10-01T00:00:00Z' }];
+  assert.deepEqual(stalestFirst('fiverr', [t('a'), t('b'), t('c'), t('d')], known, 3).map((x) => x.category), ['c', 'd', 'b']);
+
+  const dir = mkdtempSync(join(tmpdir(), 'fsw-overseas-'));
+  const instance = { config: { platforms: { fiverr: { enabled: false, mode: 'observe' } }, market: { engines: { fiverr: 'owned' }, categoriesPerRun: { fiverr: 2 } } }, paths: { market: join(dir, 'market') } };
+  const loaded = [];
+  let url;
+  const withPage = async (platform, fn) => fn({ navigate: async (u) => { url = u; loaded.push(u); }, evaluate: async () => ({ title: 'Fiverr', text: '', props: perseus() }) });
+  const ctx = (iso) => ({ instance, log: () => {}, now: () => new Date(iso), withPage, loadFx: async () => fx });
+  const all = targetsFor('fiverr').map((x) => searchUrl(x.category));
+  await run(['fiverr'], ctx('2026-10-24T03:00:00Z'));
+  assert.deepEqual(loaded, all.slice(0, 2));
+  loaded.length = 0;
+  const next = await run(['fiverr'], ctx('2026-10-25T03:00:00Z'));
+  assert.deepEqual(loaded, all.slice(2, 4));
+  const summary = latestSummary(instance).entries.filter((e) => e.platform === 'fiverr');
+  assert.equal(summary.length, 4);
+  assert.equal(next.exitCode, 0);
 });

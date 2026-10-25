@@ -20,7 +20,8 @@ const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|
 export function findReads(source) {
   const src = stripComments(source);
   const reads = [];
-  const add = (root, path) => path.length && path[0] !== 'json' && reads.push({ root, path });
+  // A chain that runs into a file extension (profile.draft.json, config.json) names a file in prose or a path.
+  const add = (root, path) => path.length && !path.some((k) => ['json', 'md', 'mjs'].includes(k)) && reads.push({ root, path });
   const chain = (text) => [...text.matchAll(/\??\.([A-Za-z_]\w*)/g)].map((m) => m[1]);
   for (const m of src.matchAll(new RegExp(`(?<![\\w$])(?:instance\\.)?(config|profile|business)((?:\\??\\.[A-Za-z_]\\w*)+)`, 'g'))) {
     add(m[1], chain(m[2]));

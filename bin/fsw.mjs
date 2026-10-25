@@ -8,6 +8,7 @@ import { listDescriptors, loadDescriptor } from '../src/platforms/registry.mjs';
 
 const VERBS = {
   init: 'init [dir]: create an operator instance from the placeholder example and print the remaining steps',
+  profile: 'profile build <file-or-folder-or-url>... | accept: draft profile.json from your background with a cited source for every claim, then promote it after you read it',
   tick: 'run one supervisor pass over the due jobs [--only job,job]; FSW_FORCE_MODE=observe|draft lowers every platform mode',
   run: 'start the supervisor daemon (a no-op while one runs); FSW_FORCE_MODE applies here too',
   status: 'show the instance, ledger counts and enabled platforms',
@@ -25,7 +26,7 @@ const VERBS = {
   help: 'show this help',
 };
 
-const HANDLERS = { init: 'init', tick: 'tick', run: 'run', schedule: 'schedule', market: 'market', price: 'price', approve: 'approvals', learn: 'learn', decide: 'decide', job: 'job', listings: 'listings', order: 'order' };
+const HANDLERS = { init: 'init', profile: 'profile', tick: 'tick', run: 'run', schedule: 'schedule', market: 'market', price: 'price', approve: 'approvals', learn: 'learn', decide: 'decide', job: 'job', listings: 'listings', order: 'order' };
 
 function help() {
   console.log('usage: fsw <verb> [args]\n');

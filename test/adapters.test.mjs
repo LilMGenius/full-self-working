@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createPacingGuard, resolveOmowrightScript } from '../src/browser/driver.mjs';
+import { createPacingGuard, pickBrowser, resolveOmowrightScript } from '../src/browser/driver.mjs';
 import { redactDigits, snippet } from '../src/platforms/kit.mjs';
 import * as kmong from '../src/platforms/kmong/parse.mjs';
 import * as soomgo from '../src/platforms/soomgo/parse.mjs';
@@ -75,6 +75,19 @@ test('the newest omo version directory wins, and FSW_OMOWRIGHT overrides it', ()
   assert.match(resolveOmowrightScript({}, root), /5\.1\.45/);
   assert.equal(resolveOmowrightScript({ FSW_OMOWRIGHT: 'x.mjs' }, root), 'x.mjs');
   assert.throws(() => resolveOmowrightScript({}, join(root, 'none')), { code: 'FSW_NO_OMOWRIGHT' });
+});
+
+test('a session starts in the configured browser, the single online one, or fails naming them', () => {
+  const chrome = { instance_id: 'aa11', label: '', browser_name: 'chrome', browser_version: '155.0.0.0' };
+  const aside = { instance_id: 'bb22', label: 'aside', browser_name: 'chrome', browser_version: '154.0.0.0' };
+  assert.equal(pickBrowser([aside, chrome], 'aa11'), 'aa11');
+  assert.equal(pickBrowser([chrome, aside], 'aside'), 'bb22');
+  // An id that changed after a restart, or no setting, still finds the only browser online.
+  assert.equal(pickBrowser([chrome], 'old-id'), 'aa11');
+  assert.equal(pickBrowser([chrome], null), 'aa11');
+  assert.throws(() => pickBrowser([chrome, aside], 'old-id'), (err) => err.code === 'FSW_BROWSER_AMBIGUOUS' && /old-id is not online/.test(err.message) && /aa11 chrome 155/.test(err.message) && /bb22 \(aside\)/.test(err.message));
+  assert.throws(() => pickBrowser([chrome, aside], null), /config.browser is unset and 2 browsers are/);
+  assert.equal(pickBrowser([], 'aa11'), undefined);
 });
 
 test('snippets drop phone numbers, safe numbers and long digit runs but keep prices and years', () => {

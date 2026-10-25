@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, extname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { loadInstance } from '../core/instance.mjs';
 
 const OMO_CACHE = join(homedir(), '.codex', 'plugins', 'cache', 'sisyphuslabs', 'omo');
 const SCRIPT = join('skills', 'browser', 'scripts', 'omowright.mjs');
@@ -80,11 +81,28 @@ export function pageExpression(fn, arg) {
   return `Promise.resolve(${call}).then((v) => JSON.stringify(v === undefined ? null : v))`;
 }
 
-export async function openSession(name, { platform = name, pacing, settleMs = 6000 } = {}) {
+// Chooses the BrowserSkill browser a session starts in, from the daemon's online list. config.browser
+// names the operator's browser by the instance id or label `bsk browsers` shows (both report Chrome as
+// chrome, Aside too, so name and version cannot tell them apart). The configured one wins while it is
+// online; with it absent or unset, a single online browser is taken, since an id can change when Chrome
+// or the extension restarts; several online and none configured is an error naming them. On 2026-10-26
+// the Aside browser connected beside the operator's Chrome and every session start that named no browser
+// failed with multiple_browsers_online.
+export function pickBrowser(browsers, wanted) {
+  const hit = wanted ? browsers.find((b) => b.instance_id === wanted || (b.label && b.label === wanted)) : null;
+  if (hit) return hit.instance_id;
+  if (browsers.length <= 1) return browsers[0]?.instance_id;
+  const names = browsers.map((b) => b.instance_id + (b.label ? ' (' + b.label + ')' : '') + ' ' + b.browser_name + ' ' + b.browser_version).join(', ');
+  throw Object.assign(new Error((wanted ? 'config.browser ' + wanted + ' is not online' : 'config.browser is unset') + ' and ' + browsers.length + ' browsers are: ' + names), { code: 'FSW_BROWSER_AMBIGUOUS' });
+}
+
+export async function openSession(name, { platform = name, pacing, settleMs = 6000, browser = loadInstance().config?.browser ?? null } = {}) {
   process.env.BSK_AUTO_START = '0';
   const { loadOmowright } = await import(pathToFileURL(resolveOmowrightScript()).href);
   const { omowright } = await loadOmowright();
-  const session = await omowright.connectBrowserSkill({ name: `fsw-${name}`, focused: false });
+  const client = new omowright.BskIpcClient({});
+  const chosen = pickBrowser(await omowright.listBrowsers(client, { waitForBrowserMs: 15_000 }), browser);
+  const session = await omowright.connectBrowserSkill({ client, name: `fsw-${name}`, focused: false, browser: chosen });
   const guard = pacingFor(platform, pacing);
   const call = (method, params) => session.client.call(method, { session_id: session.sessionId, ...params }, { idPrefix: method.replace(/\W/g, '-') });
   // Chrome reads an uploaded file from the daemon's staging path when the page submits it, so a

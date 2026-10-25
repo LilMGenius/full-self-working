@@ -27,10 +27,11 @@ const VERBS = {
   projects: 'projects list|show|draft|propose|run|status: kmong enterprise projects, judged and proposed within the daily quota',
   services: 'services soomgo [--apply] [--only <service>]: set the items each offered soomgo service matches requests on; a dry run unless --apply',
   edits: 'edits soomgo [--apply] [--only intro|detail|templates]: type the approved profile text and quote templates; saves only approved parts with --apply',
+  onboard: 'onboard <platform> [--apply] [--step <id>]: walk the seller onboarding and fill it from the instance; a dry run unless --apply',
   help: 'show this help',
 };
 
-const HANDLERS = { init: 'init', profile: 'profile', doctor: 'doctor', tick: 'tick', run: 'run', schedule: 'schedule', market: 'market', price: 'price', approve: 'approvals', learn: 'learn', decide: 'decide', job: 'job', listings: 'listings', order: 'order', services: 'services', projects: 'projects', edits: 'edits', probe: 'probe', publish: 'publish' };
+const HANDLERS = { init: 'init', profile: 'profile', doctor: 'doctor', tick: 'tick', run: 'run', schedule: 'schedule', market: 'market', price: 'price', approve: 'approvals', learn: 'learn', decide: 'decide', job: 'job', listings: 'listings', order: 'order', services: 'services', projects: 'projects', edits: 'edits', onboard: 'onboard', probe: 'probe', publish: 'publish' };
 
 function help() {
   console.log('usage: fsw <verb> [args]\n');

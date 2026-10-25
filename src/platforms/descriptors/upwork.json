@@ -49,6 +49,12 @@
     "maxActionsPerHour": 30,
     "maxMessagesPerHour": 10
   },
+  "onboardingPacing": {
+    "minGapMs": 15000,
+    "maxActionsPerHour": 240,
+    "maxMessagesPerHour": 0,
+    "notes": "fsw onboard walks the signup wizard once at a person's pace, a few seconds per field, which the 30-action hourly cap for polling would stretch over hours; no message is sent."
+  },
   "limits": {
     "message": {
       "maxChars": "unknown"

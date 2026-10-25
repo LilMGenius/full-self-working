@@ -27,7 +27,7 @@ test('a fresh state runs every job once and the same slot runs nothing again', (
 test('the hour mark at minute 0 Seoul opens the hourly period', () => {
   const last = ran(at('2026-10-25T01:58:00Z')); // 10:58 Seoul
   assert.deepEqual(ids(dueJobs(last, at('2026-10-25T01:59:59Z'))), []);
-  assert.deepEqual(ids(dueJobs(last, at('2026-10-25T02:00:00Z'))), ['hourly', 'poll', 'orders', 'projects']);
+  assert.deepEqual(ids(dueJobs(last, at('2026-10-25T02:00:00Z'))), ['hourly', 'poll', 'orders', 'projects', 'listings']);
 });
 
 test('a missed mark runs once on catch-up and never twice', () => {
@@ -48,13 +48,14 @@ test('daily 00:00 and 09:00 Seoul marks fall on 15:00 and 00:00 UTC', () => {
 });
 
 test('the weekly period turns at Monday 00:00 Seoul', () => {
+  const weekly = { id: 'weekly', every: 'week', at: '00:00' };
   const monday = at('2026-10-25T15:00:00Z');
   assert.equal(seoulParts(monday).weekday, 'Mon');
-  const before = periodKey(job('listings'), at('2026-10-25T14:59:59Z'));
-  const after = periodKey(job('listings'), monday);
+  const before = periodKey(weekly, at('2026-10-25T14:59:59Z'));
+  const after = periodKey(weekly, monday);
   assert.notEqual(before, after);
   assert.equal(after, '2026W44');
-  assert.equal(periodKey(job('listings'), at('2026-11-01T14:59:59Z')), after); // Sunday 23:59:59 Seoul
+  assert.equal(periodKey(weekly, at('2026-11-01T14:59:59Z')), after); // Sunday 23:59:59 Seoul
 });
 
 test('the supervisor wakes on the next 5-minute Seoul mark', () => {

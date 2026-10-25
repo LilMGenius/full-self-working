@@ -324,7 +324,7 @@ function pageRestoreFile() {
   return true;
 }
 
-async function pageNewGig({ root, sub }) {
+async function pageNewGig({ root, sub, third }) {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const button = (t) => [...document.querySelectorAll('button')].find((x) => x.innerText.trim() === t);
   const opener = (prefix) => [...document.querySelectorAll('button')].find((x) => x.innerText.trim().startsWith(prefix));
@@ -338,10 +338,63 @@ async function pageNewGig({ root, sub }) {
   if (!button(sub)) return { ok: false, reason: 'no 2nd level category ' + sub };
   button(sub).click();
   await sleep(600);
+  // Some subs (AI 디자인, AI 이미지, 숏폼 영상) open a 3차 카테고리 picker that must be set before 다음.
+  if (third) {
+    opener('3차 카테고리')?.click();
+    await sleep(600);
+    if (!button(third)) return { ok: false, reason: 'no 3rd level category ' + third };
+    button(third).click();
+    await sleep(600);
+  }
   const picked = [...document.querySelectorAll('button')].filter((x) => /카테고리\*/.test(x.innerText)).map((x) => x.innerText.replace(/\s+/g, ' ').trim());
-  const ok = picked.some((p) => p.endsWith(root)) && picked.some((p) => p.endsWith(sub));
+  const ok = picked.some((p) => p.endsWith(root)) && picked.some((p) => p.endsWith(sub)) && (!third || picked.some((p) => p.endsWith(third)));
   if (ok) button('다음')?.setAttribute('data-fsw', 'next');
   return { ok, picked };
+}
+
+// Removes every file a gallery slot holds (#MAIN_GALLERY or #IMAGE_GALLERY): each thumbnail has its own
+// 삭제 button. Returns how many files the slot reports afterwards.
+async function pageClearSlot(fieldId) {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const slot = document.getElementById(fieldId);
+  if (!slot) return { ok: false, reason: 'no ' + fieldId + ' field' };
+  const count = () => Number(slot.querySelector('h3')?.innerText.match(/\((\d+)\s*\/\s*\d+\)/)?.[1] ?? NaN);
+  for (let i = 0; i < 12 && count() > 0; i++) {
+    const del = [...slot.querySelectorAll('button')].find((b) => b.innerText.trim() === '삭제');
+    if (!del) break;
+    del.click();
+    await sleep(700);
+    const d = [...document.querySelectorAll('[role=dialog],[role=alertdialog]')].at(-1);
+    const confirm = d && [...d.querySelectorAll('button')].find((b) => ['삭제', '확인'].includes(b.innerText.trim()));
+    if (confirm) {
+      confirm.click();
+      await sleep(700);
+    }
+  }
+  return { ok: count() === 0, left: count() };
+}
+
+// The review notice of one /my-gigs row: the 승인 안내 toggle under the row opens kmong's message box
+// (approval, edit approval or rejection with its reason). Returns the row text before and after the
+// toggle opened (src/listings/review.mjs addedText takes the difference), or toggle false when the row
+// has none (a gig still waiting shows 승인 대기 중 instead).
+async function pageGigNotice(gigId) {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const tag = [...document.querySelectorAll('span,p,div')].find((e) => e.innerText?.trim() === '#' + gigId && e.children.length <= 1);
+  if (!tag) return { found: false };
+  let row = tag;
+  while (row && ![...row.querySelectorAll('button')].some((b) => ['편집하기', '제출 취소'].includes(b.innerText.trim()))) row = row.parentElement;
+  const toggle = row && [...row.querySelectorAll('button')].find((b) => b.innerText.trim() === '승인 안내');
+  if (!toggle) return { found: true, toggle: false, notice: null, row: row?.innerText.slice(0, 600) ?? null };
+  const first = row.innerText;
+  toggle.click();
+  await sleep(1200);
+  const second = row.innerText;
+  if (second.length > first.length) return { found: true, toggle: true, before: first, after: second };
+  // The toggle was already open and the click closed it; open it again.
+  toggle.click();
+  await sleep(1200);
+  return { found: true, toggle: true, before: second, after: row.innerText };
 }
 
 function pageMarkSubmit() {
@@ -426,6 +479,16 @@ export function formProblems(state, listing) {
   if ((state.faqs ?? []).length !== listing.faqs.length || state.faqs.some((n) => !n)) out.push('faqs read ' + (state.faqs ?? []).length + ' of ' + listing.faqs.length);
   if (state.revision !== listing.revision) out.push('revision text differs');
   return out;
+}
+
+// The gig id and category ids an edit form URL carries (/my-gigs/edit/<id>?rootCategoryId=..&
+// subCategoryId=..&thirdCategoryId=..); the bare /my-gigs/edit/<id> URL redirects away without them.
+export function editIds(url) {
+  const m = String(url ?? '').match(/\/my-gigs\/edit\/(\d+)(?:\?(.*))?$/);
+  if (!m) return null;
+  const q = new URLSearchParams(m[2] ?? '');
+  const id = (k) => (/^\d+$/.test(q.get(k) ?? '') ? Number(q.get(k)) : null);
+  return { gigId: Number(m[1]), categoryIds: { root: id('rootCategoryId'), sub: id('subCategoryId'), third: id('thirdCategoryId') } };
 }
 
 // ---- adapter ----
@@ -537,27 +600,44 @@ export async function openKmong({ session } = {}) {
       return parseListingForm(form);
     },
 
+    // The 승인 안내 notice box of a gig row on /my-gigs, read without changing anything.
+    async gigNotice(gigId) {
+      await s.navigate(`${BASE}/my-gigs`, { settle: 7000 });
+      return s.evaluate(pageGigNotice, String(gigId), { timeoutMs: 20_000 });
+    },
+
     // Creates or updates a gig and submits it for review. listing is a built spec (src/listings/kmong.mjs)
-    // with absolute image paths; listing.gigId reuses a draft. Each step reads the form back, and
-    // nothing is submitted unless every field holds what was written. Returns what /my-gigs showed.
-    async upsertListing(listing, { submit = true } = {}) {
+    // with absolute image paths; listing.gigId reuses a draft or a rejected gig, opened by its category
+    // ids when known and otherwise through 편집하기 on /my-gigs. replaceImages lists the slots (main,
+    // detail) whose current files are deleted first, so a rebuilt listing shows its new images. Each step
+    // reads the form back, and nothing is submitted unless every field holds what was written. Returns
+    // what /my-gigs showed, with the category ids the edit URL carried.
+    async upsertListing(listing, { submit = true, replaceImages = [] } = {}) {
       const steps = [];
-      const fail = (reason, extra = {}) => ({ observed: false, submitted: false, gigId, reason, steps, ...extra });
+      const fail = (reason, extra = {}) => ({ observed: false, submitted: false, gigId, categoryIds, reason, steps, ...extra });
       let gigId = listing.gigId ?? null;
-      const { root, sub } = listing.category ?? {};
+      let categoryIds = listing.categoryIds ?? null;
+      const { root, sub, third } = listing.category ?? {};
       if (!gigId) {
         await s.navigate(BASE + '/my-gigs/new', { settle: 7000 });
         await s.fill('input[placeholder="제목을 입력해 주세요"]', listing.title);
-        const cat = await s.evaluate(pageNewGig, { root, sub });
+        const cat = await s.evaluate(pageNewGig, { root, sub, third });
         steps.push({ step: 'category', ...cat });
         if (!cat.ok) return fail(cat.reason ?? 'the categories did not take');
         await s.click('[data-fsw=next]');
         await wait(9000);
-        gigId = Number((await s.evaluate(() => location.href)).match(/\/my-gigs\/edit\/(\d+)/)?.[1]) || null;
+        const ids = editIds(await s.evaluate(() => location.href));
+        gigId = ids?.gigId ?? null;
+        categoryIds = ids?.categoryIds ?? null;
         steps.push({ step: 'draft', gigId });
         if (!gigId) return fail('다음 did not open a draft edit form');
+      } else if (categoryIds?.root && categoryIds?.sub) {
+        await s.navigate(BASE + '/my-gigs/edit/' + gigId + '?rootCategoryId=' + categoryIds.root + '&subCategoryId=' + categoryIds.sub + (categoryIds.third ? '&thirdCategoryId=' + categoryIds.third : ''), { settle: 8000 });
       } else {
-        await s.navigate(BASE + '/my-gigs/edit/' + gigId + '?rootCategoryId=' + listing.categoryIds.root + '&subCategoryId=' + listing.categoryIds.sub, { settle: 8000 });
+        await s.navigate(BASE + '/my-gigs', { settle: 7000 });
+        if (!(await s.evaluate(pageOpenGigEdit, String(gigId)))) return fail('gig ' + gigId + ' has no 편집하기 button on /my-gigs');
+        await wait(9000);
+        categoryIds = editIds(await s.evaluate(() => location.href))?.categoryIds ?? null;
       }
       let state = await s.evaluate(pageFormState);
       if (!state.url.includes('/my-gigs/edit/' + gigId)) return fail('the edit form for ' + gigId + ' did not open (at ' + state.url + ')');
@@ -567,9 +647,16 @@ export async function openKmong({ session } = {}) {
         if (!r.ok) return fail(r.reason);
       }
       // Images go first: the slot inputs stop taking files once the fields below hold focus and state.
-      // A slot that already holds files is left as it is (a re-run keeps the uploaded set).
-      for (const [slot, index, files] of [['main', 0, [listing.images.main]], ['detail', 1, listing.images.detail]]) {
-        const count = (await s.evaluate(pageFormState))[slot + 'Images']?.[0] ?? 0;
+      // A slot that already holds files is left as it is (a re-run keeps the uploaded set) unless
+      // replaceImages names it, in which case its files are deleted first.
+      for (const [slot, index, files, fieldId] of [['main', 0, [listing.images.main], 'MAIN_GALLERY'], ['detail', 1, listing.images.detail, 'IMAGE_GALLERY']]) {
+        let count = (await s.evaluate(pageFormState))[slot + 'Images']?.[0] ?? 0;
+        if (count > 0 && replaceImages.includes(slot)) {
+          const cleared = await s.evaluate(pageClearSlot, fieldId, { timeoutMs: 30_000 });
+          steps.push({ step: 'images.' + slot + '.clear', ...cleared });
+          if (!cleared.ok) return fail('the ' + slot + ' images could not be removed: ' + (cleared.reason ?? cleared.left + ' left'));
+          count = 0;
+        }
         if (count > 0) {
           steps.push({ step: 'images.' + slot, kept: count });
           continue;
@@ -614,7 +701,7 @@ export async function openKmong({ session } = {}) {
       const problems = formProblems(state, listing);
       steps.push({ step: 'readback', problems });
       if (problems.length) return fail('read back: ' + problems.join('; '), { state });
-      if (!submit) return { observed: true, submitted: false, gigId, steps, state };
+      if (!submit) return { observed: true, submitted: false, gigId, categoryIds, steps, state };
 
       if (!(await s.evaluate(pageMarkSubmit))) return fail('no 제출하기 button');
       await s.click('[data-fsw=submit]');
@@ -637,7 +724,7 @@ export async function openKmong({ session } = {}) {
       steps.push({ step: 'my-gigs', found: !!gig, status: gig?.status ?? null });
       if (!gig) return fail('gig ' + gigId + ' is not listed on /my-gigs after submit', { submitted: true });
       const submitted = gig.status !== '임시 저장' && gig.status !== '작성 중';
-      return { observed: true, submitted, gigId, status: gig.status, title: gig.title, priceKRW: gig.priceKRW, url: gig.url, counts: list.counts, steps };
+      return { observed: true, submitted, gigId, categoryIds, status: gig.status, title: gig.title, priceKRW: gig.priceKRW, url: gig.url, counts: list.counts, steps };
     },
 
     stop: () => s.stop(),

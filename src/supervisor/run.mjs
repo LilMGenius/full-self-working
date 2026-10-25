@@ -346,11 +346,16 @@ export const JOB_HANDLERS = {
     const d = await writeDigest({ instance: ctx.instance, ledger: ctx.ledger, now: ctx.now });
     return { status: 'ok', file: d.file, notified: d.notified };
   },
-  // Weekly: re-reads /my-gigs for every published gig so a review result (승인, 비승인) reaches the
-  // ledger and the digest. Building and submitting gigs stays the fsw listings command.
+  // Hourly: reads /my-gigs for every published gig; a gig on sale is announced once, a rejected one is
+  // recorded as a learning case and rebuilt from kmong's notice (src/cli/listings.mjs listingsWatch).
   async listings(ctx) {
-    const { listingsJob } = await import('../cli/listings.mjs');
-    return listingsJob(ctx);
+    const { listingsWatch } = await import('../cli/listings.mjs');
+    return listingsWatch(ctx);
+  },
+  // Daily after the portfolio job: rebuilds a gig on sale whose top portfolio items changed.
+  async 'listings-refresh'(ctx) {
+    const { listingsRefresh } = await import('../cli/listings.mjs');
+    return listingsRefresh(ctx);
   },
 };
 

@@ -28,6 +28,9 @@ export const LABELS = {
   revisions: '수정',
   proof: '직접 만든 작업',
   proofNote: '실제 운영 중인 화면을 그대로 캡처했습니다.',
+  sample: '작업 예시',
+  sampleNote: '예시 의뢰로 만든 샘플입니다. 고객 작업물이 아닙니다.',
+  mixedNote: '작업 예시 표시가 있는 이미지는 예시 의뢰로 만든 샘플입니다.',
 };
 
 const FONT = join(repoRoot, 'assets', 'fonts', 'PretendardVariable.woff2');
@@ -96,6 +99,7 @@ const DETAIL_CSS = '.d{position:relative;width:' + DETAIL_WIDTH + 'px;padding:72
   '.step b{font-size:17px;color:var(--accent);font-weight:700;padding-top:4px}.step h3{font-size:22px;font-weight:680;letter-spacing:-.015em}.step p{margin-top:6px;font-size:18px;line-height:1.6;color:var(--muted)}' +
   '.note{margin-top:44px;padding:30px 32px;background:var(--ink);color:var(--on-ink);border-radius:16px}.note h4{font-size:15px;color:var(--accent);font-weight:700;letter-spacing:.02em}.note p{margin-top:10px;font-size:19px;line-height:1.65;font-weight:500}' +
   '.figure{margin-top:44px}.figure .shot{width:100%}.cap{margin-top:14px;display:flex;gap:10px;font-size:16px;color:var(--muted);line-height:1.5}.cap:before{content:"";flex:none;margin-top:8px;width:6px;height:6px;background:var(--accent);border-radius:1px}' +
+  '.tag{flex:none;font-size:13px;font-weight:650;color:var(--accent);border:1px solid var(--accent);border-radius:999px;padding:1px 9px;margin-right:2px;line-height:1.5}' +
   '.pair{display:grid;grid-template-columns:1fr 240px;gap:32px;align-items:center}' +
   '.tiers{margin-top:40px;display:grid;grid-template-columns:repeat(3,1fr);gap:14px}' +
   '.tier{border:1px solid var(--line);border-radius:16px;padding:26px 22px 24px;background:rgba(255,255,255,.35);display:flex;flex-direction:column}' +
@@ -107,7 +111,9 @@ const DETAIL_CSS = '.d{position:relative;width:' + DETAIL_WIDTH + 'px;padding:72
   '.small{margin-top:22px;font-size:15px;color:var(--muted)}';
 
 const head = (studio, dark = false) => '<div class="grain"' + (dark ? ' style="opacity:.08"' : '') + '></div><div class="head"><div class="mark"><i></i>' + esc(studio) + '</div><div class="badge">' + esc(LABELS.aiBadge) + '</div></div>';
-const figure = (shot, caption) => '<div class="figure"><div class="shot" style="aspect-ratio:' + shot.width + '/' + shot.height + '"><img src="' + shot.src + '" alt=""></div>' + (caption ? '<p class="cap">' + esc(caption) + '</p>' : '') + '</div>';
+// A sample (work the agent made for an imagined brief) carries a 작업 예시 tag so it never reads as client work.
+const tag = (shot) => (shot.sample ? '<span class="tag">' + esc(LABELS.sample) + '</span>' : '');
+const figure = (shot, caption) => '<div class="figure"><div class="shot" style="aspect-ratio:' + shot.width + '/' + shot.height + '"><img src="' + shot.src + '" alt=""></div>' + (caption || shot.sample ? '<p class="cap">' + tag(shot) + esc(caption ?? '') + '</p>' : '') + '</div>';
 const detail = (studio, inner, dark = false) => page('<div class="d' + (dark ? ' ink' : '') + '">' + head(studio, dark) + inner + '</div>', DETAIL_CSS, { width: DETAIL_WIDTH });
 
 export function detailHtmls({ listing, studio, gallery = [] }) {
@@ -135,9 +141,11 @@ export function detailHtmls({ listing, studio, gallery = [] }) {
   if (rest.length) {
     const phones = rest.filter((s) => s.width < 600);
     const desks = rest.filter((s) => s.width >= 600);
-    let inner = '<p class="eyebrow">' + esc(LABELS.proof) + '</p><h2>' + esc(LABELS.proofNote) + '</h2>';
+    const samples = rest.filter((s) => s.sample).length;
+    const [eyebrow, note] = samples === rest.length ? [LABELS.sample, LABELS.sampleNote] : samples ? [LABELS.proof, LABELS.mixedNote] : [LABELS.proof, LABELS.proofNote];
+    let inner = '<p class="eyebrow">' + esc(eyebrow) + '</p><h2>' + esc(note) + '</h2>';
     desks.forEach((s) => (inner += figure(s, captions[gallery.indexOf(s)])));
-    phones.forEach((s) => (inner += '<div class="figure pair"><p class="cap">' + esc(captions[gallery.indexOf(s)]) + '</p><div class="shot" style="aspect-ratio:' + s.width + '/' + s.height + ';border-radius:22px;border:4px solid #3a362f"><img src="' + s.src + '" alt=""></div></div>'));
+    phones.forEach((s) => (inner += '<div class="figure pair"><p class="cap">' + tag(s) + esc(captions[gallery.indexOf(s)]) + '</p><div class="shot" style="aspect-ratio:' + s.width + '/' + s.height + ';border-radius:22px;border:4px solid #3a362f"><img src="' + s.src + '" alt=""></div></div>'));
     out.push(detail(studio, inner, true));
   }
   return out;
@@ -173,6 +181,10 @@ export function checkImages({ main, detail = [] }) {
 
 const shotOf = (file, proof) => ({ src: dataUrl(file), width: proof.clip?.width ?? proof.width, height: proof.clip?.height ?? proof.height });
 
+// A plan entry is a proof id (a page capture), or a shot from src/listings/proofs.mjs proofPlan: a
+// capture {kind: 'capture', id} or a file {kind: 'media' | 'sample', file} with an absolute path.
+const refOf = (x) => (typeof x === 'string' ? { kind: 'capture', id: x } : x);
+
 // Captures each proof page once into dir (a capture is kept until refresh), scrolling first for pages
 // whose sections appear on scroll. Returns {id: file}.
 export async function captureProofs(proofs, dir, { renderer, refresh = false } = {}) {
@@ -196,9 +208,11 @@ export async function renderListingImages({ listing, studio, outDir, proofs = []
   const renderer = await openRenderer();
   try {
     const byId = Object.fromEntries(proofs.map((p) => [p.id, p]));
-    const need = [...new Set([...plan.card, ...plan.gallery])].map((id) => byId[id]).filter(Boolean);
+    const refs = [...plan.card, ...plan.gallery].map(refOf);
+    const need = [...new Set(refs.filter((r) => r.kind === 'capture').map((r) => r.id))].map((id) => byId[id]).filter(Boolean);
     const files = proofDir ? await captureProofs(need, proofDir, { renderer, refresh: refreshProofs }) : {};
-    const shots = (ids) => ids.filter((id) => files[id]).map((id) => shotOf(files[id], byId[id]));
+    const shot = (r) => (r.kind === 'capture' ? (files[r.id] ? shotOf(files[r.id], byId[r.id]) : null) : { src: dataUrl(r.file), ...imageSize(readFileSync(r.file)), sample: r.kind === 'sample' });
+    const shots = (list) => list.map(refOf).map(shot).filter(Boolean);
     const main = join(outDir, 'main.png');
     await renderer.render({ html: mainHtml({ listing, studio, cardShots: shots(plan.card) }), ...MAIN_SIZE, out: main, format: 'png' });
     const preview = join(outDir, 'main-190.png');

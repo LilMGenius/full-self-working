@@ -19,17 +19,20 @@ export const JOBS = [
   { id: 'orders', every: 'slot5' },
   // Hourly at minute 0 Seoul: kmong enterprise projects (read, judge, propose within the daily quota).
   { id: 'projects', every: 'hour' },
+  // Hourly at minute 0 Seoul: kmong review results (on sale, rejected) of published gigs, since a
+  // rejected gig sells nothing until it is fixed and resubmitted.
+  { id: 'listings', every: 'hour' },
   // Daily at 00:00 Seoul, in this order: the day's market first, then everything priced from it.
   { id: 'market', every: 'day', at: '00:00' },
   { id: 'price', every: 'day', at: '00:00' },
   { id: 'allocation', every: 'day', at: '00:00' },
   { id: 'portfolio', every: 'day', at: '00:00' },
+  // Right after the portfolio is ranked: gigs whose top portfolio items changed get new detail images.
+  { id: 'listings-refresh', every: 'day', at: '00:00' },
   { id: 'publish', every: 'day', at: '00:00' },
   { id: 'learn', every: 'day', at: '00:00' },
   // Daily at 09:00 Seoul: the operator digest, ready at the start of the workday.
   { id: 'digest', every: 'day', at: '09:00' },
-  // Mondays at 00:00 Seoul: listing experiments.
-  { id: 'listings', every: 'week', at: '00:00' },
 ];
 
 const minutesOf = (hm) => {

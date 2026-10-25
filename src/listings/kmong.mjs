@@ -53,6 +53,9 @@ const FORM_BANNED_RE = /[<\u0060]/g;
 // service only; the seller's titles, employers and past work live in the seller profile, which keeps
 // that confirmation true.
 const CAREER_RE = /대표(?:로|가|인|이며|입니다)|출신|경력|이력|재직|근무(?:했|한|하며)|(?:구축|개발|제작|운영)해\s*(?:온|왔)|해\s*온\s*경험|경험을\s*바탕|수석|강사|교수|수상/gu;
+// An SNS handle (@name) is a contact detail kmong refuses like a phone number; the outbound gate catches
+// URLs, domains, e-mail, phone numbers and messenger IDs, and this catches the handle an e-mail is not.
+export const HANDLE_RE = /(?<![A-Za-z0-9._%+-])@[A-Za-z0-9_][A-Za-z0-9_.]{1,29}/g;
 
 const len = (s) => [...String(s ?? '')].length;
 
@@ -173,6 +176,7 @@ export function checkListing(l, { descriptor = loadDescriptor('kmong'), instance
   for (const [field, text] of listingTexts(l)) {
     for (const m of text.matchAll(SUPERLATIVE_RE)) add(field, 'listing.superlative', 'unverifiable superlative "' + m[0] + '"');
     for (const m of text.matchAll(CAREER_RE)) add(field, 'listing.career_claim', '"' + m[0] + '" states the seller\'s record, which needs profile proof on 크몽; describe the service instead');
+    for (const m of text.matchAll(HANDLE_RE)) add(field, 'contact.handle', '"' + m[0] + '" is an SNS handle, a contact detail kmong refuses');
     const g = gateOutbound({ platform: 'kmong', kind: 'listing', text }, { descriptor, instance, lessonsRules });
     for (const x of g.violations) add(field, x.rule, x.detail);
     // Hype and vanity phrasing only warns in a chat reply; a storefront listing is rejected for it.
@@ -234,7 +238,8 @@ export function buildListingPrompt({ service, gig, entry, terms, profile, backgr
     '## Claims never to make\n' + (profile.claimsNotToMake ?? []).map((c) => '- ' + c).join('\n'),
     '## Seller bios (adapt; facts only from above)\n' + background,
     '## Platform playbook\n' + playbook,
-    '## Proof screenshots shown in the detail images (write one short Korean caption each, in this order, saying what it is and what the seller did; never a domain or project URL)\n' + (proofs.length ? proofs.map((p, i) => (i + 1) + '. ' + p.project + ': ' + p.note).join('\n') : '(none)'),
+    '## Proof screenshots shown in the detail images (write one short Korean caption each, in this order, saying what it is and what the seller did; never a domain or project URL)\n' + (proofs.length ? proofs.map((p, i) => (i + 1) + '. ' + p.project + ': ' + p.note).join('\n') : '(none)') +
+      (proofs.some((p) => p.sample) ? '\nA proof whose project is 작업 예시 is a sample made for an imagined brief: caption what it shows (for example 제품 사진 배경 제거 예시) and never present it as a client project or a past order.' : ''),
     [
       '## Rules',
       '- Plain Korean 합니다체. No em or en dashes, no middle dot (·) anywhere, no emoji, no exclamation marks, no hype (최고의, 완벽한, 압도적인, 혁신적인, 국내 최고, 업계 1위, 100% 보장, 최저가).',
@@ -310,7 +315,9 @@ export async function buildListing(service, ctx) {
     const listing = assembleListing({ service, gig, terms, data, form: entry.kmongForm });
     return { data, listing, violations: checkListing(listing, { descriptor, instance, lessonsRules, priceRow: row }).concat(proofCaptionViolations(listing, proofs)) };
   };
-  const first = await draft({});
+  // ctx.violations carries what a reviewer outside the gate refused (kmong's rejection notice, see
+  // src/listings/review.mjs) and ctx.previous the refused listing, so the first draft already answers it.
+  const first = await draft(ctx.violations?.length ? { violations: ctx.violations, previous: ctx.previous ?? null } : {});
   if (!first.violations.length) return { listing: first.listing, modelCalls: 1, retried: [] };
   const second = await draft({ violations: first.violations, previous: first.data });
   if (!second.violations.length) return { listing: second.listing, modelCalls: 2, retried: first.violations };

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
@@ -227,21 +227,223 @@ test('the form read-back names every field that did not land', () => {
 });
 
 
-test('the weekly listings job reads /my-gigs for every published gig and records each status', async () => {
-  const { listingsJob } = await import('../src/cli/listings.mjs');
+// ---- review watch (src/listings/review.mjs, listingsWatch) ----
+
+const publishedInstance = (services = { landing_page_web: 7 }) => {
   const instance = makeInstance();
+  for (const [service, gigId] of Object.entries(services)) {
+    mkdirSync(join(instance.dir, 'listings', service), { recursive: true });
+    writeFileSync(join(instance.dir, 'listings', service, 'publish-20261025.json'), JSON.stringify({ service, gigId, observed: true, submitted: true }));
+    writeFileSync(join(instance.dir, 'listings', service, 'spec.json'), JSON.stringify(listingOf()));
+  }
+  return instance;
+};
+const NOTICE_ROW = ['비승인', '#7', 'IT·프로그래밍', '랜딩페이지', '반응형 랜딩페이지 제작', '180,000원~', '편집하기', '등록일', '2026.10.25', '수정일', '2026.10.25', '승인 안내', '2026.10.27'].join('\n');
+const NOTICE_OPEN = NOTICE_ROW + '\n\n안녕하세요, 전문가님. 크몽입니다.\n\n서비스가 비승인되었습니다.\n사유: 상세 이미지에 서비스와 무관한 이미지가 포함되어 있습니다.\n(참고: https://support.kmong.com/hc/ko/articles/1)\n\n감사합니다.';
+
+function fakeKmong(gigs, { notice = { toggle: true, before: NOTICE_ROW, after: NOTICE_OPEN } } = {}) {
+  const calls = { notice: 0, stop: 0 };
+  const a = { listings: async () => ({ gigs }), gigNotice: async () => { calls.notice += 1; return notice; }, stop: async () => { calls.stop += 1; } };
+  return { open: async () => a, calls };
+}
+
+function watchCtx(instance, gigs, over = {}) {
+  const k = fakeKmong(gigs, over);
+  const built = [];
+  const published = [];
+  const notes = [];
   const events = [];
-  const ledger = { addEvent: (e) => events.push(e) };
-  assert.equal((await listingsJob({ instance, ledger, openKmong: async () => assert.fail('nothing published, no browser') })).status, 'skipped');
-  const { mkdirSync } = await import('node:fs');
-  mkdirSync(join(instance.dir, 'listings', 'landing_page_web'), { recursive: true });
-  writeFileSync(join(instance.dir, 'listings', 'landing_page_web', 'publish-20261025.json'), JSON.stringify({ service: 'landing_page_web', gigId: 7, observed: true }));
-  let stopped = false;
-  const fake = async () => ({ listings: async () => ({ gigs: [{ gigId: 7, status: '승인 전' }] }), stop: async () => (stopped = true) });
-  const r = await listingsJob({ instance, ledger, openKmong: fake });
-  assert.equal(r.status, 'ok');
-  assert.deepEqual(r.rows, [{ service: 'landing_page_web', gigId: 7, status: '승인 전' }]);
-  assert.equal(events[0].kind, 'listing.status');
-  assert.ok(stopped);
+  return {
+    k, built, published, notes, events,
+    ctx: {
+      instance,
+      ledger: { addEvent: (e) => events.push(e) },
+      openKmong: k.open,
+      notify: async (_i, msg) => notes.push(msg),
+      build: async (service, opts) => built.push({ service, violations: opts.violations, previous: opts.previous }),
+      publish: async (service, opts) => {
+        published.push({ service, replaceImages: opts.replaceImages });
+        return { observed: true, submitted: true, gigId: 7, status: '승인 전' };
+      },
+      ...over.ctx,
+    },
+  };
+}
+
+test('gig status chips, review notices and the toggled text are read without kmong boilerplate', async () => {
+  const { addedText, gigStatus, parseReviewNotice } = await import('../src/listings/review.mjs');
+  assert.deepEqual(['승인 전', '판매중', '비승인', '판매 중지', '임시 저장', '보류'].map(gigStatus), ['waiting', 'selling', 'rejected', 'suspended', 'draft', 'unknown']);
+  const added = addedText(NOTICE_ROW, NOTICE_OPEN);
+  assert.ok(added.startsWith('\n\n안녕하세요'));
+  assert.equal(parseReviewNotice(added), '서비스가 비승인되었습니다.\n사유: 상세 이미지에 서비스와 무관한 이미지가 포함되어 있습니다.');
+  assert.equal(parseReviewNotice('안녕하세요, 전문가님. 크몽입니다.\n감사합니다.'), null);
+  assert.equal(addedText('abc', 'abXYc'), 'XY');
 });
 
+test('the review decision: on sale once, a rejection resubmitted at most twice, then the operator', async () => {
+  const { MAX_RESUBMITS, nextReviewAction } = await import('../src/listings/review.mjs');
+  assert.equal(MAX_RESUBMITS, 2);
+  assert.equal(nextReviewAction({}, { status: 'selling' }).action, 'notify_selling');
+  assert.equal(nextReviewAction({ sellingNotifiedAt: 'x' }, { status: 'selling' }).action, 'none');
+  assert.equal(nextReviewAction({}, { status: 'waiting' }).action, 'none');
+  const k = 'rejected:2026-10-27:2026-10-25';
+  assert.equal(nextReviewAction({}, { status: 'rejected', key: k }).action, 'read_notice');
+  assert.deepEqual(nextReviewAction({}, { status: 'rejected', key: k, notice: '사유: 무관한 이미지' }), { action: 'resubmit', detail: '사유: 무관한 이미지' });
+  assert.equal(nextReviewAction({ resubmits: [{}] }, { status: 'rejected', key: k, notice: 'x' }).action, 'resubmit');
+  assert.equal(nextReviewAction({ resubmits: [{}, {}] }, { status: 'rejected', key: k, notice: 'x' }).action, 'escalate');
+  assert.equal(nextReviewAction({}, { status: 'rejected', key: k, notice: null }).action, 'escalate');
+  assert.equal(nextReviewAction({}, { status: 'rejected', key: k, notice: 'AI 디자인 카테고리로 등록해 주세요' }).action, 'escalate');
+  // the same rejection seen again is left alone; one that follows a resubmit is handled again
+  assert.equal(nextReviewAction({ handledRejection: k, lastStatus: 'rejected' }, { status: 'rejected', key: k }).action, 'none');
+  assert.equal(nextReviewAction({ handledRejection: k, lastStatus: 'waiting' }, { status: 'rejected', key: k }).action, 'read_notice');
+});
+
+test('a rejection is a learning case and its notice reaches the brain as a violation', async () => {
+  const { listingsWatch } = await import('../src/cli/listings.mjs');
+  const { readCases } = await import('../src/learning/outcomes.mjs');
+  const instance = publishedInstance();
+  const gig = { gigId: 7, status: '비승인', approvedAt: '2026-10-27', modifiedAt: '2026-10-25', title: 't' };
+  const w = watchCtx(instance, [gig]);
+  const r = await listingsWatch(w.ctx);
+  assert.equal(r.rows[0].action, 'resubmitted');
+  const cases = readCases(instance);
+  assert.equal(cases.length, 1);
+  assert.equal(cases[0].kind, 'approval_rejected');
+  assert.equal(cases[0].threadRef, 'gig:7');
+  assert.match(cases[0].note, /무관한 이미지/);
+  assert.match(cases[0].text, /title: /);
+  assert.equal(w.built.length, 1);
+  assert.equal(w.built[0].violations[0].rule, 'kmong.rejected');
+  assert.match(w.built[0].violations[0].detail, /무관한 이미지/);
+  assert.equal(w.built[0].previous.title, listingOf().title);
+  assert.deepEqual(w.published[0].replaceImages, ['main', 'detail']);
+  // the next hour sees the gig waiting again and does nothing more
+  const w2 = watchCtx(instance, [{ ...gig, status: '승인 전' }]);
+  assert.equal((await listingsWatch(w2.ctx)).rows[0].action, 'none');
+  assert.equal(w2.built.length, 0);
+  assert.equal(readCases(instance).length, 1);
+});
+
+test('the third rejection of a gig goes to the operator and is not resubmitted', async () => {
+  const { listingsWatch } = await import('../src/cli/listings.mjs');
+  const { readReview } = await import('../src/listings/review.mjs');
+  const instance = publishedInstance();
+  const dir = join(instance.dir, 'listings');
+  for (const [day, mod] of [['2026-10-27', '2026-10-25'], ['2026-10-29', '2026-10-27'], ['2026-10-31', '2026-10-29']]) {
+    const w = watchCtx(instance, [{ gigId: 7, status: '비승인', approvedAt: day, modifiedAt: mod }]);
+    await listingsWatch(w.ctx);
+    const waiting = watchCtx(instance, [{ gigId: 7, status: '승인 전', approvedAt: null, modifiedAt: day }]);
+    await listingsWatch(waiting.ctx);
+  }
+  const state = readReview(dir, 'landing_page_web');
+  assert.equal(state.resubmits.length, 2);
+  assert.ok(state.escalatedAt);
+  const again = watchCtx(instance, [{ gigId: 7, status: '비승인', approvedAt: '2026-10-31', modifiedAt: '2026-10-29' }]);
+  await listingsWatch(again.ctx);
+  assert.equal(again.built.length, 0);
+});
+
+test('a gig on sale is announced to the operator once', async () => {
+  const { listingsWatch } = await import('../src/cli/listings.mjs');
+  const instance = publishedInstance();
+  const w = watchCtx(instance, [{ gigId: 7, status: '판매중', title: 't', url: 'u' }]);
+  assert.equal((await listingsWatch(w.ctx)).rows[0].action, 'notify_selling');
+  assert.equal(w.notes.length, 1);
+  assert.ok(w.events.some((e) => e.kind === 'listing.selling'));
+  const w2 = watchCtx(instance, [{ gigId: 7, status: '판매중' }]);
+  await listingsWatch(w2.ctx);
+  assert.equal(w2.notes.length, 0);
+  assert.equal(w2.k.calls.notice, 0);
+});
+
+test('a forced observe pass records the rejection but never resubmits', async () => {
+  const { listingsWatch } = await import('../src/cli/listings.mjs');
+  const { readCases } = await import('../src/learning/outcomes.mjs');
+  const instance = publishedInstance();
+  const w = watchCtx(instance, [{ gigId: 7, status: '비승인', approvedAt: '2026-10-27', modifiedAt: '2026-10-25' }], { ctx: { forceMode: 'observe' } });
+  const r = await listingsWatch(w.ctx);
+  assert.equal(r.rows[0].action, 'observed');
+  assert.equal(w.built.length, 0);
+  assert.equal(readCases(instance).length, 1);
+  assert.equal(w.notes.length, 1);
+});
+
+test('a review notice given to buildListing is in the first prompt as a violation', async () => {
+  const { reviewViolation } = await import('../src/listings/review.mjs');
+  const codex = fakeCodex([draft()]);
+  await buildListing('landing_page_web', ctx(codex, { violations: [reviewViolation('사유: 연락처가 이미지에 있습니다')], previous: draft() }));
+  assert.equal(codex.calls.length, 1);
+  assert.match(codex.calls[0].prompt, /previous draft was blocked/);
+  assert.match(codex.calls[0].prompt, /kmong\.rejected/);
+  assert.match(codex.calls[0].prompt, /연락처가 이미지에 있습니다/);
+});
+
+// ---- portfolio-driven proofs (src/listings/proofs.mjs, listingsRefresh) ----
+
+const BG = (id, title, service) => ({ id, source: 'background', title_en: title, service, permission: 'granted', paidAt: null, satisfaction: null, quality: null, volume: null, media: [] });
+const PROOFS = [{ id: 'site-a', project: 'Site A' }, { id: 'site-b', project: 'Site B' }];
+const PROFILE = { serviceFit: { landing_page_web: { evidence: ['Site A', 'Site B'] } } };
+const JOB = (over = {}) => ({ id: 'job-1', source: 'job', title_ko: '빵집 랜딩', service: 'landing_page_web', paidAt: '2026-11-01T00:00:00Z', permission: 'granted', satisfaction: { rating: 5, liked: true }, quality: 0.9, volume: { priceKRW: 300000, hours: 6 }, media: [{ src: 'media/job-1.jpg', kind: 'image', width: 1440, height: 900 }], ...over });
+
+test('proof images follow rankPortfolio: a paid, permitted job that ranks first replaces a background project', async () => {
+  const { proofPlan, basisChanged } = await import('../src/listings/proofs.mjs');
+  const items = [BG('bg-a', 'Site A', 'landing_page_web'), BG('bg-b', 'Site B', 'landing_page_web')];
+  const before = proofPlan({ service: 'landing_page_web', items, profile: PROFILE, proofs: PROOFS, maxItems: 2 });
+  assert.deepEqual(before.basis, ['bg-a', 'bg-b']);
+  assert.deepEqual(before.gallery.map((s) => s.id), ['site-a', 'site-b']);
+  const after = proofPlan({ service: 'landing_page_web', items: [...items, JOB()], profile: PROFILE, proofs: PROOFS, maxItems: 2 });
+  assert.deepEqual(after.basis, ['job-1', 'bg-a']);
+  assert.equal(after.gallery[0].kind, 'media');
+  assert.ok(basisChanged(before.basis, after.basis));
+  // without the client's permission, or before payment, the job shows nothing
+  for (const job of [JOB({ permission: 'pending' }), JOB({ paidAt: null })]) assert.deepEqual(proofPlan({ service: 'landing_page_web', items: [...items, job], profile: PROFILE, proofs: PROOFS, maxItems: 2 }).basis, ['bg-a', 'bg-b']);
+  // a service with no own item shows its samples, labelled as samples
+  const s = proofPlan({ service: 'photo_editing', items, profile: PROFILE, proofs: PROOFS, samples: [{ id: 'cutout', file: 'x.jpg', note: '누끼 예시' }] });
+  assert.deepEqual(s.basis, []);
+  assert.equal(s.gallery[0].kind, 'sample');
+});
+
+test('a gig is rebuilt only when its top items changed, it is on sale and it was not refreshed lately', async () => {
+  const { refreshDecision } = await import('../src/cli/listings.mjs');
+  const today = new Date('2026-11-20T00:00:00Z');
+  assert.equal(refreshDecision({ status: '판매중', before: ['bg-a'], now: ['bg-a'], today }).refresh, false);
+  assert.equal(refreshDecision({ status: '판매중', before: ['bg-a', 'bg-b'], now: ['job-1', 'bg-a'], today }).refresh, true);
+  assert.equal(refreshDecision({ status: '승인 전', before: ['bg-a'], now: ['job-1'], today }).refresh, false);
+  assert.equal(refreshDecision({ status: '판매중', before: ['bg-a'], now: ['job-1'], last: '2026-11-10T00:00:00Z', today }).refresh, false);
+  assert.equal(refreshDecision({ status: '판매중', before: ['bg-a'], now: ['job-1'], last: '2026-11-01T00:00:00Z', today }).refresh, true);
+});
+
+test('the daily refresh opens kmong only when a gig shows changed top items', async () => {
+  const { listingsRefresh } = await import('../src/cli/listings.mjs');
+  const instance = publishedInstance();
+  const spec = { ...listingOf(), portfolioBasis: [] };
+  writeFileSync(join(instance.dir, 'listings', 'landing_page_web', 'spec.json'), JSON.stringify(spec));
+  const r = await listingsRefresh({ instance, openKmong: async () => assert.fail('no change, no browser') });
+  assert.equal(r.status, 'ok');
+  assert.deepEqual(r.rows, []);
+});
+
+// ---- no link or contact detail in listing or portfolio text ----
+
+test('listing text refuses SNS handles beside the gate contact rules', async () => {
+  const handle = listingOf();
+  handle.imageCopy.proofCaptions = ['인스타그램 @studio_kr 계정 화면'];
+  assert.ok(rulesOf(handle).includes('imageCopy.proof:contact.handle'));
+  assert.ok(!rulesOf(listingOf({ faqs: [{ question: '메일은?', answer: '크몽 메시지로 문의해 주세요.' }, ...draft().faqs.slice(1)] })).some((r) => r.endsWith('contact.handle')));
+
+});
+
+// ---- kmong page shapes the write paths rely on ----
+
+test('a /my-gigs row never reads the approval notice of the row below, and edit URLs give their ids', async () => {
+  const { parseGigList } = await import('../src/platforms/kmong/parse.mjs');
+  const { editIds } = await import('../src/platforms/kmong/adapter.mjs');
+  const text = ['서비스 상태 안내', '승인 전', '#1', 'IT·프로그래밍', '랜딩페이지', '랜딩페이지 제작', '35,000원~', '제출 취소', '등록일', '2026.10.25', '수정일', '2026.10.25', '승인 대기 중', '영업일 7일 이내',
+    '판매중', '#2', '데이터 분석 레슨', '프로그래밍 레슨', '웹 레슨', '레슨', '150,000원~', '편집하기', '등록일', '2022.03.14', '수정일', '2026.07.24', '승인 안내', '2026.07.30'].join('\n');
+  const { gigs } = parseGigList(text);
+  assert.equal(gigs[0].approvedAt, null);
+  assert.equal(gigs[1].approvedAt, '2026-07-30');
+  assert.deepEqual(editIds('https://kmong.com/my-gigs/edit/700001?rootCategoryId=7&subCategoryId=769&thirdCategoryId=76901'), { gigId: 700001, categoryIds: { root: 7, sub: 769, third: 76901 } });
+  assert.deepEqual(editIds('https://kmong.com/my-gigs/edit/5'), { gigId: 5, categoryIds: { root: null, sub: null, third: null } });
+  assert.equal(editIds('https://kmong.com/my-gigs'), null);
+});

@@ -1,12 +1,12 @@
 // Synthetic fixtures only: no value here comes from an operator instance.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { rankPortfolio } from '../src/portfolio/rank.mjs';
 import { itemFromJob, itemsFromProfile, loadItems, syncPortfolio } from '../src/portfolio/store.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
+import { tempDir } from './tmp.mjs';
 
 const job = (id, extra = {}) => ({ id, source: 'job', paidAt: '2026-01-01T00:00:00Z', permission: 'granted', ...extra });
 const ids = (items) => items.map((i) => i.id);
@@ -89,7 +89,7 @@ test('itemFromJob derives paidAt, volume and satisfaction and defaults permissio
 });
 
 test('syncPortfolio merges background and paid jobs without duplicates and keeps hand-added fields', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-portfolio-'));
+  const dir = tempDir('fsw-portfolio-');
   const file = join(dir, 'portfolio', 'items.json');
   const instance = { profile, paths: { portfolio: join(dir, 'portfolio') } };
   const ledger = openLedger(':memory:');

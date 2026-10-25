@@ -1,13 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openLedger } from '../src/core/ledger.mjs';
+import { tempDir } from './tmp.mjs';
 
 function withLedger(fn) {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-ledger-'));
+  const dir = tempDir('fsw-ledger-');
   const ledger = openLedger(join(dir, 'ledger.sqlite'));
   try {
     return fn(ledger, dir);
@@ -63,7 +63,7 @@ test('jobs, quotes and payments round-trip and payments need evidence', () => wi
 }));
 
 test('reopening keeps the schema version and data', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-ledger-'));
+  const dir = tempDir('fsw-ledger-');
   try {
     const path = join(dir, 'ledger.sqlite');
     const a = openLedger(path);
@@ -80,7 +80,7 @@ test('reopening keeps the schema version and data', () => {
 });
 
 test('a version 2 ledger takes project threads after the rebuild and keeps every row and reference', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-ledger-'));
+  const dir = tempDir('fsw-ledger-');
   try {
     const path = join(dir, 'ledger.sqlite');
     const a = openLedger(path);

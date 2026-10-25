@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
@@ -11,9 +10,10 @@ import { listApprovals, queueApproval, resolveApproval } from '../src/brain/appr
 import { caseFromApproval, recordOutcome } from '../src/learning/outcomes.mjs';
 import { writeLessons } from '../src/learning/lessons.mjs';
 import { refreshPlaybook, validatePattern } from '../src/learning/playbook.mjs';
+import { tempDir } from './tmp.mjs';
 
 function makeInstance() {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-brain-'));
+  const dir = tempDir('fsw-brain-');
   for (const f of ['profile.json', 'business.json']) copyFileSync(join(exampleDir, f), join(dir, f));
   const config = JSON.parse(readFileSync(join(exampleDir, 'config.json'), 'utf8'));
   config.notify = { toast: false, webhookUrl: null };

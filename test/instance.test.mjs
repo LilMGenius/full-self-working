@@ -1,15 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { copyFileSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadInstance, exampleDir } from '../src/core/instance.mjs';
 import { logEvent } from '../src/core/log.mjs';
 import { notifyOperator } from '../src/core/notify.mjs';
 import { dayKey } from '../src/core/clock.mjs';
+import { tempDir } from './tmp.mjs';
 
 function tempInstance(files = ['profile.json', 'business.json', 'config.json']) {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-inst-'));
+  const dir = tempDir('fsw-inst-');
   for (const f of files) copyFileSync(join(exampleDir, f), join(dir, f));
   return dir;
 }

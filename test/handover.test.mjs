@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { codeHandover, codeState, probeCommit, probeNewCode, RESTART_EXIT, runSupervisor } from '../src/supervisor/run.mjs';
 import { run } from '../src/cli/run.mjs';
 import { exampleDir, loadInstance, repoRoot } from '../src/core/instance.mjs';
-import { copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { tempDir } from './tmp.mjs';
 
 const never = () => {
   throw new Error('the probe must not run');
@@ -25,7 +25,7 @@ test('a newer commit that imports cleanly is a restart, and one that does not is
 
 test('the probe imports the real supervisor graph and fails on a tree whose run module does not parse', () => {
   assert.equal(probeNewCode(repoRoot).ok, true);
-  const broken = mkdtempSync(join(tmpdir(), 'fsw-probe-'));
+  const broken = tempDir('fsw-probe-');
   mkdirSync(join(broken, 'src', 'cli'), { recursive: true });
   writeFileSync(join(broken, 'src', 'cli', 'run.mjs'), 'export const = 1;\n');
   const r = probeNewCode(broken);
@@ -41,7 +41,7 @@ test('fsw run exits with the restart code only when the supervisor hands over', 
 });
 
 function makeInstance() {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-daemon-'));
+  const dir = tempDir('fsw-daemon-');
   for (const f of ['profile.json', 'business.json']) copyFileSync(join(exampleDir, f), join(dir, f));
   const config = JSON.parse(readFileSync(join(exampleDir, 'config.json'), 'utf8'));
   config.notify = { toast: false, webhookUrl: null };
@@ -98,7 +98,7 @@ test('a deploy copy that cannot move keeps running its code and tells the operat
 const git = (cwd, ...args) => execFileSync('git', ['-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=', ...args], { cwd, encoding: 'utf8' }).trim();
 
 function scratchRepo(runSource) {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-code-'));
+  const dir = tempDir('fsw-code-');
   git(dir, 'init', '-q', '-b', 'main');
   mkdirSync(join(dir, 'src', 'cli'), { recursive: true });
   writeFileSync(join(dir, 'src', 'cli', 'run.mjs'), runSource);
@@ -109,7 +109,7 @@ function scratchRepo(runSource) {
 
 test('a detached worktree follows main while a branch checkout follows its own HEAD', () => {
   const repo = scratchRepo('export {};\n');
-  const deploy = join(mkdtempSync(join(tmpdir(), 'fsw-deploy-')), 'code');
+  const deploy = join(tempDir('fsw-deploy-'), 'code');
   git(repo, 'worktree', 'add', '--detach', deploy, 'main');
   writeFileSync(join(repo, 'src', 'cli', 'run.mjs'), 'export const v = 2;\n');
   git(repo, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-q', '-am', 'two');

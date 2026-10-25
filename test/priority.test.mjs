@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { armWeight, latestAllocation, prioritize } from '../src/economics/priority.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
+import { tempDir } from './tmp.mjs';
 
 const soomgo = loadDescriptor('soomgo');
 const allocation = { weights: [
@@ -15,7 +15,7 @@ const allocation = { weights: [
 ] };
 
 test('the newest allocation file is read, and none means no allocation', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-prio-'));
+  const dir = tempDir('fsw-prio-');
   const instance = { paths: { pricing: join(dir, 'pricing') } };
   assert.equal(latestAllocation(instance), null);
   mkdirSync(instance.paths.pricing);
@@ -49,7 +49,7 @@ test('the supervisor opens the highest-weight requests first when the per-tick c
   const { exampleDir, loadInstance } = await import('../src/core/instance.mjs');
   const { openLedger } = await import('../src/core/ledger.mjs');
   const { copyFileSync, readFileSync } = await import('node:fs');
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-prio-sup-'));
+  const dir = tempDir('fsw-prio-sup-');
   for (const f of ['profile.json', 'business.json']) copyFileSync(join(exampleDir, f), join(dir, f));
   const config = JSON.parse(readFileSync(join(exampleDir, 'config.json'), 'utf8'));
   config.notify = { toast: false, webhookUrl: null };

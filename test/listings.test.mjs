@@ -1,16 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { buildListing, checkListing, KMONG_LIMITS, ListingError, packageTerms, processText } from '../src/listings/kmong.mjs';
 import { checkImages, detailHtmls, imageSize, LABELS, mainHtml, renderListingImages } from '../src/listings/images.mjs';
 import { formProblems } from '../src/platforms/kmong/adapter.mjs';
 import { lintText } from '../src/policy/slop.mjs';
+import { tempDir } from './tmp.mjs';
 
 function makeInstance() {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-listings-'));
+  const dir = tempDir('fsw-listings-');
   for (const f of ['profile.json', 'business.json']) copyFileSync(join(exampleDir, f), join(dir, f));
   writeFileSync(join(dir, 'config.json'), readFileSync(join(exampleDir, 'config.json')));
   return loadInstance({ dir });
@@ -193,7 +193,7 @@ test('image HTML carries only escaped copy, no URL, and the fonts inline', () =>
 });
 
 test('image slot rules are read from the written files', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-img-'));
+  const dir = tempDir('fsw-img-');
   const r = await renderListingImages({ listing: listingOf(), studio: '스튜디오', outDir: dir });
   assert.deepEqual(r.violations, []);
   assert.deepEqual(imageSize(readFileSync(r.main)), { width: 652, height: 488 });

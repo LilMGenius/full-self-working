@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
@@ -12,12 +11,13 @@ import { answeredServices } from '../src/economics/catalog.mjs';
 import { recordMoney } from '../src/orders/money.mjs';
 import { startJobs } from '../src/orders/run.mjs';
 import { closeSettledJobs } from '../src/orders/delivery.mjs';
+import { tempDir } from './tmp.mjs';
 
 const LESSONS_ON_SOOMGO = (c) => ({ ...c, platforms: { ...c.platforms, soomgo: { ...c.platforms.soomgo, services: [...answeredServices(c, 'soomgo'), 'lesson_tutoring'] } } });
 const quiet = async () => ({});
 
 function makeInstance(edit = (c) => c) {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-operator-'));
+  const dir = tempDir('fsw-operator-');
   for (const f of ['profile.json', 'business.json']) copyFileSync(join(exampleDir, f), join(dir, f));
   const config = JSON.parse(readFileSync(join(exampleDir, 'config.json'), 'utf8'));
   config.notify = { toast: false, webhookUrl: null };

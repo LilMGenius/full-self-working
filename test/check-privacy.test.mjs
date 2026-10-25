@@ -1,15 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { repoRoot } from '../src/core/instance.mjs';
+import { tempDir } from './tmp.mjs';
 
 const script = join(repoRoot, 'scripts', 'check-privacy.mjs');
 
 function setup(trackedText) {
-  const root = mkdtempSync(join(tmpdir(), 'fsw-priv-'));
+  const root = tempDir('fsw-priv-');
   const repo = join(root, 'repo');
   const inst = join(root, 'inst');
   mkdirSync(repo);

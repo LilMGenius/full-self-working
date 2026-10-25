@@ -2,8 +2,7 @@
 // Every project here is synthetic; real project text never enters the repository.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
@@ -13,12 +12,13 @@ import { checkPlan, composeText, draftProposal, minimumKRW, proposalPolicy, prop
 import { projectsJob, reviseApproval } from '../src/projects/job.mjs';
 import { getApproval, listApprovals, queueApproval } from '../src/brain/approvals.mjs';
 import { readCases } from '../src/learning/outcomes.mjs';
+import { tempDir } from './tmp.mjs';
 
 const descriptor = loadDescriptor('kmong');
 const NOW = new Date('2026-10-25T03:00:00Z'); // 12:00 Seoul, inside the outbound hours
 
 function makeInstance(proposals = { maxPerDay: 5, minFit: 'strong', autoMaxKRW: 0 }) {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-projects-'));
+  const dir = tempDir('fsw-projects-');
   for (const f of ['profile.json', 'business.json']) copyFileSync(join(exampleDir, f), join(dir, f));
   const config = JSON.parse(readFileSync(join(exampleDir, 'config.json'), 'utf8'));
   config.notify = { toast: false, webhookUrl: null };

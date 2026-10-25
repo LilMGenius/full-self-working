@@ -1,8 +1,7 @@
 // Synthetic pages and rates only: no fixture here is a copied page or a real exchange rate.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { jobsUrl, parseJobs, parseProjects, projectsUrl, sample as sampleFreelancer } from '../src/platforms/freelancer/market.mjs';
 import { filterQuery, listUrl, parseCard as parseWishketCard, sample as sampleWishket } from '../src/platforms/wishket/market.mjs';
@@ -12,6 +11,7 @@ import { latestSummary } from '../src/economics/market.mjs';
 import { categoriesPerRun, marketCadence, marketEngine, marketPlatforms, run, stalestFirst, targetsFor } from '../src/cli/market.mjs';
 import { archiveSession, archiveUrl, captureOf } from '../src/browser/archive.mjs';
 import { validateDescriptor } from '../src/platforms/registry.mjs';
+import { tempDir } from './tmp.mjs';
 
 const fx = { date: '2026-10-23', source: 'https://api.frankfurter.dev/v1/latest?base=USD', rates: { INR: 80, KRW: 1200, USD: 1 } };
 const project = (id, over = {}) => ({ id, type: 'fixed', seo_url: 'logo-design/Logo-' + id, title: 'Logo ' + id, currency: { code: 'USD' }, budget: { minimum: 30, maximum: 250 }, bid_stats: { bid_count: 12, bid_avg: 90 }, time_submitted: 1792800000, ...over });
@@ -52,7 +52,7 @@ test('the freelancer sampler resolves jobs by name and fails a missing job or an
 // A default run over a config that lists kmong (enabled) and freelancer (disabled): kmong pages give one
 // card each, freelancer pages answer from the synthetic API above.
 function overseasRun({ loadFx }) {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-overseas-'));
+  const dir = tempDir('fsw-overseas-');
   const instance = { config: { platforms: { kmong: { enabled: true, mode: 'auto' }, freelancer: { enabled: false, mode: 'observe' } } }, paths: { market: join(dir, 'market') } };
   const opened = [];
   const page = (url) => {
@@ -155,7 +155,7 @@ test('bot walls are named by vendor, and the first one ends a sampler\'s reads f
 });
 
 test('the market run reports a bot challenge by name and does not retry it', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-overseas-'));
+  const dir = tempDir('fsw-overseas-');
   const instance = { config: { platforms: { kmong: { enabled: true, mode: 'auto' }, fiverr: { enabled: false, mode: 'observe' } } }, paths: { market: join(dir, 'market') } };
   const opened = [];
   const withPage = async (platform, fn, { engine }) => {
@@ -199,7 +199,7 @@ test('fiverr samples one search an hour by default, and the operator can move an
 });
 
 test('the market run opens each platform through its configured engine, and refuses an engine its sampler cannot date', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-overseas-'));
+  const dir = tempDir('fsw-overseas-');
   const instance = { config: { platforms: { kmong: { enabled: true, mode: 'auto' }, fiverr: { enabled: false, mode: 'observe' } }, market: { engines: { kmong: 'archive', fiverr: 'owned' } } }, paths: { market: join(dir, 'market') } };
   const opened = [];
   const withPage = async (platform, fn, { engine }) => {
@@ -238,7 +238,7 @@ test('an archive snapshot is dated by its capture, keeps its address, and a miss
 });
 
 test('the market run does not retry a category whose archive snapshot is missing', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-overseas-'));
+  const dir = tempDir('fsw-overseas-');
   const instance = { config: { platforms: { fiverr: { enabled: false, mode: 'observe' } }, market: { engines: { fiverr: 'archive' }, categoriesPerRun: { fiverr: 5 } } }, paths: { market: join(dir, 'market') } };
   const now = () => new Date('2026-10-25T03:00:00Z');
   const loaded = [];
@@ -256,7 +256,7 @@ test('a run reads at most categoriesPerRun categories, never-read and stalest fi
   const known = [{ platform: 'fiverr', category: 'a', observedAt: '2026-10-24T00:00:00Z' }, { platform: 'fiverr', category: 'a', observedAt: '2026-10-20T00:00:00Z' }, { platform: 'fiverr', category: 'b', observedAt: '2026-10-22T00:00:00Z' }, { platform: 'kmong', category: 'c', observedAt: '2026-10-01T00:00:00Z' }];
   assert.deepEqual(stalestFirst('fiverr', [t('a'), t('b'), t('c'), t('d')], known, 3).map((x) => x.category), ['c', 'd', 'b']);
 
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-overseas-'));
+  const dir = tempDir('fsw-overseas-');
   const instance = { config: { platforms: { fiverr: { enabled: false, mode: 'observe' } }, market: { engines: { fiverr: 'owned' }, categoriesPerRun: { fiverr: 2 } } }, paths: { market: join(dir, 'market') } };
   const loaded = [];
   let url;

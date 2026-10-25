@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { appendedDetail } from '../src/platforms/soomgo/edits.mjs';
 import { run } from '../src/cli/edits.mjs';
+import { tempDir } from './tmp.mjs';
 
 test('the detail paragraph is appended after a blank line once and never twice', () => {
   assert.equal(appendedDetail('기존 소개입니다.\n', '외주도 맡습니다.'), '기존 소개입니다.\n\n외주도 맡습니다.');
@@ -15,7 +15,7 @@ test('the detail paragraph is appended after a blank line once and never twice',
 });
 
 function setup(edits) {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-edits-'));
+  const dir = tempDir('fsw-edits-');
   for (const f of ['profile.json', 'business.json', 'config.json']) copyFileSync(join(exampleDir, f), join(dir, f));
   const instance = loadInstance({ dir });
   mkdirSync(instance.paths.platforms, { recursive: true });

@@ -1,17 +1,17 @@
 // Synthetic background only: every name, school and number here is invented for the test.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { exampleDir } from '../src/core/instance.mjs';
 import { run } from '../src/cli/profile.mjs';
 import { checkCite, verifyDraft, buildPrompt, SERVICE_IDS } from '../src/profile/draft.mjs';
 import { loadSources } from '../src/profile/sources.mjs';
 import { validateProfile } from '../src/profile/validate.mjs';
+import { tempDir } from './tmp.mjs';
 
-const temp = () => mkdtempSync(join(tmpdir(), 'fsw-profile-'));
+const temp = () => tempDir('fsw-profile-');
 
 // A background folder: a CV, a LinkedIn-style export with a file of other people's data, and a repository.
 function background() {

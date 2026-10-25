@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { listingUrl, parseCard, parseListing } from '../src/platforms/kmong/market.mjs';
 import { koreanAmount, parseGuide } from '../src/platforms/soomgo/market.mjs';
 import { latestSummary, summarizeDay } from '../src/economics/market.mjs';
 import { run, targetsFor } from '../src/cli/market.mjs';
+import { tempDir } from './tmp.mjs';
 
 test('a kmong card yields title, rating, reviews, starting price, seller and badges', () => {
   const card = parseCard({ href: '/gig/1', text: '브랜드 로고 제작\n\n4.9\n\n(2,391)\n60,000원~\n스튜디오 A\n\n빠른 응답\n\n세금계산서' });
@@ -64,7 +64,7 @@ test('a day summary turns listing samples into quantiles and passes price-guide 
 });
 
 test('fsw market retries a failed category once, reports what still fails and writes the files fsw price reads', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-market-'));
+  const dir = tempDir('fsw-market-');
   const instance = { config: { platforms: { kmong: { enabled: true, mode: 'auto' }, soomgo: { enabled: true, mode: 'auto' }, upwork: { enabled: false } } }, paths: { market: join(dir, 'market') } };
   const card = (n, price) => ({ href: `/gig/${n}`, text: `제목 ${n}\n${price}원~\n판매자 ${n}` });
   let keywordLoads = 0;
@@ -97,7 +97,7 @@ test('fsw market retries a failed category once, reports what still fails and wr
 });
 
 test('a named market run replaces only the pairs it read and keeps the rest of the day', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-market-'));
+  const dir = tempDir('fsw-market-');
   const instance = { config: { platforms: { kmong: { enabled: true, mode: 'auto' }, soomgo: { enabled: true, mode: 'auto' } } }, paths: { market: join(dir, 'market') } };
   const [broken] = targetsFor('kmong');
   let price = '10,000';
@@ -130,7 +130,7 @@ test('a named market run replaces only the pairs it read and keeps the rest of t
 });
 
 test('a new day that cannot read a platform keeps its recent samples with their old dates, and drops them after a week', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-market-'));
+  const dir = tempDir('fsw-market-');
   const instance = { config: { platforms: { kmong: { enabled: true, mode: 'auto' }, soomgo: { enabled: true, mode: 'auto' } } }, paths: { market: join(dir, 'market') } };
   let soomgoDown = false;
   const page = (url) => {

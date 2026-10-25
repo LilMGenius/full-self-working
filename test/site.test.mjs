@@ -1,19 +1,19 @@
 // Synthetic fixtures only: no value here comes from an operator instance.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildSite } from '../site/build.mjs';
 import { rankPortfolio } from '../src/portfolio/rank.mjs';
 import { DEFAULT_CHROME } from '../src/render/html2png.mjs';
+import { tempDir } from './tmp.mjs';
 
 const BIZ_REG_NO = '314-15-92653';
 const PAYOUT_ACCOUNT = '271-828-182845';
 const PHONE = '010-5555-0199';
 
 function fixture() {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-site-test-'));
+  const dir = tempDir('fsw-site-test-');
   const write = (file, data) => {
     mkdirSync(join(dir, file, '..'), { recursive: true });
     writeFileSync(join(dir, file), typeof data === 'string' ? data : JSON.stringify(data, null, 2));

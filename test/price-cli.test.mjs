@@ -1,13 +1,13 @@
 // Synthetic instance only: no value here comes from an operator instance.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, copyFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, copyFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { run, sellerStatsFrom } from '../src/cli/price.mjs';
+import { tempDir } from './tmp.mjs';
 
 function fixture() {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-price-'));
+  const dir = tempDir('fsw-price-');
   for (const f of ['profile.json', 'business.json', 'config.json']) copyFileSync(join('examples', 'instance', f), join(dir, f));
   mkdirSync(join(dir, 'market'));
   mkdirSync(join(dir, 'platforms'));

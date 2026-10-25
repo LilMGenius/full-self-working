@@ -1,8 +1,7 @@
 // Synthetic fixtures only: no value here comes from an operator instance.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { summarize, latestSummary, quantile } from '../src/economics/market.mjs';
 import { sellerNet } from '../src/economics/fees.mjs';
@@ -10,6 +9,7 @@ import { buildPriceTable, costFloor, quoteForRequest, splitPayment } from '../sr
 import { armStats } from '../src/economics/yield.mjs';
 import { allocate, beta, mulberry32 } from '../src/economics/allocate.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
+import { tempDir } from './tmp.mjs';
 
 const tiered = {
   id: 'tiered',
@@ -40,7 +40,7 @@ test('summarize interpolates quantiles linearly and weights the median by review
 });
 
 test('latestSummary reads the newest summary file and fails by name when none exists', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-market-'));
+  const dir = tempDir('fsw-market-');
   assert.throws(() => latestSummary({ paths: { market: dir } }), { code: 'FSW_MARKET_NO_SUMMARY' });
   writeFileSync(join(dir, 'summary-20261001.json'), JSON.stringify([{ old: true }]));
   writeFileSync(join(dir, 'summary-20261025.json'), JSON.stringify([{ old: false }]));

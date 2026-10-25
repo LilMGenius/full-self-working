@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { initInstance, run } from '../src/cli/init.mjs';
+import { tempDir } from './tmp.mjs';
 
-const temp = () => mkdtempSync(join(tmpdir(), 'fsw-init-'));
+const temp = () => tempDir('fsw-init-');
 
 test('init copies every example file into a new directory and the result loads', () => {
   const dir = join(temp(), 'mine');

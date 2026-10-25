@@ -1,13 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { copyFileSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { exampleDir } from '../src/core/instance.mjs';
 import { checkChrome, checkInstance, checkNode, parseNodeRange, run, runChecks } from '../src/cli/doctor.mjs';
+import { tempDir } from './tmp.mjs';
 
 function instance({ filled = true, edit } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-doctor-'));
+  const dir = tempDir('fsw-doctor-');
   for (const f of readdirSync(exampleDir)) copyFileSync(join(exampleDir, f), join(dir, f));
   if (filled) {
     const p = JSON.parse(readFileSync(join(dir, 'profile.json'), 'utf8'));

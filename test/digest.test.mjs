@@ -1,15 +1,15 @@
 // Synthetic instance and summary only: no figure here comes from an operator instance.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
 import { writeDigest } from '../src/supervisor/digest.mjs';
+import { tempDir } from './tmp.mjs';
 
 function instanceWith(summary) {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-digest-'));
+  const dir = tempDir('fsw-digest-');
   for (const f of ['profile.json', 'business.json']) copyFileSync(join(exampleDir, f), join(dir, f));
   const config = JSON.parse(readFileSync(join(exampleDir, 'config.json'), 'utf8'));
   config.notify = { toast: false, webhookUrl: null };

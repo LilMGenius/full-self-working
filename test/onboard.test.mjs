@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { copyFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
@@ -9,9 +8,10 @@ import { parseArgs, run } from '../src/cli/onboard.mjs';
 import { blockOf, dayLabel, humanize, readIdentity, walkWizard } from '../src/platforms/onboarding.mjs';
 import { parseSelectedSkills, skillOfResult } from '../src/platforms/freelancer/onboarding.mjs';
 import { HANDLERS as UPWORK, employmentEntries, onboard, parseEmploymentCard, parsePeriod, splitTitle, stepOfUrl, upworkSpecialties } from '../src/platforms/upwork/onboarding.mjs';
+import { tempDir } from './tmp.mjs';
 
 function instance() {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-onboard-'));
+  const dir = tempDir('fsw-onboard-');
   for (const f of ['profile.json', 'business.json', 'config.json']) copyFileSync(join(exampleDir, f), join(dir, f));
   return loadInstance({ dir });
 }
@@ -149,7 +149,7 @@ test('a sign-in or challenge page blocks the walk and an ordinary wizard page do
 
 
 test('the identity file gives the national number after the country code and names missing fields', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-id-'));
+  const dir = tempDir('fsw-id-');
   const file = join(dir, 'identity.json');
   writeFileSync(file, JSON.stringify({ person: { date_of_birth: '1990-01-31', phone: '+82-10-0000-1111', google_login_email: 'seller@example.com' }, business: { address_en: { street: '1 Example Road', unit: '2F', city: 'Example City', region: 'Example Province', postal_code: 12345, country: 'South Korea' } } }));
   const ctx = { instance: { config: { onboarding: { identity: file } } } };

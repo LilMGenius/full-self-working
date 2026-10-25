@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
@@ -11,11 +10,12 @@ import { processThread } from '../src/pipeline/thread.mjs';
 import { catalogIds, loadCatalog } from '../src/brain/prompts.mjs';
 import { needsWork } from '../src/supervisor/run.mjs';
 import { digestNumbers } from '../src/supervisor/digest.mjs';
+import { tempDir } from './tmp.mjs';
 
 const NOW = new Date('2026-10-25T03:00:00Z');
 
 function makeInstance(edit = (c) => c) {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-triage-'));
+  const dir = tempDir('fsw-triage-');
   for (const f of ['profile.json', 'business.json']) copyFileSync(join(exampleDir, f), join(dir, f));
   const config = JSON.parse(readFileSync(join(exampleDir, 'config.json'), 'utf8'));
   config.notify = { toast: false, webhookUrl: null };

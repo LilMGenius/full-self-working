@@ -1,16 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { listApprovals, resolveApproval } from '../src/brain/approvals.mjs';
 import { flushApprovals, processThread } from '../src/pipeline/thread.mjs';
+import { tempDir } from './tmp.mjs';
 
 function makeInstance() {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-pipe-'));
+  const dir = tempDir('fsw-pipe-');
   for (const f of ['profile.json', 'business.json']) copyFileSync(join(exampleDir, f), join(dir, f));
   const config = JSON.parse(readFileSync(join(exampleDir, 'config.json'), 'utf8'));
   config.notify = { toast: false, webhookUrl: null };

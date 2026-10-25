@@ -1,13 +1,13 @@
 // Synthetic rates only: no figure here is a real exchange rate.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { FX_SOURCE, fxNote, loadFx, toKRW } from '../src/economics/fx.mjs';
+import { tempDir } from './tmp.mjs';
 
 const answer = { amount: 1, base: 'USD', date: '2026-10-23', rates: { EUR: 0.8, KRW: 1300 } };
-const instanceIn = () => ({ paths: { market: join(mkdtempSync(join(tmpdir(), 'fsw-fx-')), 'market') } });
+const instanceIn = () => ({ paths: { market: join(tempDir('fsw-fx-'), 'market') } });
 const fakeFetch = (reply) => {
   const calls = [];
   const get = async (url) => (calls.push(url), typeof reply === 'function' ? reply() : { ok: true, status: 200, json: async () => reply });

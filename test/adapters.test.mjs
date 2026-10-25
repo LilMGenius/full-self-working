@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createPacingGuard, resolveOmowrightScript } from '../src/browser/driver.mjs';
 import { redactDigits, snippet } from '../src/platforms/kit.mjs';
@@ -9,6 +8,7 @@ import * as kmong from '../src/platforms/kmong/parse.mjs';
 import * as soomgo from '../src/platforms/soomgo/parse.mjs';
 import { openKmong } from '../src/platforms/kmong/adapter.mjs';
 import { openSoomgo } from '../src/platforms/soomgo/adapter.mjs';
+import { tempDir } from './tmp.mjs';
 
 // A stand-in driver session: page extractors are answered by function name, and every action is logged
 // so a test can prove a refusal happened before anything touched the page.
@@ -64,7 +64,7 @@ test('actions stop at the hourly cap and free up once the hour rolls over', asyn
 });
 
 test('the newest omo version directory wins, and FSW_OMOWRIGHT overrides it', () => {
-  const root = mkdtempSync(join(tmpdir(), 'fsw-omo-'));
+  const root = tempDir('fsw-omo-');
   for (const v of ['5.1.9', '5.1.45', '5.1.100-beta']) {
     const dir = join(root, v, 'skills', 'browser', 'scripts');
     if (v !== '5.1.100-beta') {

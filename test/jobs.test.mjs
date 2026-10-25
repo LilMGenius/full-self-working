@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { crc32, deflateSync } from 'node:zlib';
 import { imageSize, runAcceptance } from '../src/jobs/accept.mjs';
@@ -13,6 +12,7 @@ import { openLedger } from '../src/core/ledger.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { codexArgs } from '../src/brain/codex.mjs';
 import { parseJobAnswer, parseJwcStream } from '../src/brain/jwc.mjs';
+import { tempDir } from './tmp.mjs';
 
 // A real PNG of the given size (white, 8-bit grey), so the header parser reads what a renderer writes.
 function png(width, height) {
@@ -35,7 +35,7 @@ function png(width, height) {
 }
 
 function workDir(files) {
-  const job = mkdtempSync(join(tmpdir(), 'fsw-accept-'));
+  const job = tempDir('fsw-accept-');
   const work = join(job, 'work');
   for (const [rel, body] of Object.entries(files)) {
     mkdirSync(dirname(join(work, rel)), { recursive: true });
@@ -116,7 +116,7 @@ test('a check that cannot run is a failure with its cause', async () => {
 
 // A throwaway instance from examples/instance with toast and webhook off.
 function makeInstance() {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-jobs-'));
+  const dir = tempDir('fsw-jobs-');
   for (const f of ['profile.json', 'business.json']) copyFileSync(join(exampleDir, f), join(dir, f));
   const config = JSON.parse(readFileSync(join(exampleDir, 'config.json'), 'utf8'));
   config.notify = { toast: false, webhookUrl: null };
@@ -256,7 +256,7 @@ test('a recipe with executor jwc runs its turns through runJwc and never codex',
   const ledger = openLedger(':memory:');
   const job = seedJob(ledger, { platform: 'soomgo' });
   ledger.addPayment({ jobId: job.id, kind: 'deposit', amountKRW: 150000, channel: 'soomgo', evidence: '숨고페이 결제 완료' });
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-recipes-'));
+  const dir = tempDir('fsw-recipes-');
   writeFileSync(join(dir, 'copywriting.json'), JSON.stringify({ ...loadRecipe('copywriting'), executor: 'jwc' }));
   const jwc = fakeCodex([{ 'copy/variant-a.md': '# 빵집\n\n매일 아침 굽습니다.\n', 'copy/variant-b.md': '# 빵집\n\n동네 빵입니다.\n' }]);
   const r = await runJob(job.id, { instance, ledger, recipeDir: dir, runCodex: noCodex, runJwc: jwc, notify: quiet });

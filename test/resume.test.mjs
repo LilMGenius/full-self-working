@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildResume, checkResume, formatPeriod, resumeHtml, resumeLines, resumeModel } from '../src/profile/resume.mjs';
 import { fontProblems, pdfFonts, pdfPageCount, platformFontProblems } from '../src/render/fonts.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { run } from '../src/cli/profile.mjs';
+import { tempDir } from './tmp.mjs';
 
 // A synthetic operator: English facts with Korean renderings on some entries, links and a handle that
 // must never print, one contribution to someone else's project.
@@ -35,7 +35,7 @@ const PROFILE = {
 };
 
 const instanceAt = (dir, profile = PROFILE) => ({ dir, profile, business: {}, config: {} });
-const temp = () => mkdtempSync(join(tmpdir(), 'fsw-resume-'));
+const temp = () => tempDir('fsw-resume-');
 const FAKE_PDF = '%PDF-1.4\n1 0 obj << /Type /Pages /Count 1 >> endobj\n2 0 obj << /Type /Page /Parent 1 0 R >> endobj\n3 0 obj << /Type /Font /Subtype /Type3 >> endobj\n%%EOF\n';
 
 function fakeRenderer({ platformFonts = [{ familyName: 'Pretendard Variable', isCustomFont: true, glyphCount: 120 }], pdf = FAKE_PDF } = {}) {

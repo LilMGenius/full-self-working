@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { run } from '../src/cli/services.mjs';
+import { tempDir } from './tmp.mjs';
 
 function setup(decisions) {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-services-'));
+  const dir = tempDir('fsw-services-');
   writeFileSync(join(dir, 'soomgo-service-items.json'), JSON.stringify(decisions));
   const events = [];
   const ctx = { instance: { paths: { platforms: dir } }, session: {}, ledger: { addEvent: (e) => events.push(e) }, log: () => {} };

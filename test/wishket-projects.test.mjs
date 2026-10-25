@@ -2,8 +2,7 @@
 // real project pages never enter the repository.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { copyFileSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
@@ -16,6 +15,7 @@ import {
 } from '../src/platforms/wishket/projects.mjs';
 import { boardDrop, needsJudgement, projectFloorKRW, projectMemory, rankProjects, scoreProject } from '../src/projects/score.mjs';
 import { buildCriticPrompt, buildProposalPrompt, draftProposal, proposalPolicy, usedToday } from '../src/projects/draft.mjs';
+import { tempDir } from './tmp.mjs';
 
 const NOW = new Date('2026-10-25T03:00:00Z'); // 12:00 Seoul
 const CHROME = process.env.FSW_CHROME ?? DEFAULT_CHROME;
@@ -102,7 +102,7 @@ test('applying refuses by name until the signed-in form is mapped', () => {
 const wishket = loadDescriptor('wishket');
 
 function makeInstance() {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-wishket-score-'));
+  const dir = tempDir('fsw-wishket-score-');
   for (const f of ['profile.json', 'business.json']) copyFileSync(join(exampleDir, f), join(dir, f));
   const config = JSON.parse(readFileSync(join(exampleDir, 'config.json'), 'utf8'));
   config.notify = { toast: false, webhookUrl: null };
@@ -244,7 +244,7 @@ const detailPage = (ld) => '<!doctype html><html><head><meta charset="utf-8"><ti
   + '<p class="meeting-condition-data">서울특별시 강남구</p><a href="#pre_question">지원 전 질문</a><span class="comment-layer-count">3</span></body></html>';
 
 test('the reader pages through open projects and reads a detail page from its markup', { skip: !existsSync(CHROME) && 'Chrome not installed' }, async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-wishket-'));
+  const dir = tempDir('fsw-wishket-');
   const file = (name, html) => (writeFileSync(join(dir, name), html), pathToFileURL(join(dir, name)).href);
   const routes = new Map([
     ['https://www.wishket.com/project/', file('index.html', listPage(12, []))],

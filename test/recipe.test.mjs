@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { listRecipes, loadRecipe, RecipeError, resolveSkill, serviceCatalog, validateRecipe } from '../src/jobs/recipe.mjs';
 import { deliveryOf } from '../src/economics/catalog.mjs';
+import { tempDir } from './tmp.mjs';
 
 test('every service the agent delivers has a recipe that validates, and an operator service has none', () => {
   const services = Object.keys(serviceCatalog()).filter((s) => deliveryOf(serviceCatalog()[s]) === 'agent');
@@ -27,14 +27,14 @@ test('a broken recipe fails with errors naming the file and the path', () => {
 });
 
 test('loadRecipe throws a RecipeError carrying every error', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-recipe-'));
+  const dir = tempDir('fsw-recipe-');
   writeFileSync(join(dir, 'copywriting.json'), JSON.stringify({ service: 'copywriting', version: 0 }));
   assert.throws(() => loadRecipe('copywriting', { dir }), (err) => err instanceof RecipeError && err.errors.length >= 5 && err.errors.every((e) => e.startsWith('recipes/copywriting.json: ')));
   assert.throws(() => loadRecipe('nothing_here', { dir }), { code: 'FSW_RECIPE_MISSING' });
 });
 
 test('resolveSkill picks the newest plugin version by number and checks the declared name', () => {
-  const home = mkdtempSync(join(tmpdir(), 'fsw-skills-'));
+  const home = tempDir('fsw-skills-');
   const skill = (dir, name) => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'SKILL.md'), '---\nname: ' + name + '\n---\n');

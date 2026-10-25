@@ -1,8 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
@@ -10,6 +9,7 @@ import { acquireLock, effectiveMode, needsWork, pidAlive, readLock, releaseLock,
 import { writeDigest } from '../src/supervisor/digest.mjs';
 import { seoulParts } from '../src/core/clock.mjs';
 import { dueJobs, JOBS, nextWake, periodKey } from '../src/supervisor/schedule.mjs';
+import { tempDir } from './tmp.mjs';
 
 const at = (iso) => new Date(iso);
 const job = (id) => JOBS.find((j) => j.id === id);
@@ -66,7 +66,7 @@ test('the supervisor wakes on the next 5-minute Seoul mark', () => {
 // ---- run loop and lock ----
 
 function makeInstance(platforms) {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-sup-'));
+  const dir = tempDir('fsw-sup-');
   for (const f of ['profile.json', 'business.json']) copyFileSync(join(exampleDir, f), join(dir, f));
   const config = JSON.parse(readFileSync(join(exampleDir, 'config.json'), 'utf8'));
   config.notify = { toast: false, webhookUrl: null };

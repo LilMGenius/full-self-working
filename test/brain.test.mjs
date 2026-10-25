@@ -109,6 +109,22 @@ test('a request quote on a price-guide platform is priced from the guide and the
   assert.equal(r.decision.quote.split.parts.length, 2);
 });
 
+test('a request quote moves toward the budget the buyer stated without leaving the guide', async () => {
+  const instance = makeInstance();
+  const row = { platform: 'soomgo', service: 'landing_page_web', baseKRW: 500000, floorKRW: 100000, ceilingKRW: 2500000, costFloorKRW: 48000, viable: true, basis: { source: 'price-guide', p25: 100000, median: 500000, high: 2500000 } };
+  const quote = { amountKRW: 1, scope: ['5페이지 회사 소개 사이트', '문의 폼'], deliveryDays: 14, priceType: 'fixed', complexity: 1 };
+  const priced = async (budget) => {
+    const codex = fakeCodex([decision({ intent: 'quote_request', quote, reply: '요청하신 구성으로 진행합니다. 결제는 착수금과 잔금으로 나누어 받습니다.' })]);
+    const t = thread([{ direction: 'in', text: '웹 개발\n예산: 예시' }], { platform: 'soomgo', kind: 'request', quoteCostKRW: 1990, budget });
+    return (await decide(t, ctx(instance, 'soomgo', codex, { priceTable: [row] }))).decision.quote.amountKRW;
+  };
+  assert.equal(await priced({ minKRW: 1000000, maxKRW: 2000000 }), 1000000);
+  assert.equal(await priced({ minKRW: 5000000, maxKRW: null }), 2500000);
+  assert.equal(await priced({ minKRW: null, maxKRW: 300000 }), 300000);
+  assert.equal(await priced({ minKRW: null, maxKRW: 20000 }), 100000);
+  assert.equal(await priced(null), 500000);
+});
+
 test('a quote with no amount is blocked before any send', async () => {
   const { gateOutbound } = await import('../src/policy/gate.mjs');
   const g = gateOutbound({ platform: 'soomgo', kind: 'quote', text: '요청하신 범위로 진행합니다.' }, { descriptor: loadDescriptor('soomgo'), instance: makeInstance() });

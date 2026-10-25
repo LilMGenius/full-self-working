@@ -59,7 +59,7 @@ function marketFor(entries, platform, category) {
 }
 
 // The services.json field that names each platform's market category, read by pricing and sampling.
-export const CATEGORY_FIELD = { kmong: 'kmongCategory', soomgo: 'soomgoGuide' };
+export const CATEGORY_FIELD = { kmong: 'kmongCategory', soomgo: 'soomgoGuide', freelancer: 'freelancerJob' };
 
 export function buildPriceTable({ summary, services, profile, sellerStats, config, descriptors }) {
   const entries = summary?.entries;
@@ -125,7 +125,10 @@ export const guideOf = (row) => (row?.basis?.source === 'price-guide' ? { avgKRW
 // it is required wherever the descriptor says quotes are paid, since the descriptor holds no number.
 // A guide whose unit is per item (장 for photos) prices one item, and this quote has no quantity yet:
 // until the brain's request decision carries one and multiplies it here, such a quote covers one item.
-export function quoteForRequest({ guide, complexity, row, descriptor, config, quoteCostKRW }) {
+// A budget the buyer stated ({minKRW, maxKRW}, either side null) moves the price toward it without
+// leaving the guide: up to its minimum when the guide price is below what the buyer expects to pay,
+// down to its maximum when above.
+export function quoteForRequest({ guide, complexity, row, descriptor, config, quoteCostKRW, budget = null }) {
   const [cmin, cmax] = COMPLEXITY_RANGE;
   if (typeof complexity !== 'number' || complexity < cmin || complexity > cmax) {
     throw new RangeError(`complexity must be within [${cmin}, ${cmax}], got ${complexity}`);
@@ -137,7 +140,9 @@ export function quoteForRequest({ guide, complexity, row, descriptor, config, qu
   const quoteCost = paid ? requireNumber(quoteCostKRW, 'quoteCostKRW', 'FSW_QUOTE_COST_MISSING') : 0;
   const costFloorKRW = requireNumber(row?.costFloorKRW, 'row.costFloorKRW', 'FSW_PRICE_ROW_MISSING');
   const raw = avg * complexity;
-  const clamped = Math.min(max, Math.max(min, raw));
+  let clamped = Math.min(max, Math.max(min, raw));
+  if (budget?.minKRW) clamped = Math.max(clamped, Math.min(budget.minKRW, max));
+  if (budget?.maxKRW) clamped = Math.min(clamped, Math.max(budget.maxKRW, min));
   const minimum = ceilTo1000(costFloorKRW + quoteCost);
   const amountKRW = Math.max(roundTo1000(clamped), minimum);
   const net = sellerNet(amountKRW, descriptor).net - quoteCost;
@@ -148,7 +153,7 @@ export function quoteForRequest({ guide, complexity, row, descriptor, config, qu
     floorApplied: amountKRW === minimum && roundTo1000(clamped) < minimum,
     aboveGuide: amountKRW > max,
     aboveCeiling: row.ceilingKRW != null && amountKRW > row.ceilingKRW,
-    basis: { guideAvg: avg, guideMin: min, guideMax: max, complexity, raw, clamped, costFloorKRW },
+    basis: { guideAvg: avg, guideMin: min, guideMax: max, complexity, raw, budget, clamped, costFloorKRW },
   };
 }
 

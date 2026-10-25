@@ -161,12 +161,13 @@ export async function decide(thread, ctx) {
     const decision = parseDecision(data, ids);
     if (decision.quote) {
       // A buyer request on a platform with a price guide is priced here, not by the model: the guide
-      // average times the model's complexity, clamped to the guide and kept above the cost floor plus
-      // what sending the quote costs. The reply text carries no amount, since the form shows it.
+      // average times the model's complexity, clamped to the guide, moved inside the budget the buyer
+      // stated and kept above the cost floor plus what sending the quote costs. The reply text carries
+      // no amount, since the form shows it.
       const row = thread.kind === 'request' && decision.service ? priceRowFor(priceTable, descriptor.id, decision.service) : null;
       const guide = guideOf(row);
       if (guide && decision.quote.priceType === 'fixed') {
-        const priced = quoteForRequest({ guide, complexity: decision.quote.complexity, row, descriptor, config: instance.config, quoteCostKRW: thread.quoteCostKRW });
+        const priced = quoteForRequest({ guide, complexity: decision.quote.complexity, row, descriptor, config: instance.config, quoteCostKRW: thread.quoteCostKRW, budget: thread.budget });
         decision.quote.amountKRW = priced.amountKRW;
         decision.quote.pricing = priced.basis;
       }

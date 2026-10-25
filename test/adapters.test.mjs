@@ -193,6 +193,16 @@ test('soomgo requests map card props, Seoul times, unread from isRead and redact
   assert.deepEqual([r[1].unread, r[1].quotable, r[1].customer, r[1].at], [false, false, null, null]);
 });
 
+test('a soomgo budget answer becomes a KRW range, one-sided for 미만 and 이상, and null without an amount', () => {
+  const b = (a, q = '예산은 어느 정도 생각하시나요?') => soomgo.budgetFromAnswers([{ q: '서비스', a: '웹 개발' }, { q, a }]);
+  assert.deepEqual(b('100만원~200만원'), { minKRW: 1000000, maxKRW: 2000000 });
+  assert.deepEqual(b('100~200만원'), { minKRW: 1000000, maxKRW: 2000000 });
+  assert.deepEqual(b('50만원 미만'), { minKRW: null, maxKRW: 500000 });
+  assert.deepEqual(b('1,000만원 이상'), { minKRW: 10000000, maxKRW: null });
+  assert.equal(b('협의 후 결정'), null);
+  assert.equal(b('100만원~200만원', '원하는 시작일'), null);
+});
+
 test('soomgo request detail pairs questions with answers and reads the cash cost from the send label', () => {
   const d = soomgo.parseRequestDetail({
     id: 'abc123',

@@ -2,6 +2,7 @@
 // their components (Vue props on request cards, React props on chat rows); the adapter projects a
 // whitelist of fields in the page and these parsers turn them into records with redacted snippets.
 import { lines, redactDigits, seoulIso, snippet, squash, toInt } from '../kit.mjs';
+import { koreanAmount } from './market.mjs';
 
 // A platform notice kept as money evidence: digits runs redacted and the payout account line dropped,
 // so neither a phone number nor account digits reach the ledger.
@@ -30,6 +31,25 @@ export function parseRequests(rows) {
   }));
 }
 
+// The buyer's budget from the questionnaire: the answer to a question naming 예산, read as Korean
+// amounts. "100만원~200만원" gives both sides, "50만원 미만" or "이하" only a maximum and "1,000만원
+// 이상" only a minimum; "100~200만원" carries the unit once, so a bare number takes the answer's 만.
+// null when no question names the budget or its answer holds no amount (협의, 미정).
+export function budgetFromAnswers(answers) {
+  const answer = answers.find((x) => /예산/.test(x.q ?? ''))?.a;
+  if (!answer) return null;
+  const scale = /만/.test(answer) ? 1e4 : 1;
+  const amounts = String(answer).split(/[~∼〜]|에서/).map((part) => {
+    const n = koreanAmount(part);
+    return n && !/[만억천]/.test(part) ? n * scale : n;
+  }).filter((n) => Number.isFinite(n) && n > 0);
+  if (!amounts.length) return null;
+  if (amounts.length > 1) return { minKRW: Math.min(...amounts), maxKRW: Math.max(...amounts) };
+  if (/미만|이하|까지/.test(answer)) return { minKRW: null, maxKRW: amounts[0] };
+  if (/이상|초과|부터/.test(answer)) return { minKRW: amounts[0], maxKRW: null };
+  return { minKRW: amounts[0], maxKRW: amounts[0] };
+}
+
 // The request detail: questionnaire label/value pairs, customer block lines and the quote form.
 export function parseRequestDetail({ id, url, pairs = [], customerText = '', service = null, form = {} }) {
   const answers = [];
@@ -43,6 +63,7 @@ export function parseRequestDetail({ id, url, pairs = [], customerText = '', ser
     url,
     service,
     answers,
+    budget: budgetFromAnswers(answers),
     customer: { joined, uses: used ? toInt(used.match(/(\d+)회/)[1]) : null },
     quoteCostKRW: cost ? toInt(cost[1]) : null,
     quoteForm: {

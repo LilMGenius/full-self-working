@@ -88,7 +88,7 @@ function threadFromRead(full, { platform, ref, kind, stage, threadRef }) {
   const messages = kind === 'request'
     ? [{ direction: 'in', text: [full.title, full.text ?? full.body, ...(full.answers ?? []).map((a) => (a.q ? a.q + ': ' : '') + (a.a ?? a))].filter(Boolean).join('\n'), externalId: 'request', at: full.at }]
     : (full.messages ?? []);
-  return { platform, externalId: ref, kind, stage, customer: full.customer ?? threadRef.customer ?? null, title: full.title ?? threadRef.title ?? null, language: full.language ?? null, quoteCostKRW: full.quoteCostKRW ?? threadRef.quoteCostKRW ?? null, messages };
+  return { platform, externalId: ref, kind, stage, customer: full.customer ?? threadRef.customer ?? null, title: full.title ?? threadRef.title ?? null, language: full.language ?? null, quoteCostKRW: full.quoteCostKRW ?? threadRef.quoteCostKRW ?? null, budget: full.budget ?? null, messages };
 }
 
 function splitAmounts(quote) {

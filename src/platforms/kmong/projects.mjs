@@ -235,11 +235,13 @@ function pageMarkSubmit(labels) {
   return { found: true, text: b.innerText.trim(), disabled: !!b.disabled };
 }
 
-// A confirmation dialog after submit: one without a text field whose button confirms.
-function pageConfirm(labels) {
+// A confirmation dialog after submit: one without a visible text field whose button confirms. kmong's
+// final confirm is a SweetAlert2 popup, which carries hidden input and textarea elements of its own,
+// so only a visible field marks the form dialog.
+export function pageConfirm(labels) {
   const vis = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
-  const d = [...document.querySelectorAll('[role=dialog],[role=alertdialog]')].filter(vis).filter((x) => !x.querySelector('textarea, [contenteditable=true]')).at(-1);
-  const b = d && [...d.querySelectorAll('button')].find((x) => labels.includes(x.innerText.trim()) && !x.disabled);
+  const d = [...document.querySelectorAll('[role=dialog],[role=alertdialog]')].filter(vis).filter((x) => ![...x.querySelectorAll('textarea, [contenteditable=true]')].some(vis)).at(-1);
+  const b = d && [...d.querySelectorAll('button')].find((x) => labels.includes(x.innerText.trim()) && !x.disabled && vis(x));
   if (!b) return { pressed: null };
   const text = d.innerText.trim().slice(0, 300);
   b.click();

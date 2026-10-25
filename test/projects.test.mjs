@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
-import { assertSendable, parseProjectDetail, parseProjectRow, planForm, proposalDays, readbackProblems, REQUESTED_HEADING } from '../src/platforms/kmong/projects.mjs';
+import { assertSendable, CONFIRM_LABELS, pageConfirm, parseProjectDetail, parseProjectRow, planForm, proposalDays, readbackProblems, REQUESTED_HEADING } from '../src/platforms/kmong/projects.mjs';
 import { checkPlan, composeText, draftProposal, minimumKRW, proposalPolicy, proposalsLeft, sendDecision } from '../src/projects/draft.mjs';
 import { projectsJob, reviseApproval } from '../src/projects/job.mjs';
 import { getApproval, listApprovals, queueApproval } from '../src/brain/approvals.mjs';
@@ -300,4 +300,33 @@ test('the read back sees an unticked acknowledgement, the wrong choice and a cut
   cut.fields[4].checked = false;
   assert.deepEqual(readbackProblems(cut, fills), ['text field holds something else than what was written', 'acknowledgement [필수] ' + ACKS[0] + '. is not ticked']);
 });
+
+// A page model of kmong's proposal step as measured on 2026-10-25: the form dialog holds a visible
+// textarea and its own disabled 제안하기, and the final confirm is a SweetAlert2 dialog whose hidden
+// textarea belongs to the popup library. Page functions run against a minimal document.
+function node({ tag = 'div', text = '', visible = true, disabled = false, role = null, children = [] } = {}) {
+  const n = { tagName: tag.toUpperCase(), innerText: text, disabled, role, clicks: 0, children, getBoundingClientRect: () => (visible ? { width: 40, height: 20 } : { width: 0, height: 0 }), click: () => { n.clicks += 1; } };
+  const all = () => n.children.flatMap((c) => [c, ...c.all()]);
+  const matches = (c, selector) => selector.split(',').map((s) => s.trim()).some((s) => (s === '[role=dialog]' && c.role === 'dialog') || (s === '[role=alertdialog]' && c.role === 'alertdialog') || (s === 'textarea' && c.tagName === 'TEXTAREA') || (s === 'button' && c.tagName === 'BUTTON'));
+  n.all = all;
+  n.querySelectorAll = (selector) => all().filter((c) => matches(c, selector));
+  n.querySelector = (selector) => n.querySelectorAll(selector)[0] ?? null;
+  return n;
+}
+
+test('the final confirm is pressed in a dialog whose only text field is hidden', () => {
+  const form = node({ role: 'dialog', text: '제안 내용', children: [node({ tag: 'textarea' }), node({ tag: 'button', text: '제안하기', disabled: true })] });
+  const confirm = node({ tag: 'button', text: '제안하기' });
+  const popup = node({ role: 'dialog', text: '제안 후 내용을 수정할 수 없어요.\n이 내용으로 최종 제안할까요?', children: [node({ tag: 'textarea', visible: false }), node({ tag: 'button', text: '아니요', visible: false }), node({ tag: 'button', text: '취소' }), confirm] });
+  const page = node({ children: [form, popup] });
+  globalThis.document = page;
+  try {
+    assert.equal(pageConfirm(CONFIRM_LABELS).pressed, '제안하기');
+    assert.equal(confirm.clicks, 1);
+    assert.equal(form.children[1].clicks, 0);
+  } finally {
+    delete globalThis.document;
+  }
+});
+
 

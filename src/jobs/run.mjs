@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url';
 import { runCodex as defaultRunCodex } from '../brain/codex.mjs';
 import { DEFAULT_JWC_MODEL, runJwc as defaultRunJwc } from '../brain/jwc.mjs';
 import { nowSeoul } from '../core/clock.mjs';
-import { loadInstance } from '../core/instance.mjs';
+import { loadInstance, repoRoot } from '../core/instance.mjs';
 import { openLedger } from '../core/ledger.mjs';
 import { notifyOperator } from '../core/notify.mjs';
 import { loadDescriptor } from '../platforms/registry.mjs';
@@ -219,6 +219,8 @@ export function buildPrompt({ paths, recipe, skills, language, failures, executo
     '',
     'Customer-facing text is written in ' + language + '. ' + SLOP_RULES,
     'Pages load no remote fonts, scripts or images; embed or copy what they need into the working directory.',
+    // A deliverable is redistributed to the customer, so it may only carry fonts whose licence allows that.
+    'Use only fonts whose licence allows embedding and redistribution (SIL OFL and the like); Pretendard is on this machine at ' + join(repoRoot, 'assets', 'fonts', 'PretendardVariable.woff2') + ' with its OFL.txt beside it, copy both into the work when you use it. Never copy, subset or embed an operating system font (Malgun Gothic, Apple SD Gothic Neo, Segoe UI and the like); their licences forbid redistribution.',
     'Answer with JSON: summary (what you made), files (paths relative to the working directory) and openQuestions.',
   );
   if (executor === 'jwc') lines.push('End your final message with that JSON object in a json code block and nothing after it.');

@@ -8,10 +8,11 @@ import { createHash } from 'node:crypto';
 import { dayKey } from '../core/clock.mjs';
 import { gateOutbound } from '../policy/gate.mjs';
 import { CATEGORY_FIELD } from '../economics/pricing.mjs';
-import { decide as defaultDecide, isSystemNotice, loadGateRules } from '../brain/respond.mjs';
+import { decide as defaultDecide, isSystemNotice, loadGateRules, pendingInbound } from '../brain/respond.mjs';
 import { closeApproval, listApprovals, openApprovalFor, queueApproval } from '../brain/approvals.mjs';
 import { ordersWatched, recordMoney, stageFromLedger } from '../orders/money.mjs';
 import { flushOrderItems } from '../orders/flush.mjs';
+import { noteRevision } from '../orders/revision.mjs';
 import catalog from '../economics/services.json' with { type: 'json' };
 
 export const MODES = ['observe', 'draft', 'auto'];
@@ -167,6 +168,8 @@ export async function processThread({ platform, threadRef, adapter, ledger, inst
   const d = result.decision;
   ledger.upsertThread({ platform, externalId: ref, kind, service: d.service ?? undefined, language: d.language ?? undefined, status: d.intent, meta: { stage } });
   event('brain.decision', { intent: d.intent, service: d.service, action: result.action, confidence: d.confidence, modelCalls: result.modelCalls, needsOperator: d.needsOperator });
+  // A change request on delivered work reopens its job whatever happens to the reply.
+  await noteRevision({ instance, ledger, platform, thread: row, decision: d, text: pendingInbound(thread).map(msgText).join('\n'), now });
   if (result.action === 'none') return { action: 'none', intent: d.intent };
 
   const text = result.action === 'approval' ? result.draft : d.reply;

@@ -134,6 +134,21 @@ function deadlineOf(job, quote) {
 
 const constraintText = (c) => (c ? ' (' + Object.entries(c).map(([k, v]) => k + ' ' + v).join(', ') + ')' : '');
 
+// The brief section a revision run reads (src/orders/revision.mjs keeps the rounds on job.meta): every
+// included round so far, newest last.
+export function revisionBrief(job) {
+  const rounds = (job.meta?.revisions ?? []).filter((r) => !r.extra);
+  if (!rounds.length) return [];
+  return [
+    '## Revision requests',
+    '',
+    'The customer saw the delivered work and asked for these changes. Apply every one; where a request conflicts with the original brief, the request wins. Keep everything else as delivered.',
+    '',
+    ...rounds.map((r) => '- Round ' + r.round + ' (' + r.at.slice(0, 10) + '): ' + r.text.replace(/\n/g, ' ')),
+    '',
+  ];
+}
+
 export function buildBrief({ job, thread, messages, quote, recipe, service }) {
   const scope = agreedScope(job, quote);
   const language = thread?.language ?? job.meta?.language ?? 'ko';
@@ -151,6 +166,7 @@ export function buildBrief({ job, thread, messages, quote, recipe, service }) {
     '## Customer request',
     '',
     ...(inbound.length ? inbound.map((m) => '> ' + m.body.trim().replace(/\n/g, '\n> ') + '\n') : ['(no messages recorded)', '']),
+    ...revisionBrief(job),
     '## Agreed scope',
     '',
     ...scope.map((s) => '- ' + s),

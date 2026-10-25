@@ -124,13 +124,17 @@ test('runTick isolates a throwing platform pipeline and records its error', asyn
   assert.equal(ledger.listThreads({ platform: 'kmong' }).length, 1);
 });
 
-test('a poll checks the browser keeper before it opens any page', async () => {
+test('a tick with work checks the browser keeper once before its first job opens a page', async () => {
   const instance = makeInstance({ kmong: { enabled: true, mode: 'auto' } });
   const calls = [];
   const keeper = { check: async () => (calls.push('check'), { status: 'daemon started', daemon: true, browsers: 1, started: 4242 }) };
-  const s = await runTick({ instance, ledger: openLedger(':memory:'), now: new Date('2026-10-25T02:03:00Z'), state: { lastRuns: {} }, only: ['poll'], keeper, loadAdapter: async () => okAdapter(calls), forceMode: 'observe', persist: false });
+  const state = { lastRuns: {} };
+  const s = await runTick({ instance, ledger: openLedger(':memory:'), now: new Date('2026-10-25T02:03:00Z'), state, only: ['hourly', 'poll'], keeper, loadAdapter: async () => okAdapter(calls), forceMode: 'observe', persist: false });
   assert.deepEqual(calls, ['check', 'login', 'inbox']);
-  assert.equal(s.jobs[0].browser.status, 'daemon started');
+  assert.equal(s.browser.status, 'daemon started');
+  assert.equal(s.jobs.find((j) => j.job === 'hourly').browser.status, 'daemon started');
+  const idle = await runTick({ instance, ledger: openLedger(':memory:'), now: new Date('2026-10-25T02:04:00Z'), state, only: ['hourly', 'poll'], keeper, loadAdapter: async () => okAdapter(calls), forceMode: 'observe', persist: false });
+  assert.deepEqual([idle.jobs.length, calls.length], [0, 3]);
 });
 
 test('a missing adapter is reported as adapter missing and counted as a failure', async () => {

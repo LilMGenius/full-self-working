@@ -286,7 +286,7 @@ async function runPlatforms(ids, ctx, extra = {}) {
 export const JOB_HANDLERS = {
   async hourly(ctx) {
     const self = { pid: process.pid, uptimeMin: Math.round(process.uptime() / 60), rssMB: Math.round(process.memoryUsage().rss / 1048576), ledgerEvents: ctx.ledger.counts().events };
-    const browser = ctx.keeper ? await ctx.keeper.check(ctx.now) : { status: 'no keeper' };
+    const browser = ctx.browser ?? { status: 'no keeper' };
     // Observe platforms are not polled every 5 minutes, so their login and read pass runs here.
     const observeIds = Object.entries(ctx.instance.config.platforms ?? {}).filter(([, p]) => p.enabled && p.mode === 'observe').map(([id]) => id);
     const observed = observeIds.length ? await runPlatforms(observeIds, ctx) : { status: 'ok', platforms: [] };
@@ -296,11 +296,7 @@ export const JOB_HANDLERS = {
   async poll(ctx) {
     const ids = pollTargets(ctx.instance);
     if (!ids.length) return { status: 'skipped', detail: 'no platform in draft or auto mode' };
-    // The keeper's daemon is a child of the supervisor that started it and ends with it, so after a
-    // code handover nothing answers until a check starts a new one; every poll checks before the pages.
-    const browser = ctx.keeper ? await ctx.keeper.check(ctx.now) : null;
-    const out = await runPlatforms(ids, ctx);
-    return browser && browser.status !== 'daemon answering' ? { ...out, browser } : out;
+    return runPlatforms(ids, ctx);
   },
   async orders(ctx) {
     const { ordersJob } = await import('../orders/run.mjs');
@@ -415,10 +411,13 @@ export async function runTick(ctx = {}) {
   const forceMode = ctx.forceMode !== undefined ? ctx.forceMode : process.env.FSW_FORCE_MODE ?? null;
   effectiveMode('auto', forceMode);
   const handlers = { ...JOB_HANDLERS, ...ctx.handlers };
-  const job = { instance, ledger, now, forceMode, keeper: ctx.keeper, log: ctx.log ?? (() => {}), loadAdapter: ctx.loadAdapter, decide: ctx.decide };
   let due = dueJobs(state.lastRuns ?? {}, now, ctx.jobs ?? JOBS);
   if (ctx.only) due = due.filter((d) => ctx.only.includes(d.id));
-  const summary = { at: now.toISOString(), forceMode, jobs: [] };
+  // The keeper's daemon is a child of the supervisor that started it and ends with it, so after a code
+  // handover nothing answers until a check starts a new one; a tick with work checks before its first job.
+  const browser = due.length && ctx.keeper ? await ctx.keeper.check(now) : null;
+  const job = { instance, ledger, now, forceMode, keeper: ctx.keeper, browser, log: ctx.log ?? (() => {}), loadAdapter: ctx.loadAdapter, decide: ctx.decide };
+  const summary = { at: now.toISOString(), forceMode, jobs: [], ...(browser && browser.status !== 'daemon answering' ? { browser } : {}) };
   try {
     for (const { id, period } of due) {
       const started = Date.now();

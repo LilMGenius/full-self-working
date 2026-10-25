@@ -16,7 +16,8 @@
     "copywriting": "One page of sales or landing copy with two variants and the slop gate; the human checks claims.",
     "blog_writing": "One researched post of about 2,000 Korean characters with sources and the slop gate.",
     "kmongGig": "Category labels the kmong /my-gigs/new form shows for a listed service: root (1st level) and sub (2nd level), plus third when the form asks for a 3rd level.",
-    "kmongForm": "Values for the kmong gig edit form of that category, read from the live form 2026-10-25: meta is the 주요 특징 selects by label, packageSelects and packageChecks are package rows by label with one value per STANDARD, DELUXE, PREMIUM column (작업 기간 and 수정 횟수 come from the listing), scope is what each package covers and is handed to the copy writer so the package text and the form agree."
+    "kmongForm": "Values for the kmong gig edit form of that category, read from the live form 2026-10-25: meta is the 주요 특징 selects by label, packageSelects and packageChecks are package rows by label with one value per STANDARD, DELUXE, PREMIUM column (작업 기간 and 수정 횟수 come from the listing), scope is what each package covers and is handed to the copy writer so the package text and the form agree.",
+    "freelancerJob": "The Freelancer.com job (skill) whose active fixed-price projects are the service's market, matched by its exact name through the public jobs API; a service without one has no job there that sells the same deliverable."
   },
   "landing_page_web": {
     "ko": "랜딩페이지 제작",
@@ -30,6 +31,7 @@
       "scope": ["한 페이지, 5개 섹션 이내", "한 페이지, 8개 섹션 이내, 문의 폼 연결", "여러 페이지 구성, 페이지마다 10개 섹션 이내, 기능 3개까지"]
     },
     "soomgoGuide": "웹 디자인",
+    "freelancerJob": "Landing Pages",
     "agentHours": {
       "standard": 6,
       "deluxe": 14,
@@ -57,6 +59,7 @@
       "scope": ["화면 5개 이내, 로그인과 데이터 저장이 있는 웹 앱, 테스트와 설치 안내", "화면 10개 이내, 권한 구분과 관리자 화면, 테스트와 배포 안내", "화면 20개 이내, 외부 서비스 연동 1개, 테스트와 운영 안내"]
     },
     "soomgoGuide": "웹 개발",
+    "freelancerJob": "Web Development",
     "agentHours": {
       "standard": 30,
       "deluxe": 70,
@@ -83,6 +86,7 @@
       "scope": ["문서 하나 묶음에 답하는 챗봇 또는 반복 업무 하나의 자동화", "여러 문서와 도구 하나를 연결한 챗봇이나 자동화, 평가 대화 묶음 포함", "여러 도구와 업무 흐름을 잇는 자동화, 평가 보고서와 운영 안내 포함"]
     },
     "soomgoGuide": "챗봇 개발",
+    "freelancerJob": "AI Chatbot Development",
     "agentHours": {
       "standard": 12,
       "deluxe": 30,
@@ -109,6 +113,7 @@
       "scope": ["공개된 사이트 하나, 목록과 상세 수집, CSV 또는 엑셀 파일", "사이트 하나, 로그인 없는 동적 페이지와 페이지 넘김 처리, 재실행 안내", "사이트 여러 곳 또는 정기 실행 구성, 실행 파일과 재실행 안내"]
     },
     "soomgoGuide": "데이터 크롤링",
+    "freelancerJob": "Web Scraping",
     "agentHours": {
       "standard": 4,
       "deluxe": 10,
@@ -135,6 +140,7 @@
       "scope": ["엑셀 파일 하나의 반복 작업 하나를 매크로나 스크립트로 자동화", "파일 여러 개를 합치거나 나누는 작업 묶음 자동화, 사용 안내 포함", "여러 단계 업무 흐름 자동화, 실행 파일과 사용 안내 포함"]
     },
     "soomgoGuide": "매크로/VBA 개발",
+    "freelancerJob": "Excel VBA",
     "agentHours": {
       "standard": 3,
       "deluxe": 8,
@@ -187,6 +193,7 @@
     },
     "kmongCategoryId": 101,
     "soomgoGuide": "로고 디자인",
+    "freelancerJob": "Logo Design",
     "agentHours": {
       "standard": 4,
       "deluxe": 9,
@@ -213,6 +220,7 @@
     },
     "kmongCategoryId": 142,
     "soomgoGuide": "썸네일 제작",
+    "freelancerJob": "Banner Design",
     "agentHours": {
       "standard": 1,
       "deluxe": 2.5,
@@ -239,6 +247,7 @@
     },
     "kmongCategoryId": 104,
     "soomgoGuide": "사진 편집 및 보정",
+    "freelancerJob": "Photo Editing",
     "agentHours": {
       "standard": 0.5,
       "deluxe": 1.5,
@@ -264,6 +273,7 @@
     },
     "kmongCategoryId": 106,
     "soomgoGuide": "프레젠테이션 디자인",
+    "freelancerJob": "Presentations",
     "agentHours": {
       "standard": 3,
       "deluxe": 7,
@@ -289,6 +299,7 @@
       "scope": ["보내 주신 사진이나 영상으로 30초 이내 세로 숏폼 1편과 자막 파일", "보내 주신 영상으로 60초 이내 1편, 컷 편집과 자막, 화면 문구", "60초 이내 2편 또는 3분 이내 1편, 컷 편집과 자막, 화면 문구"]
     },
     "soomgoGuide": "영상 편집",
+    "freelancerJob": "Video Editing",
     "agentHours": {
       "standard": 4,
       "deluxe": 10,
@@ -307,6 +318,7 @@
     "en": "Korean to English translation",
     "kmongCategory": "번역 한영",
     "soomgoGuide": "영어 번역",
+    "freelancerJob": "Korean Translator",
     "agentHours": {
       "standard": 1.5,
       "deluxe": 4,
@@ -325,6 +337,7 @@
     "en": "Copywriting",
     "kmongCategory": null,
     "soomgoGuide": "문서/글 작성",
+    "freelancerJob": "Copywriting",
     "agentHours": {
       "standard": 2,
       "deluxe": 5,
@@ -349,6 +362,7 @@
       "scope": ["정보성 원고 1편, 2,000자 안팎, 출처 목록", "원고 1편, 3,500자 안팎, 소제목 구성과 출처 목록", "원고 3편, 편당 2,000자 안팎, 출처 목록"]
     },
     "soomgoGuide": null,
+    "freelancerJob": "Blog Writing",
     "agentHours": {
       "standard": 1.5,
       "deluxe": 4,

@@ -1,0 +1,87 @@
+// Synthetic pages and rates only: no fixture here is a copied page or a real exchange rate.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { jobsUrl, parseJobs, parseProjects, projectsUrl, sample as sampleFreelancer } from '../src/platforms/freelancer/market.mjs';
+import { latestSummary } from '../src/economics/market.mjs';
+import { run, targetsFor } from '../src/cli/market.mjs';
+
+const fx = { date: '2026-10-23', source: 'https://api.frankfurter.dev/v1/latest?base=USD', rates: { INR: 80, KRW: 1200, USD: 1 } };
+const project = (id, over = {}) => ({ id, type: 'fixed', seo_url: 'logo-design/Logo-' + id, title: 'Logo ' + id, currency: { code: 'USD' }, budget: { minimum: 30, maximum: 250 }, bid_stats: { bid_count: 12, bid_avg: 90 }, time_submitted: 1792800000, ...over });
+const success = (result) => ({ json: { status: 'success', result } });
+
+test('a freelancer project is a sample at its converted budget midpoint, and hourly or unpriced ones are counted by name', () => {
+  const { total, projects, skipped } = parseProjects({ total_count: 177, projects: [
+    project(1),
+    project(2, { currency: { code: 'INR' }, budget: { minimum: 1500, maximum: 12500 }, bid_stats: { bid_count: 3, bid_avg: 0 } }),
+    project(3, { type: 'hourly' }),
+    project(4, { budget: { minimum: 250, maximum: null } }),
+    project(5, { currency: { code: 'XTS' } }),
+  ] }, fx);
+  assert.equal(total, 177);
+  assert.deepEqual(skipped, { notFixed: 1, noBudget: 1, currency: 1 });
+  assert.deepEqual(projects[0], { url: 'https://www.freelancer.com/projects/logo-design/Logo-1', title: 'Logo 1', priceKRW: 168000, budget: { min: 30, max: 250, currency: 'USD' }, bids: 12, bidAvgKRW: 108000, postedAt: '2026-10-24T00:00:00.000Z', fx: { currency: 'USD', krwPerUnit: 1200, date: '2026-10-23', source: fx.source } });
+  assert.equal(projects[1].priceKRW, 105000);
+  assert.equal(projects[1].bidAvgKRW, null);
+  assert.deepEqual(parseJobs([{ id: 32, name: 'Logo Design' }, { name: 'no id' }]), new Map([['Logo Design', 32]]));
+});
+
+test('the freelancer sampler resolves jobs by name and fails a missing job or a non-JSON answer by name', async () => {
+  const targets = [{ category: 'Logo Design' }, { category: 'Banner Design' }, { category: 'No Such Job' }];
+  const pages = new Map([
+    [jobsUrl(targets.map((t) => t.category)), success([{ id: 32, name: 'Logo Design' }, { id: 26, name: 'Banner Design' }])],
+    [projectsUrl(32, 30), success({ total_count: 2, projects: [project(1), project(2)] })],
+    [projectsUrl(26, 30), { title: 'Just a moment...', text: 'Checking your browser' }],
+  ]);
+  let url;
+  const session = { navigate: async (u) => { url = u; }, evaluate: async () => pages.get(url) };
+  const { rows, errors } = await sampleFreelancer(session, targets, { fx, now: () => new Date('2026-10-25T03:00:00Z') });
+  assert.deepEqual(rows.map((r) => [r.platform, r.category, r.rank, r.priceKRW, r.listingTotal]), [['freelancer', 'Logo Design', 1, 168000, 2], ['freelancer', 'Logo Design', 2, 168000, 2]]);
+  assert.deepEqual(errors.map((e) => e.category), ['Banner Design', 'No Such Job']);
+  assert.match(errors[0].message, /Just a moment/);
+  assert.match(errors[1].message, /no Freelancer job named No Such Job/);
+});
+
+// A default run over a config that lists kmong (enabled) and freelancer (disabled): kmong pages give one
+// card each, freelancer pages answer from the synthetic API above.
+function overseasRun({ loadFx }) {
+  const dir = mkdtempSync(join(tmpdir(), 'fsw-overseas-'));
+  const instance = { config: { platforms: { kmong: { enabled: true, mode: 'auto' }, freelancer: { enabled: false, mode: 'observe' } } }, paths: { market: join(dir, 'market') } };
+  const opened = [];
+  const page = (url) => {
+    if (url.startsWith('https://kmong.com/')) return { total: '10', cards: [{ href: '/gig/1', text: '제목\n50,000원~\n판매자' }] };
+    if (url.includes('/jobs/?')) return success(targetsFor('freelancer').map((t, i) => ({ id: i + 1, name: t.category })));
+    return success({ total_count: 1, projects: [project(7)] });
+  };
+  const withPage = async (platform, fn) => {
+    opened.push(platform);
+    let url;
+    return fn({ navigate: async (u) => { url = u; }, evaluate: async () => page(url) });
+  };
+  const ctx = { instance, log: () => {}, now: () => new Date('2026-10-25T03:00:00Z'), withPage, loadFx };
+  return { instance, opened, go: () => run([], ctx) };
+}
+
+test('the default market run samples a configured platform that is not enabled, at the day\'s exchange rate', async () => {
+  const { instance, opened, go } = overseasRun({ loadFx: async () => fx });
+  const result = await go();
+  assert.equal(result.exitCode, 0);
+  assert.deepEqual([...new Set(opened)], ['kmong', 'freelancer']);
+  const freelancer = latestSummary(instance).entries.filter((e) => e.platform === 'freelancer');
+  assert.equal(freelancer.length, targetsFor('freelancer').length);
+  assert.ok(freelancer.every((e) => e.median === 168000 && e.n === 1));
+});
+
+test('without exchange rates the overseas categories fail by name, load no page, and the rest is still written', async () => {
+  const failure = Object.assign(new Error('no exchange rates'), { code: 'FSW_FX_UNAVAILABLE' });
+  const { instance, opened, go } = overseasRun({ loadFx: async () => { throw failure; } });
+  const result = await go();
+  assert.equal(result.exitCode, 1);
+  assert.ok(!opened.includes('freelancer'));
+  const fxErrors = result.errors.filter((e) => e.platform === 'freelancer');
+  assert.equal(fxErrors.length, targetsFor('freelancer').length);
+  assert.ok(fxErrors.every((e) => e.message === 'fx unavailable: no exchange rates'));
+  assert.ok(latestSummary(instance).entries.every((e) => e.platform === 'kmong'));
+});

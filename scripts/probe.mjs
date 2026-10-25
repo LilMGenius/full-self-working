@@ -28,18 +28,20 @@ export function summarize(value, depth = 0) {
   return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, summarize(v, depth + 1)]));
 }
 
-async function main() {
-  const args = process.argv.slice(2);
+// Returns the exit code: 0 when the operation ran, 1 when it failed, 2 on a usage error.
+export async function probe(argv) {
+  const args = [...argv];
   const outAt = args.indexOf('--out');
   const outDir = outAt >= 0 ? args.splice(outAt, 2)[1] : null;
   const [platform, op, arg] = args;
   if (!ADAPTERS[platform] || !READ_OPS.includes(op)) {
-    console.error(`usage: node scripts/probe.mjs <${Object.keys(ADAPTERS).join('|')}> <${READ_OPS.join('|')}> [arg] [--out dir]`);
-    process.exit(2);
+    console.error(`usage: fsw probe <${Object.keys(ADAPTERS).join('|')}> <${READ_OPS.join('|')}> [arg] [--out dir]`);
+    return 2;
   }
   const adapter = await ADAPTERS[platform]();
   const started = Date.now();
   let summary;
+  let code = 0;
   try {
     let result;
     if (op === 'dryRunSend') result = await adapter.send(arg, { text: 'fsw composer check', gate: { ok: true }, dryRun: true });
@@ -49,7 +51,7 @@ async function main() {
     summary = { platform, op, arg: arg ?? null, ok: true, seconds: Math.round((Date.now() - started) / 1000), loads: adapter.session.loads, result: summarize(result) };
   } catch (err) {
     summary = { platform, op, arg: arg ?? null, ok: false, code: err.code ?? null, error: err.message, loads: adapter.session.loads };
-    process.exitCode = 1;
+    code = 1;
   } finally {
     await adapter.stop();
   }
@@ -59,6 +61,7 @@ async function main() {
     mkdirSync(outDir, { recursive: true });
     writeFileSync(join(outDir, `${platform}-${op}${arg ? '-' + String(arg).replace(/\W+/g, '_').slice(0, 30) : ''}.json`), json + '\n');
   }
+  return code;
 }
 
-if (import.meta.url === `file:///${process.argv[1].replace(/\\/g, '/')}`) await main();
+if (process.argv[1] && import.meta.url === `file:///${process.argv[1].replace(/\\/g, '/')}`) process.exitCode = await probe(process.argv.slice(2));

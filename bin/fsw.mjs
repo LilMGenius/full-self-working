@@ -30,7 +30,7 @@ const VERBS = {
   help: 'show this help',
 };
 
-const HANDLERS = { init: 'init', profile: 'profile', doctor: 'doctor', tick: 'tick', run: 'run', schedule: 'schedule', market: 'market', price: 'price', approve: 'approvals', learn: 'learn', decide: 'decide', job: 'job', listings: 'listings', order: 'order', services: 'services', projects: 'projects', edits: 'edits' };
+const HANDLERS = { init: 'init', profile: 'profile', doctor: 'doctor', tick: 'tick', run: 'run', schedule: 'schedule', market: 'market', price: 'price', approve: 'approvals', learn: 'learn', decide: 'decide', job: 'job', listings: 'listings', order: 'order', services: 'services', projects: 'projects', edits: 'edits', probe: 'probe', publish: 'publish' };
 
 function help() {
   console.log('usage: fsw <verb> [args]\n');

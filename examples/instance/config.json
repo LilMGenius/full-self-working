@@ -127,6 +127,10 @@
     "wishket": {
       "certificate": null,
       "directSkills": null
+    },
+    "fiverr": {
+      "title": null,
+      "skillLevel": null
     }
   }
 }

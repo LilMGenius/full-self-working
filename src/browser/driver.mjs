@@ -123,14 +123,18 @@ export async function openSession(name, { platform = name, pacing, settleMs = 60
     },
     // For inputs that reformat on every keystroke (thousand separators), where fill() loses its
     // target: focus, empty the field with End and Backspace, then press each character (a space is the
-    // key named Space, since the engine rejects an empty key name). One action.
-    async typeKeys(target, text) {
+    // key named Space, since the engine rejects an empty key name). One action; keyGapMs paces the keys
+    // like a person typing.
+    async typeKeys(target, text, { keyGapMs = 0 } = {}) {
       guard.beforeAction();
       await session.focus(target);
       const length = await api.evaluate((sel) => document.querySelector(sel)?.value.length ?? 0, target);
       await session.press('End', { target });
       for (let i = 0; i < length; i++) await session.press('Backspace', { target });
-      for (const ch of String(text)) await session.press(ch === ' ' ? 'Space' : ch, { target });
+      for (const ch of String(text)) {
+        await session.press(ch === ' ' ? 'Space' : ch, { target });
+        if (keyGapMs > 0) await sleep(keyGapMs);
+      }
     },
     wheel: (opts) => session.wheel(opts),
     // Stages each file through the daemon's transfer channel, then hands them to the file input.

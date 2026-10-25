@@ -2,6 +2,7 @@
 // interface). Pages are read and clicked through DOM queries, never a whole-page snapshot, since one
 // stalled page stalls the BrowserSkill extension every agent shares (docs/DESIGN.md, Browser).
 import { gateOutbound } from '../policy/gate.mjs';
+import { challengeOf } from './kit.mjs';
 
 export const STATES = ['done', 'filled', 'needs-operator', 'unmapped'];
 export const result = (step, state, detail = '') => ({ step, state, detail });
@@ -169,9 +170,9 @@ export async function walkWizard(session, ctx, wiz) {
   const only = ctx.step ?? null;
   let url = await session.navigate(only && wiz.stepUrl ? wiz.stepUrl(only) : wiz.startUrl);
   for (let guard = 0; guard < 40; guard++) {
-    // A sign-in page is never the end of a wizard: the operator's session expired or never existed.
-    if (/\/(?:login|signin|sign-in|ab\/account-security\/login)\b/i.test(pathOf(url))) {
-      results.push(result(only ?? 'login', 'needs-operator', 'sign in to ' + wiz.name + ' in Chrome; ' + pathOf(url) + ' opened instead of the wizard'));
+    const blocked = await pageBlock(session, wiz.name);
+    if (blocked) {
+      results.push(result(only ?? 'login', 'needs-operator', blocked));
       break;
     }
     const id = wiz.stepOfUrl(url);
@@ -191,6 +192,12 @@ export async function walkWizard(session, ctx, wiz) {
     const r = await runStep(session, id, ctx, wiz);
     results.push(r);
     log(r.step + ': ' + r.state + (r.detail ? ' (' + r.detail + ')' : ''));
+    // A site that signs the session out or shows a challenge mid-step ends the walk at once.
+    const after = await pageBlock(session, wiz.name);
+    if (after) {
+      results.push(result(id, 'needs-operator', after));
+      break;
+    }
     if (r.state === 'needs-operator' || r.state === 'unmapped' || only) break;
     const pending = wiz.handlers[id].pending ? await wiz.handlers[id].pending(session) : null;
     if (pending) {
@@ -211,5 +218,42 @@ export async function walkWizard(session, ctx, wiz) {
     }
   }
   return results;
+}
+
+
+// A sign-in or bot-challenge page is never the end of a wizard: the site signed the operator out or
+// wants a person. Returns what the operator must do, or null.
+export const SIGN_IN_PATH = /\/(?:login|signin|sign-in|ab\/account-security\/login)\b/i;
+export function blockOf({ url = '', title = '', text = '' } = {}, name = 'the site') {
+  if (SIGN_IN_PATH.test(pathOf(url))) return 'sign in to ' + name + ' in Chrome; ' + pathOf(url) + ' opened instead of the wizard, so the walk stopped';
+  const challenge = challengeOf({ title, text });
+  if (challenge) return name + ' showed a ' + challenge + ' challenge; solve it in Chrome before the next run';
+  return null;
+}
+export async function pageBlock(session, name) {
+  const page = await session.evaluate(() => ({ url: location.href, title: document.title, text: String(document.body?.innerText ?? '').slice(0, 3000) }));
+  return blockOf(page ?? {}, name);
+}
+
+// Wraps a driver session so every action waits a random human-scale gap first and typing is paced
+// key by key (descriptor onboardingPacing.actionGapMs and keyGapMs, [min, max] in milliseconds).
+// Mapped 2026-10-26: upwork, freelancer and wishket signed the operator out after onboarding scripts
+// clicked and typed at machine speed, while sites polled at a slow pace stayed signed in.
+export function humanize(session, { actionGapMs = [0, 0], keyGapMs = [0, 0] } = {}, { wait = sleep, random = Math.random } = {}) {
+  const pick = ([lo, hi]) => Math.round(lo + random() * (hi - lo));
+  const paced = (name) => async (...args) => {
+    await wait(pick(actionGapMs));
+    return session[name](...args);
+  };
+  return Object.assign(Object.create(session), {
+    click: paced('click'),
+    fill: paced('fill'),
+    press: paced('press'),
+    setFiles: paced('setFiles'),
+    async typeKeys(target, text) {
+      await wait(pick(actionGapMs));
+      return session.typeKeys(target, text, { keyGapMs: pick(keyGapMs) });
+    },
+  });
 }
 

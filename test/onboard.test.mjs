@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { parseArgs, run } from '../src/cli/onboard.mjs';
-import { walkWizard } from '../src/platforms/onboarding.mjs';
+import { blockOf, humanize, walkWizard } from '../src/platforms/onboarding.mjs';
 import { parseSelectedSkills, skillOfResult } from '../src/platforms/freelancer/onboarding.mjs';
 import { employmentEntries, onboard, parseEmploymentCard, parsePeriod, splitTitle, stepOfUrl, upworkSpecialties } from '../src/platforms/upwork/onboarding.mjs';
 
@@ -17,8 +17,8 @@ function instance() {
 }
 
 test('onboard arguments are a platform, --apply and one --step id', () => {
-  assert.deepEqual(parseArgs(['upwork']), { platform: 'upwork', apply: false, step: null });
-  assert.deepEqual(parseArgs(['upwork', '--step', 'title', '--apply']), { platform: 'upwork', apply: true, step: 'title' });
+  assert.deepEqual(parseArgs(['upwork']), { platform: 'upwork', apply: false, step: null, force: false });
+  assert.deepEqual(parseArgs(['upwork', '--step', 'title', '--apply']), { platform: 'upwork', apply: true, step: 'title', force: false });
   assert.throws(() => parseArgs([]), /usage/);
   assert.throws(() => parseArgs(['upwork', '--step']), /usage/);
 });
@@ -27,7 +27,7 @@ test('a dry run passes apply false and records nothing; an applied filled step i
   const seen = [];
   const module = { STEPS: [{ id: 'a' }], onboard: async (s, ctx) => (seen.push(ctx.apply), [{ step: 'a', state: 'filled', detail: 'x' }]) };
   const events = [];
-  const ctx = { module, instance: instance(), descriptor: loadDescriptor('upwork'), session: {}, ledger: { addEvent: (e) => events.push(e) }, log: () => {} };
+  const ctx = { module, instance: instance(), descriptor: { ...loadDescriptor('upwork'), onboardingPacing: {} }, session: {}, ledger: { addEvent: (e) => events.push(e) }, log: () => {} };
   assert.equal(await run(['upwork'], ctx), 0);
   assert.deepEqual(events, []);
   assert.equal(await run(['upwork', '--apply'], ctx), 0);
@@ -101,7 +101,7 @@ test('a profile text the gate refuses is never typed and names the setting to ch
 
 
 test('a sign-in page stops the walk as the operator\'s to fix, never as a finished wizard', async () => {
-  const session = { navigate: async () => 'https://www.freelancer.com/login?next=%252Fnew-freelancer%252Fskills', evaluate: async () => null };
+  const session = { navigate: async () => 'https://www.freelancer.com/login?next=%252Fnew-freelancer%252Fskills', evaluate: async () => ({ url: 'https://www.freelancer.com/login?next=%252Fnew-freelancer%252Fskills', title: 'Log In', text: 'Welcome back' }) };
   const out = await walkWizard(session, { apply: false }, { name: 'freelancer', steps: [], handlers: {}, startUrl: 'x', stepUrl: null, stepOfUrl: () => null, describe: String });
   assert.equal(out.length, 1);
   assert.equal(out[0].state, 'needs-operator');
@@ -114,3 +114,36 @@ test('freelancer skill results and the selected panel read as plain skill names'
   assert.deepEqual(parseSelectedSkills('2 out of 20 skills selected\nWeb Scraping\nNode.js\n'), ['Web Scraping', 'Node.js']);
   assert.deepEqual(parseSelectedSkills('0 skills selected\nSelect at least one skill to help us recommend customized jobs for you.'), []);
 });
+
+test('a run within the cooldown of the last one stops before opening the browser, unless forced', async () => {
+  let t = 1_000_000;
+  const module = { STEPS: [{ id: 'a' }], onboard: async () => [{ step: 'a', state: 'done', detail: '' }] };
+  const lines = [];
+  const ctx = { module, instance: instance(), descriptor: { ...loadDescriptor('upwork'), onboardingPacing: { cooldownMs: 1_800_000 } }, session: {}, ledger: { addEvent() {} }, log: (l) => lines.push(l), now: () => t };
+  assert.equal(await run(['upwork'], ctx), 0);
+  t += 600_000;
+  assert.equal(await run(['upwork'], ctx), 1);
+  assert.match(lines.at(-1), /next may start in 20 min/);
+  assert.equal(await run(['upwork', '--force'], ctx), 0);
+  t += 1_800_001;
+  assert.equal(await run(['upwork'], ctx), 0);
+});
+
+test('a humanized session waits a gap in range before every action and paces typed keys', async () => {
+  const waits = [];
+  const calls = [];
+  const base = { click: async (t) => calls.push(['click', t]), typeKeys: async (t, v, o) => calls.push(['type', v, o.keyGapMs]), evaluate: async () => 'kept' };
+  const s = humanize(base, { actionGapMs: [2000, 4000], keyGapMs: [100, 200] }, { wait: async (ms) => waits.push(ms), random: () => 0.5 });
+  await s.click('#a');
+  await s.typeKeys('#b', 'hi');
+  assert.deepEqual(waits, [3000, 3000]);
+  assert.deepEqual(calls, [['click', '#a'], ['type', 'hi', 150]]);
+  assert.equal(await s.evaluate(), 'kept');
+});
+
+test('a sign-in or challenge page blocks the walk and an ordinary wizard page does not', () => {
+  assert.match(blockOf({ url: 'https://www.upwork.com/ab/account-security/login?redir=x' }, 'upwork'), /sign in to upwork/);
+  assert.match(blockOf({ url: 'https://www.freelancer.com/x', title: 'Just a moment...' }, 'freelancer'), /cloudflare challenge/);
+  assert.equal(blockOf({ url: 'https://www.upwork.com/nx/create-profile/title', title: 'Add a title', text: 'Log in to see more' }, 'upwork'), null);
+});
+

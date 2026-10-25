@@ -46,10 +46,19 @@
     "maxMessagesPerHour": 10
   },
   "onboardingPacing": {
-    "minGapMs": 10000,
-    "maxActionsPerHour": 240,
+    "minGapMs": 20000,
+    "maxActionsPerHour": 120,
     "maxMessagesPerHour": 0,
-    "notes": "fsw onboard walks the signup wizard once at a person's pace, a few seconds per field, which the 30-action hourly cap for polling would stretch over hours; no message is sent."
+    "actionGapMs": [
+      2500,
+      6000
+    ],
+    "keyGapMs": [
+      80,
+      220
+    ],
+    "cooldownMs": 1800000,
+    "notes": "fsw onboard walks the signup wizard once at a person's pace: a 2.5 to 6 s gap before each action, keys typed 80 to 220 ms apart, page loads 20 s apart and at most one run per 30 minutes. On 2026-10-26 the site signed the operator out after scripts drove its wizard at machine speed. No message is sent."
   },
   "limits": {
     "message": {

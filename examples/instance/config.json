@@ -133,6 +133,20 @@
     "fiverr": {
       "title": null,
       "skillLevel": null
+    },
+    "upwork": {
+      "experience": "FREELANCED_BEFORE",
+      "goal": "MONEY_ON_SIDE",
+      "workPreferences": [
+        "talentMarketplace"
+      ],
+      "contractToHire": false,
+      "title": "Web developer for landing pages and web apps",
+      "skills": [
+        "Web Development",
+        "JavaScript"
+      ],
+      "hourlyRateUSD": null
     }
   }
 }

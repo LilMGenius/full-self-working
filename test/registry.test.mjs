@@ -34,6 +34,13 @@ test('whole-amount tiers must never raise the rate, and an unknown tier basis is
   assert.throws(() => validateDescriptor(odd, 'wishket'), (e) => e.code === 'FSW_DESCRIPTOR_INVALID' && e.path === 'fees.sellerTierBasis');
 });
 
+test('wishket forbids identifying details, and an identity rule other than allowed or forbidden is refused', () => {
+  assert.equal(loadDescriptor('wishket').contactPolicy.identity, 'forbidden');
+  const odd = structuredClone(loadDescriptor('wishket'));
+  odd.contactPolicy.identity = 'sometimes';
+  assert.throws(() => validateDescriptor(odd, 'wishket'), (e) => e.code === 'FSW_DESCRIPTOR_INVALID' && e.path === 'contactPolicy.identity');
+});
+
 test('a descriptor missing a required path throws FSW_DESCRIPTOR_INVALID naming it', () => {
   const broken = structuredClone(loadDescriptor('kmong'));
   delete broken.pacing.minGapMs;

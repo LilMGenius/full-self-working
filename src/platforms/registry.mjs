@@ -50,6 +50,9 @@ export function validateDescriptor(d, id = d?.id) {
   }
   const basis = d.fees.sellerTierBasis;
   if (basis !== undefined && !['marginal', 'whole'].includes(basis)) throw invalid(id, 'fees.sellerTierBasis', `unexpected value ${JSON.stringify(basis)}`);
+  // identity "forbidden" makes the gate block the operator's names (src/policy/gate.mjs identityNames).
+  const identity = d.contactPolicy.identity;
+  if (identity !== undefined && !['allowed', 'forbidden'].includes(identity)) throw invalid(id, 'contactPolicy.identity', 'unexpected value ' + JSON.stringify(identity));
   // A whole-amount tier that raised the rate would net less on a larger gross, and the cost floor's
   // search needs net to grow with gross.
   if (basis === 'whole' && !(Array.isArray(d.fees.seller) && d.fees.seller.every((t, i, all) => i === 0 || t.rate <= all[i - 1].rate))) {

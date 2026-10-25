@@ -68,3 +68,24 @@ test('price, slop, length and learned rules apply', () => {
   const lessonsRules = [{ id: 'no-rush', pattern: '당일\\s*완성', reason: 'same-day promises led to revisions', tier: 'floor' }];
   assert.deepEqual(rules(run('kmong', '당일 완성 가능합니다', { lessonsRules })), ['learned.no-rush']);
 });
+
+test('wishket blocks the operator names and trade names, and kmong does not', () => {
+  const named = {
+    ...instance,
+    profile: {
+      ...instance.profile,
+      person: { nameKo: '홍길동', nameEn: 'Gildong Hong', handle: 'gildong' },
+      roles: [{ org: 'Example Studio', org_ko: '예시스튜디오 (Example Studio)', title: 'Founder/CEO' }, { org: '예시전자', title: 'AI Engineer' }, { org: 'Independent', org_ko: '프리랜서', title: 'Instructor' }],
+    },
+    business: { ...instance.business, company: '예시상사' },
+  };
+  const wishket = (text, attachments) => gateOutbound({ platform: 'wishket', kind: 'proposal', text, attachments, thread: { stage: 'pre_order' } }, { descriptor: loadDescriptor('wishket'), instance: named });
+  for (const text of ['안녕하세요, 홍길동입니다.', 'GILDONG HONG drafted this plan.', '깃허브 gildong 계정의 저장소를 참고해 주세요.', '예시상사에서 진행합니다.', '예시스튜디오를 운영하며 쌓은 경험입니다.', 'Example  Studio built the admin.']) {
+    assert.ok(rules(wishket(text)).includes('identity.name'), text);
+  }
+  assert.ok(rules(wishket('첨부를 확인해 주세요.', ['예시상사_포트폴리오.pdf'])).includes('identity.name'), 'an attachment name is scanned too');
+  for (const text of ['예시전자 같은 대기업 경험은 적지 않겠습니다.', '프리랜서로 일하며 만든 관리자 화면입니다.', 'gildongs and 길동무 are other words.']) {
+    assert.ok(!rules(wishket(text)).includes('identity.name'), text);
+  }
+  assert.ok(!rules(run('kmong', '안녕하세요, 홍길동입니다.', { inst: named })).includes('identity.name'));
+});

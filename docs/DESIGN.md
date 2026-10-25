@@ -90,6 +90,7 @@ A payment row is written only from evidence (a platform order state or a bank de
 `gateOutbound({platform, kind, text, attachments, amountKRW, thread}, {descriptor, instance, priceTable, lessonsRules})` applies these rules and returns every violation with its rule id:
 
 - contact: phone numbers, e-mail addresses, URLs, messenger IDs and the payout account are blocked unless `descriptor.contactPolicy` allows that class at the thread's stage.
+- identity: where `descriptor.contactPolicy.identity` is `forbidden` (위시켓's terms bar names, marks and contact details on the platform), the operator's names are blocked in the text and attachment names: the person's names and handle, the payout holder, the business name and every organisation a profile role shows the person founding or heading.
 - payment: off-platform payment wording and the payout account are blocked where `descriptor.offPlatformPayment` is false; a payout account is released only on a platform that allows direct transfer and only after a quote was accepted.
 - price: a quote outside the price table's [floor, ceiling] for its service is blocked.
 - claims: a number attached to a unit of experience (years, projects, clients, percent) must appear in `profile.approvedClaims`; a client or employer name must appear in the profile; anything in `claimsNotToMake` is blocked.

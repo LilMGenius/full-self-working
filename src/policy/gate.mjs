@@ -76,6 +76,26 @@ function payoutMatchers(business) {
   return out;
 }
 
+// The operator's names on a platform whose terms bar identifying details (contactPolicy.identity
+// "forbidden", as on 위시켓): the person's names and handle, the payout holder, the business name and
+// every organisation the profile's roles show the person founding or heading, since each of those is a
+// trade name. An employer or a school is not one, and the brain's prompts keep those out instead.
+const OWNER_TITLE = /founder|owner|\bceo\b|대표|창업/i;
+
+export function identityNames(instance = {}) {
+  const profile = instance.profile ?? {};
+  const owned = (profile.roles ?? []).filter((r) => OWNER_TITLE.test([r.title, r.title_ko].filter(Boolean).join(' '))).flatMap((r) => [r.org, r.org_ko]);
+  const raw = [profile.person?.nameKo, profile.person?.nameEn, profile.person?.handle, instance.business?.payout?.holder, instance.business?.company, ...owned];
+  const names = raw.filter((n) => typeof n === 'string').flatMap((n) => [n.split(/\s*[(,]/)[0], n.match(/\(([^)]+)\)/)?.[1]]);
+  return [...new Set(names.filter(Boolean).map((n) => n.trim()).filter((n) => n.length >= 2))];
+}
+
+// A Latin name matches as a whole word in any case (bran is not brand); any name may be spaced.
+function namePattern(name) {
+  const body = name.split(/\s+/).map((w) => w.replace(/[.*+?^$(){}|[\]\\]/g, '\\$&')).join('\\s*');
+  return /^[\x20-\x7E]+$/.test(name) ? new RegExp('(?<![A-Za-z0-9])' + body + '(?![A-Za-z0-9])', 'i') : new RegExp(body);
+}
+
 export function gateOutbound(item, ctx = {}) {
   const violations = [];
   const warnings = [];
@@ -116,6 +136,14 @@ export function gateOutbound(item, ctx = {}) {
     }
   }
   for (const s of spansOf(MESSENGER_RE, scan)) contact('messenger', s.value);
+
+  // identity
+  if (policy.identity === 'forbidden') {
+    for (const name of identityNames(instance)) {
+      const hit = scan.match(namePattern(name));
+      if (hit) add(violations, 'identity.name', '"' + hit[0] + '" identifies the seller, which ' + descriptor.id + ' forbids');
+    }
+  }
 
   // price
   if (item.kind === 'quote') {

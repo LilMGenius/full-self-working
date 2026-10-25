@@ -30,23 +30,28 @@
   },
   "escrow": true,
   "milestones": "native",
-  "splitMechanism": "Staged payments per contract through 위시켓 escrow; the current structure is unverified.",
+  "splitMechanism": "At signing the client deposits the contract amount with 위시켓, which holds it until the project ends and then pays the partner (대금보호시스템, official partner guide). Whether a contract can pay an advance (선급금) in stages is unverified: the help article on it no longer opens.",
   "contactPolicy": {
     "preOrder": [],
     "postOrder": [],
     "allowedHosts": [
       "wishket.com"
     ],
-    "notes": "unknown; kept closed until a source is read"
+    "identity": "forbidden",
+    "notes": "The terms (제10조 (4), in force since 2024-03-25) bar requesting or entering on 위시켓, without its prior consent, anything that makes a member easy to identify: a trade or personal name, a logo or other mark, an address, a phone number or an e-mail address, and any publication or external link that carries them. Proposing or accepting a deal that bypasses 위시켓, an indirect one included such as asking for a quote for a direct deal, is barred for one year from the project's registration. identity forbidden makes the gate block the operator's names in every outbound item."
   },
   "offPlatformPayment": false,
   "automation": {
     "officialAutoReply": "unknown",
-    "forbidden": [],
-    "notes": "unknown"
+    "forbidden": [
+      "spam or flooding (terms 제10조 (5))",
+      "contacting another member directly to propose a direct deal or to advertise (terms 제10조)",
+      "macro programs that infringe or may infringe others' rights (terms 제10조 (7))"
+    ],
+    "notes": "No rule on automated reading or on AI-written applications was found in the terms; reads stay at descriptor pacing, and nothing is sent while the apply form is unmapped."
   },
-  "aiPolicy": "unknown",
-  "taxInvoice": "A business partner issues a tax invoice for the amount it receives; an individual partner has 3.3% withheld and 위시켓 files the tax for them (official price page).",
+  "aiPolicy": "The terms say nothing about AI. 위시켓 itself offers PRIME and PRO partners application content that its AI writes from their profile (official partner grade page), so an AI-assisted proposal is a service the platform provides; no disclosure rule was found.",
+  "taxInvoice": "A business partner issues a tax invoice for the amount it receives; an individual partner has 3.3% withheld and 위시켓 files the tax for them (official price page). The terms count a tax invoice issued at will, late or not at all as obstruction of business (제10조 (5)).",
   "pacing": {
     "minGapMs": 10000,
     "maxActionsPerHour": 30,
@@ -64,13 +69,24 @@
     },
     "profile": {
       "maxChars": "unknown"
+    },
+    "proposal": {
+      "maxChars": "unknown"
     }
+  },
+  "projects": {
+    "form": "An application carries an amount, a period and its content, with related portfolio items attached; the contract amount and period can still change at the meeting (official partner guide). The signed-in form itself, its character limits and any pre-screening questions are unmapped.",
+    "meetings": "A client can ask up to 4 applicants for a meeting and reviews applicants for up to 10 days after recruiting closes (official partner guide).",
+    "privateMatching": "프라이빗 매칭 projects show their text only to PRIME, PRO and BOOST partners, and PRIME and PRO partners apply to them without restriction. PRO for an individual, team or sole-proprietor partner takes a written introduction and skills, at least 5 public portfolio items, a public career entry, 3 contracts, 10,000,000 KRW contracted in total and 3,000,000 KRW in the last 6 months, a high rating, a low dispute rate and no breach of the terms in 12 months (official partner grade page, criteria dated 2024-07-01); BOOST is a membership applied for through 위시켓."
   },
   "rankingSignals": [
     "portfolio, reviews and manager recommendation (secondary)"
   ],
   "sources": [
     "https://support.wishket.com/customer-support/price/",
+    "https://auth.wishket.com/terms/service",
+    "https://support.wishket.com/customer-support/partner/use-guide",
+    "https://support.wishket.com/customer-support/partner/grade/",
     "https://www.wishket.com/news-center/detail/806/",
     "https://blog.wishket.com/blog/freelancer-platform-comparison"
   ]

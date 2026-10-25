@@ -7,7 +7,7 @@
 import catalog from '../../economics/services.json' with { type: 'json' };
 import { existsSync } from 'node:fs';
 import { answeredServices } from '../../economics/catalog.mjs';
-import { clickMatch, clickVisible, gated, Needs, needs, pathOf, pickDate, pickOption, readIdentity, sleep, typeInto, waitFor, walkWizard } from '../onboarding.mjs';
+import { clickMatch, clickVisible, gated, googleSignIn, Needs, needs, pathOf, pickDate, pickOption, readIdentity, sleep, typeInto, waitFor, walkWizard } from '../onboarding.mjs';
 
 export const START = 'https://www.upwork.com/nx/create-profile/';
 const BASE = '/nx/create-profile/';
@@ -528,4 +528,5 @@ export const onboard = (session, ctx) =>
     stepOfUrl,
     describe,
     advance: (s) => s.click(NEXT),
+    signIn: (s, ctx) => googleSignIn(s, { button: /^Continue with Google$/, email: readIdentity(ctx).googleEmail }),
   });

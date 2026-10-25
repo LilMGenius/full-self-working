@@ -171,6 +171,22 @@ test('a private step that reads back wrong names the fields and never their valu
   assert.equal(UPWORK.location.same({ ...want, phone: '821000001111' }, want), true);
 });
 
+test('under --apply a sign-in page signs in once and reopens the wizard', async () => {
+  const pages = ['https://x.test/login', 'https://x.test/wizard/a'];
+  let at = 0;
+  const session = { navigate: async () => pages[Math.min(at, 1)], evaluate: async () => ({ url: pages[Math.min(at, 1)], title: '', text: '' }) };
+  const signIns = [];
+  const wiz = { name: 'x', steps: [{ id: 'a', detect: {} }], handlers: { a: { read: async () => 1, want: () => 1, same: (c, w) => c === w } }, startUrl: 'https://x.test/wizard/a', stepUrl: null, stepOfUrl: (u) => (u.includes('/wizard/') ? 'a' : null), describe: String, signIn: async () => (signIns.push(1), (at = 1)) };
+  const out = await walkWizard(session, { apply: true, step: 'a' }, wiz);
+  assert.deepEqual(out.map((r) => r.step + ':' + r.state).slice(0, 2), ['sign-in:filled', 'a:done']);
+  assert.equal(signIns.length, 1);
+  at = 0;
+  const dry = await walkWizard(session, { apply: false, step: 'a' }, wiz);
+  assert.equal(dry[0].state, 'needs-operator');
+  assert.equal(signIns.length, 1);
+});
+
+
 test('a date picker day is found by its full label', () => {
   assert.equal(dayLabel('1990-01-05'), 'January 05, 1990');
   assert.equal(dayLabel('2001-12-31'), 'December 31, 2001');

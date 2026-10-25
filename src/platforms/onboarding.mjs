@@ -176,7 +176,18 @@ export async function walkWizard(session, ctx, wiz) {
   const only = ctx.step ?? null;
   let url = await session.navigate(only && wiz.stepUrl ? wiz.stepUrl(only) : wiz.startUrl);
   for (let guard = 0; guard < 40; guard++) {
-    const blocked = await pageBlock(session, wiz.name);
+    let blocked = await pageBlock(session, wiz.name);
+    // Under --apply a wizard that knows its sign-in signs in once, then opens the wizard again.
+    if (blocked && ctx.apply && wiz.signIn && !results.some((r) => r.step === 'sign-in') && SIGN_IN_PATH.test(pathOf(url))) {
+      try {
+        await wiz.signIn(session, ctx);
+        results.push(result('sign-in', 'filled', 'signed in to ' + wiz.name + ' with Google'));
+        url = await session.navigate(only && wiz.stepUrl ? wiz.stepUrl(only) : wiz.startUrl);
+        continue;
+      } catch (err) {
+        blocked = err.message;
+      }
+    }
     if (blocked) {
       results.push(result(only ?? 'login', 'needs-operator', blocked));
       break;
@@ -278,6 +289,7 @@ export function readIdentity(ctx) {
   if (missing.length) return needs('the identity file lacks ' + missing.join(', '));
   const cc = /^\+(\d{1,3})[\s-]/.exec(phone)?.[1] ?? null;
   return {
+    googleEmail: person.google_login_email ?? null,
     dateOfBirth: person.date_of_birth,
     phone,
     countryCode: cc,
@@ -285,6 +297,44 @@ export function readIdentity(ctx) {
     nationalNumber: (cc ? phone.slice(cc.length + 1) : phone).replace(/\D/g, '').replace(/^0/, ''),
     address: { street: a.street, unit: a.unit ?? '', city: a.city, region: a.region ?? '', postalCode: String(a.postal_code), country: a.country },
   };
+}
+
+
+// Google sign-in through a site's "Continue with Google" button, mapped on upwork 2026-10-26: the
+// button opens Google's account chooser as a popup outside the agent window, which the driver claims
+// with a tab borrow (the daemon may ask the operator to allow it). The chooser lists one element per
+// signed-in account with data-identifier set to its email; picking one closes the popup and posts the
+// token to the page that opened it, so that page must stay open in the same session until it leaves
+// the sign-in path. A password or second-factor prompt is the operator's.
+export async function googleSignIn(session, { button, email, timeoutMs = 60000, wait = sleep }) {
+  if (!email) throw new Error('no Google account to sign in with; set person.google_login_email in the identity file');
+  if (!(await clickMatch(session, 'button, a, [role=button]', button))) throw new Error('no ' + button + ' button on ' + (await session.evaluate(() => location.pathname)));
+  const bsk = session.session;
+  let tab = null;
+  for (let i = 0; i < 15 && !tab; i++) {
+    await wait(1000);
+    tab = (await bsk.tabList({ scope: 'all' })).tabs.find((t) => /^https:\/\/accounts\.google\.com\//.test(t.url)) ?? null;
+  }
+  if (!tab) throw new Error('the Google account chooser did not open');
+  if (tab.scope !== 'agent') await bsk.tabBorrow(tab.tab_id, { confirmationTimeoutMs: 180000 });
+  const inTab = async (fn, arg) => {
+    const r = await bsk.evaluate('Promise.resolve((' + fn + ')(' + JSON.stringify(arg ?? null) + ')).then((v) => JSON.stringify(v === undefined ? null : v))', { tabId: tab.tab_id, awaitPromise: true, returnByValue: true, timeoutMs: 15000 });
+    return JSON.parse(r?.value ?? r?.result ?? 'null');
+  };
+  const chooser = await inTab(() => ({ accounts: [...document.querySelectorAll('[data-identifier]')].map((e) => e.getAttribute('data-identifier')), password: !!document.querySelector('input[type=password]') }));
+  if (chooser.password || !chooser.accounts.includes(email)) throw new Error('Google asked for a password or does not list ' + email + '; sign in to Google in Chrome first');
+  await inTab((id) => document.querySelector('[data-identifier="' + id + '"]').setAttribute('data-fsw-account', '1'), email);
+  await bsk.click('[data-fsw-account]', { tabId: tab.tab_id });
+  // A first sign-in to a site shows a consent page with a Continue button before the popup closes.
+  const until = Date.now() + timeoutMs;
+  while (Date.now() < until) {
+    await wait(2000);
+    const path = await session.evaluate(() => location.pathname);
+    if (!SIGN_IN_PATH.test(path)) return path;
+    const open = (await bsk.tabList({ scope: 'all' })).tabs.some((t) => t.tab_id === tab.tab_id && /accounts\.google\.com\/(?:signin|v3)/.test(t.url));
+    if (open) await inTab(() => [...document.querySelectorAll('button')].find((b) => /^(Continue|계속)$/.test(b.innerText.trim()))?.click()).catch(() => null);
+  }
+  throw new Error('the site still shows its sign-in page after the Google account was picked');
 }
 
 

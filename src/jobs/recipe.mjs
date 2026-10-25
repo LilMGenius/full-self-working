@@ -22,7 +22,9 @@ export const LINT_FORMATS = ['html', 'md', 'txt', 'srt', 'csv'];
 export const CHECKS = ['files', 'image', 'sloplint', 'viewports', 'command'];
 export const PAYMENT_LEVELS = ['none', 'deposit', 'full'];
 const CONSTRAINT_KEYS = ['width', 'height', 'minWidth', 'maxWidth', 'minHeight', 'maxHeight'];
-const TOP_KEYS = ['service', 'version', 'hours', 'steps', 'deliverables', 'acceptance', 'payment'];
+const TOP_KEYS = ['service', 'version', 'executor', 'hours', 'steps', 'deliverables', 'acceptance', 'payment'];
+// Which coding agent runs the model steps: codex (codex exec, sandboxed) or jwc (jawcode, src/brain/jwc.mjs).
+export const EXECUTORS = ['codex', 'jwc'];
 const PACKAGES = ['standard', 'deluxe', 'premium'];
 
 // Where each skill namespace lives. agents: ~/.agents/skills/<name>; plugin: the newest version of a
@@ -73,6 +75,7 @@ export function validateRecipe(recipe, { file = 'recipe', services = serviceCata
   if (!service) err('service', 'unknown service ' + JSON.stringify(recipe.service));
   else if (file !== 'recipe' && basename(file, '.json') !== recipe.service) err('service', 'must match the file name ' + basename(file));
   if (!isPosInt(recipe.version)) err('version', 'must be a positive integer');
+  if (recipe.executor !== undefined && !EXECUTORS.includes(recipe.executor)) err('executor', 'must be one of ' + EXECUTORS.join(', '));
 
   if (!isObj(recipe.hours)) err('hours', 'must be an object with standard, deluxe and premium');
   else {

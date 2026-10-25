@@ -6,6 +6,7 @@ import { closeSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, writ
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { runCodex as defaultRunCodex } from '../brain/codex.mjs';
+import { DEFAULT_JWC_MODEL, runJwc as defaultRunJwc } from '../brain/jwc.mjs';
 import { nowSeoul } from '../core/clock.mjs';
 import { loadInstance } from '../core/instance.mjs';
 import { openLedger } from '../core/ledger.mjs';
@@ -157,7 +158,7 @@ export function buildBrief({ job, thread, messages, quote, recipe, service }) {
 const SLOP_RULES = 'No em dash or horizontal bar, no middle dot between words, no placeholder text (lorem ipsum, TODO, bracketed names), no self-reference as an AI, no hype words, and no number, client name or result the brief does not state. ' +
   'No visible text that describes the page or its images (such as a caption saying a picture is an illustration); descriptions for screen readers go in alt or aria-label.';
 
-export function buildPrompt({ paths, recipe, skills, language, failures }) {
+export function buildPrompt({ paths, recipe, skills, language, failures, executor = 'codex' }) {
   const steps = recipe.steps.filter((s) => s.type === 'invoke-model-skill');
   const lines = failures
     ? [
@@ -195,6 +196,7 @@ export function buildPrompt({ paths, recipe, skills, language, failures }) {
     'Pages load no remote fonts, scripts or images; embed or copy what they need into the working directory.',
     'Answer with JSON: summary (what you made), files (paths relative to the working directory) and openQuestions.',
   );
+  if (executor === 'jwc') lines.push('End your final message with that JSON object in a json code block and nothing after it.');
   return lines.join('\n');
 }
 
@@ -263,11 +265,13 @@ async function renderAndAccept(paths, recipe, { openRenderer, language }) {
 }
 
 // runJob(jobId, ctx) -> {ok, status, reason?, acceptance?, turns, agentMinutes}. ctx: instance, ledger,
-// runCodex, openRenderer, recipeDir, notify (all optional; tests inject runCodex so no model is called).
+// runCodex, runJwc, openRenderer, recipeDir, notify (all optional; tests inject the executors so no model
+// is called). recipe.executor picks codex (default) or jwc for the model turns.
 export async function runJob(jobId, ctx = {}) {
   const instance = ctx.instance ?? loadInstance();
   const ledger = ctx.ledger ?? openLedger(instance.paths.ledger);
   const runCodex = ctx.runCodex ?? defaultRunCodex;
+  const runJwc = ctx.runJwc ?? defaultRunJwc;
   const openRenderer = ctx.openRenderer ?? defaultOpenRenderer;
   const notify = ctx.notify ?? notifyOperator;
   try {
@@ -302,10 +306,14 @@ export async function runJob(jobId, ctx = {}) {
       const language = thread?.language ?? job.meta?.language ?? 'ko';
       writeFileSync(paths.brief, buildBrief({ job, thread, messages, quote, recipe, service }));
       ledger.upsertJob({ id: job.id, status: 'in_progress', startedAt: job.startedAt ?? new Date().toISOString() });
+      const executor = recipe.executor ?? 'codex';
       const turn = async (failures) => {
-        const prompt = buildPrompt({ paths, recipe, skills, language, failures });
-        const r = await runCodex({ prompt, schema: JOB_RESULT_SCHEMA, model: jobsCfg.model ?? DEFAULT_JOB_MODEL, effort: jobsCfg.effort, cwd: paths.work, sandbox: 'workspace-write', timeoutMs: jobsCfg.timeoutMs ?? DEFAULT_TIMEOUT_MS });
-        turns.push({ retry: Boolean(failures), durationMs: r.durationMs, ...r.data });
+        const prompt = buildPrompt({ paths, recipe, skills, language, failures, executor });
+        const timeoutMs = jobsCfg.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+        const r = executor === 'jwc'
+          ? await runJwc({ prompt, model: jobsCfg.jwc?.model ?? DEFAULT_JWC_MODEL, thinking: jobsCfg.jwc?.thinking, cwd: paths.work, timeoutMs })
+          : await runCodex({ prompt, schema: JOB_RESULT_SCHEMA, model: jobsCfg.model ?? DEFAULT_JOB_MODEL, effort: jobsCfg.effort, cwd: paths.work, sandbox: 'workspace-write', timeoutMs });
+        turns.push({ executor, retry: Boolean(failures), durationMs: r.durationMs, ...r.data });
       };
       try {
         await turn(null);

@@ -6,12 +6,13 @@ import { dirname, join } from 'node:path';
 import { crc32, deflateSync } from 'node:zlib';
 import { imageSize, runAcceptance } from '../src/jobs/accept.mjs';
 import { deliveryAllowed, runJob } from '../src/jobs/run.mjs';
-import { loadRecipe } from '../src/jobs/recipe.mjs';
+import { loadRecipe, validateRecipe } from '../src/jobs/recipe.mjs';
 import { run as runCli } from '../src/cli/job.mjs';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { codexArgs } from '../src/brain/codex.mjs';
+import { parseJobAnswer, parseJwcStream } from '../src/brain/jwc.mjs';
 
 // A real PNG of the given size (white, 8-bit grey), so the header parser reads what a renderer writes.
 function png(width, height) {
@@ -247,5 +248,32 @@ test('a writing codex turn on Windows names the sandbox the ignored user config 
   assert.ok(write.includes('windows.sandbox="elevated"'));
   assert.ok(!codexArgs({ ...base, sandbox: 'read-only' }).some((a) => a.startsWith('windows.')));
   assert.ok(!codexArgs({ ...base, sandbox: 'workspace-write', platform: 'linux' }).some((a) => a.startsWith('windows.')));
+});
+
+
+test('a recipe with executor jwc runs its turns through runJwc and never codex', async () => {
+  const instance = makeInstance();
+  const ledger = openLedger(':memory:');
+  const job = seedJob(ledger, { platform: 'soomgo' });
+  ledger.addPayment({ jobId: job.id, kind: 'deposit', amountKRW: 150000, channel: 'soomgo', evidence: '숨고페이 결제 완료' });
+  const dir = mkdtempSync(join(tmpdir(), 'fsw-recipes-'));
+  writeFileSync(join(dir, 'copywriting.json'), JSON.stringify({ ...loadRecipe('copywriting'), executor: 'jwc' }));
+  const jwc = fakeCodex([{ 'copy/variant-a.md': '# 빵집\n\n매일 아침 굽습니다.\n', 'copy/variant-b.md': '# 빵집\n\n동네 빵입니다.\n' }]);
+  const r = await runJob(job.id, { instance, ledger, recipeDir: dir, runCodex: noCodex, runJwc: jwc, notify: quiet });
+  assert.equal(r.status, 'accepted', JSON.stringify(r.acceptance));
+  assert.equal(jwc.calls.length, 1);
+  assert.equal(jwc.calls[0].cwd, join(instance.paths.jobs, job.id, 'work'));
+  assert.match(jwc.calls[0].prompt, /json code block/);
+  assert.equal(r.turns[0].executor, 'jwc');
+  assert.deepEqual(validateRecipe({ ...loadRecipe('copywriting'), executor: 'claude' }, { file: 'x.json' }).filter((e) => e.includes('executor')), ['x.json: executor: must be one of codex, jwc']);
+});
+
+test('a jwc turn that exits 0 after a model error is a failure, and a stop turn yields its JSON answer', () => {
+  const end = (msg) => ['{"type":"session"}', JSON.stringify({ type: 'agent_end', messages: [{ role: 'user', content: [] }, { role: 'assistant', ...msg }] })].join('\n');
+  assert.throws(() => parseJwcStream(end({ content: [], stopReason: 'error', errorMessage: '404 The model codex-mini-latest does not exist' })), { code: 'FSW_JWC_MODEL', message: /404 The model codex-mini-latest/ });
+  assert.throws(() => parseJwcStream('{"type":"turn_start"}'), { code: 'FSW_JWC_NO_END' });
+  const text = parseJwcStream(end({ stopReason: 'stop', content: [{ type: 'text', text: 'Done.\n```json\n{"summary":"scraper","files":["scraper/index.js"],"openQuestions":[]}\n```' }] }));
+  assert.deepEqual(parseJobAnswer(text), { summary: 'scraper', files: ['scraper/index.js'], openQuestions: [] });
+  assert.throws(() => parseJobAnswer('I wrote the scraper.'), { code: 'FSW_JWC_BAD_JSON' });
 });
 

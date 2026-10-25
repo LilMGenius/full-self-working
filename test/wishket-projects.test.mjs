@@ -2,15 +2,19 @@
 // real project pages never enter the repository.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { exampleDir, loadInstance } from '../src/core/instance.mjs';
+import { openLedger } from '../src/core/ledger.mjs';
+import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { DEFAULT_CHROME, openRenderer } from '../src/render/html2png.mjs';
 import { listUrl } from '../src/platforms/wishket/market.mjs';
 import {
   APPLY_UNMAPPED, applyToProject, budgetOf, descriptionBudget, detailUrl, listQuery, openProjectReader, parseListCard, parseProjectDetail, requestedItems,
 } from '../src/platforms/wishket/projects.mjs';
+import { boardDrop, needsJudgement, projectFloorKRW, projectMemory, rankProjects, scoreProject } from '../src/projects/score.mjs';
 
 const NOW = new Date('2026-10-25T03:00:00Z'); // 12:00 Seoul
 const CHROME = process.env.FSW_CHROME ?? DEFAULT_CHROME;
@@ -90,6 +94,69 @@ test('a closed, a private and an unreadable detail page', () => {
 
 test('applying refuses by name until the signed-in form is mapped', () => {
   assert.throws(() => applyToProject({ id: 700001 }), (e) => e.code === APPLY_UNMAPPED && /700001/.test(e.message));
+});
+
+// ---- scoring on the wishket board ----
+
+const wishket = loadDescriptor('wishket');
+
+function makeInstance() {
+  const dir = mkdtempSync(join(tmpdir(), 'fsw-wishket-score-'));
+  for (const f of ['profile.json', 'business.json']) copyFileSync(join(exampleDir, f), join(dir, f));
+  const config = JSON.parse(readFileSync(join(exampleDir, 'config.json'), 'utf8'));
+  config.notify = { toast: false, webhookUrl: null };
+  writeFileSync(join(dir, 'config.json'), JSON.stringify(config));
+  const instance = loadInstance({ dir });
+  instance.profile.serviceFit = { web_app_dev: { strength: 'strong', evidence: ['x'] }, landing_page_web: { strength: 'strong', evidence: ['x'] }, ai_automation_chatbot: { strength: 'strong', evidence: ['x'] }, ppt_card_news: { strength: 'some', evidence: ['x'] }, thumbnail_banner: { strength: 'none', evidence: [] } };
+  return instance;
+}
+
+const detail = (over = {}) => parseProjectDetail(raw(over), { now: NOW });
+const ctxFor = (instance, extra = {}) => ({ profile: instance.profile, config: instance.config, descriptor: wishket, allocation: null, now: NOW, platform: 'wishket', ...extra });
+
+test('the wishket board drops private, closed, term-based, late, offline, unservable and underfunded projects', () => {
+  const ctx = ctxFor(makeInstance());
+  const reason = (over) => scoreProject(detail(over), ctx).reason ?? 'kept';
+  assert.equal(reason({}), 'kept');
+  assert.match(reason({ private: true, marks: ['프라이빗 매칭', '모집 중', '외주'] }), /private matching/);
+  assert.match(reason({ marks: ['모집 마감', '외주'] }), /shows it as closed/);
+  assert.match(reason({ marks: ['모집 중', '기간제'] }), /not outsourcing work \(term_based\)/);
+  assert.match(reason({ rows: [{ label: '모집 마감일', data: '2026년 10월 24일', chips: [] }] }), /deadline 2026-10-24 passed/);
+  assert.match(reason({ jobPosting: { ...raw().jobPosting, description: DESCRIPTION + '\n- 매장 현장 설치와 상주 운영 포함' } }), /offline, hardware/);
+  assert.match(reason({ categories: [['개발'], ['임베디드'], ['IoTㆍ블루투스']] }), /no catalog service for IoTㆍ블루투스/);
+  assert.match(reason({ budget: '협의 후 결정' }), /budget unknown KRW is under the cost floor/);
+  assert.match(reason({ budget: '300,000원' }), /under the cost floor/);
+});
+
+test('the wishket board maps fields to services, falls back to keywords on an unknown field and prices the floor with its own fees', () => {
+  const instance = makeInstance();
+  const ctx = ctxFor(instance);
+  assert.equal(scoreProject(detail({ categories: [['디자인'], ['기타'], ['기획서ㆍ제안서 등']] }), ctx).service, 'ppt_card_news');
+  const unknownField = detail({ categories: [['개발'], ['웹'], ['새로운 분야']], jobPosting: { ...raw().jobPosting, description: '챗봇과 GPT 기반 상담 자동화를 만들고 싶습니다.' } });
+  assert.equal(scoreProject(unknownField, ctx).service, 'ai_automation_chatbot');
+  const kmongFloor = projectFloorKRW('web_app_dev', { config: instance.config, descriptor: loadDescriptor('kmong') });
+  const wishketFloor = projectFloorKRW('web_app_dev', { config: instance.config, descriptor: wishket, platform: 'wishket' });
+  assert.ok(wishketFloor > kmongFloor, 'a 20 to 25 percent partner fee needs a larger budget than the 13.2 percent enterprise fee');
+  const big = detail({ budget: '30,000,000원' });
+  const small = { ...detail({ budget: '8,000,000원' }), id: 700002 };
+  assert.deepEqual(rankProjects([small, big], ctx).kept.map((k) => k.project.id), [700001, 700002]);
+});
+
+test('a card alone drops private and term-based projects, and wishket judgements live apart from kmong ones', () => {
+  assert.match(boardDrop(parseListCard(card({ private: true }), { now: NOW }), 'wishket'), /private matching/);
+  assert.equal(boardDrop(parseListCard(card({ type: '기간제', budget: '월 금액 5,000,000원 /월' }), { now: NOW }), 'wishket'), 'not outsourcing work (monthly)');
+  assert.equal(boardDrop(parseListCard(card(), { now: NOW }), 'wishket'), null);
+  const ledger = openLedger(':memory:');
+  const memory = projectMemory('wishket');
+  const d = detail();
+  assert.equal(memory.needsJudgement(ledger, d), true);
+  memory.remember(ledger, d, scoreProject(d, ctxFor(makeInstance())), NOW, { url: d.url });
+  assert.equal(memory.needsJudgement(ledger, parseListCard(card({ applicants: '40명' }), { now: NOW })), false, 'the list card of the judged version needs no new judgement');
+  assert.equal(memory.thread(ledger, 700001).meta.url, d.url);
+  assert.equal(needsJudgement(ledger, d), true, 'the kmong memory does not see a wishket judgement');
+  memory.mark(ledger, 700001, 'drafted', { proposal: { totalKRW: 9000000 } });
+  assert.deepEqual([memory.thread(ledger, 700001).status, memory.thread(ledger, 700001).meta.proposal.totalKRW], ['drafted', 9000000]);
+  ledger.close();
 });
 
 // ---- the page-side readers on synthetic markup in the owned headless browser ----

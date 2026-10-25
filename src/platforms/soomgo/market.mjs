@@ -20,6 +20,8 @@ export function koreanAmount(text) {
 // The guide prints each figure twice: a label line in Korean units (평균 / 7만) and a sentence in digits
 // (평균 비용은 건당 79,000원이에요). The lines round, so the sentence wins and a line stands in only for
 // a figure the sentence lacks. The unit (건, 장) is kept, since a per-sheet average is not a job price.
+// A lesson guide (프로그래밍/코딩 레슨) prints only an hourly average and no 최저 or 최고 at all; its
+// minimum and maximum are null, and a guide that names them but cannot be read still fails.
 export function parseGuide(text) {
   const t = String(text ?? '');
   const figure = (lead) => {
@@ -29,7 +31,8 @@ export function parseGuide(text) {
     return line ? koreanAmount(line[1]) : null;
   };
   const [avgKRW, minKRW, maxKRW] = [figure('평균'), figure('최저'), figure('최(?:고|대)')];
-  if (avgKRW == null || minKRW == null || maxKRW == null) throw new Error('price guide figures not found');
+  const averageOnly = avgKRW != null && !/최저|최고|최대/.test(t);
+  if (avgKRW == null || ((minKRW == null || maxKRW == null) && !averageOnly)) throw new Error('price guide figures not found');
   return {
     avgKRW,
     minKRW,

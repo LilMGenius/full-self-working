@@ -55,6 +55,11 @@ function marketFor(entries, platform, category) {
   if (typeof e.avgKRW === 'number' && typeof e.minKRW === 'number' && typeof e.maxKRW === 'number') {
     return { source: 'price-guide', n: e.n, p25: e.minKRW, median: e.avgKRW, p75: null, low: e.minKRW, high: e.maxKRW };
   }
+  // A guide that publishes only its average (숨고's lesson guides) has no spread, so the average stands
+  // for its minimum and maximum too, and a request quote lands on it.
+  if (typeof e.avgKRW === 'number' && e.minKRW == null && e.maxKRW == null) {
+    return { source: 'price-guide', n: e.n, p25: e.avgKRW, median: e.avgKRW, p75: null, low: e.avgKRW, high: e.avgKRW };
+  }
   throw new EconomicsError('FSW_MARKET_SUMMARY_INVALID', `summary entry ${platform}/${category} has neither quantiles nor guide figures`, { platform, category });
 }
 

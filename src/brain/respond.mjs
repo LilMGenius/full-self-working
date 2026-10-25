@@ -5,6 +5,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { gateOutbound } from '../policy/gate.mjs';
 import { COMPLEXITY_RANGE, guideOf, priceRowFor, quoteForRequest, splitPayment } from '../economics/pricing.mjs';
+import { answeredCatalog } from '../economics/catalog.mjs';
 import { runCodex as defaultRunCodex } from './codex.mjs';
 import { INTENTS, buildDecisionPrompt, catalogIds, loadCatalog, loadLessons, loadPlaybook } from './prompts.mjs';
 import { classifyNotice } from '../orders/notices.mjs';
@@ -137,7 +138,9 @@ export async function decide(thread, ctx) {
   if (!instance || !descriptor) throw new TypeError('decide needs ctx.instance and ctx.descriptor');
   if (matchSystemNotice(thread)) return { action: 'none', decision: { ...SYSTEM_DECISION }, modelCalls: 0 };
 
-  const catalog = ctx.catalog ?? loadCatalog();
+  // The model chooses only among the services this instance answers on the platform, and sees only their
+  // price rows.
+  const catalog = ctx.catalog ?? answeredCatalog(instance.config, descriptor.id, loadCatalog());
   const ids = catalogIds(catalog);
   const brain = instance.config?.brain ?? {};
   const base = {
@@ -145,7 +148,7 @@ export async function decide(thread, ctx) {
     instance,
     descriptor,
     catalog,
-    priceRows: priceTable.filter((r) => r.platform === descriptor.id),
+    priceRows: priceTable.filter((r) => r.platform === descriptor.id && ids.includes(r.service)),
     playbook: ctx.playbook ?? loadPlaybook(instance, descriptor.id),
     lessons: ctx.lessons ?? loadLessons(instance),
   };

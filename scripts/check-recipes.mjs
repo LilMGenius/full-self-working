@@ -1,11 +1,13 @@
 #!/usr/bin/env node
-// Validates every recipe in recipes/ and fails when a service in services.json has no recipe, a recipe
-// names a service that does not exist, or a step names a skill that is not installed on this machine.
+// Validates every recipe in recipes/ and fails when a service the agent delivers has no recipe, a recipe
+// names a service that does not exist or that the operator delivers, or a step names a skill that is not
+// installed on this machine.
 import { join } from 'node:path';
+import { deliveryOf } from '../src/economics/catalog.mjs';
 import { listRecipes, readRecipeFile, recipeDir, resolveSkill, serviceCatalog } from '../src/jobs/recipe.mjs';
 
 const problems = [];
-const services = Object.keys(serviceCatalog());
+const services = Object.entries(serviceCatalog()).filter(([, def]) => deliveryOf(def) === 'agent').map(([id]) => id);
 const recipes = listRecipes();
 for (const s of services) if (!recipes.includes(s)) problems.push('recipes/' + s + '.json: missing for service ' + s);
 let skills = 0;

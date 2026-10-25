@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto';
 import { dayKey } from '../core/clock.mjs';
 import { gateOutbound } from '../policy/gate.mjs';
 import { CATEGORY_FIELD } from '../economics/pricing.mjs';
+import { answeredServices } from '../economics/catalog.mjs';
 import { decide as defaultDecide, isSystemNotice, loadGateRules, pendingInbound } from '../brain/respond.mjs';
 import { closeApproval, listApprovals, openApprovalFor, queueApproval } from '../brain/approvals.mjs';
 import { ordersWatched, recordMoney, stageFromLedger } from '../orders/money.mjs';
@@ -141,11 +142,14 @@ export async function processThread({ platform, threadRef, adapter, ledger, inst
   if (unread && threadRef.preview && isSystemNotice({ text: threadRef.preview })) return park('system', 'platform notice: ' + threadRef.preview);
   const skip = settings && skipReason(threadRef, kind, now, settings);
   if (skip) return park('skipped', skip);
-  const allowed = catalogServicesFor(descriptor, threadRef.service);
-  // A request or conversation in a service outside the catalog (숨고 lessons, for one) is the operator's
-  // own business, and the platform's app already alerts the operator: it stays unread instead of being
+  const labelled = catalogServicesFor(descriptor, threadRef.service);
+  // A request or conversation in a service outside the catalog, or in one this instance does not answer
+  // on the platform (config platforms.<id>.services; 숨고 lessons by default), is the operator's own
+  // business, and the platform's app already alerts the operator: it stays unread instead of being
   // opened, marked read and left unanswered, no model call is spent on it, and the digest counts it.
-  if (allowed?.length === 0 && mode !== 'observe') return park('operator', 'service ' + threadRef.service + ' is not in the catalog');
+  if (labelled?.length === 0 && mode !== 'observe') return park('operator', 'service ' + threadRef.service + ' is not in the catalog');
+  const allowed = labelled && settings ? labelled.filter((id) => answeredServices(instance.config, platform).includes(id)) : labelled;
+  if (allowed?.length === 0 && settings) return park('operator', 'service ' + threadRef.service + ' is ' + labelled.join(', ') + ', which config platforms.' + platform + '.services does not answer');
   if (mode === 'observe' && unread) {
     event('thread.observed', { unread: true, preview: threadRef.preview ?? null });
     return { action: 'observed', opened: false };

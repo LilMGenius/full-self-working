@@ -11,7 +11,7 @@ import { exampleDir, readJson, repoRoot } from '../src/core/instance.mjs';
 
 // Maps keyed by an id the operator or the catalog chooses, so the segment after them is data, not a key.
 const OPEN_MAPS = new Set(['config.platforms', 'profile.serviceFit', 'profile.skills']);
-export const PLATFORM_KEYS = ['enabled', 'mode', 'profileEdits', 'maxQuotesPerDay', 'maxCashPerDay'];
+export const PLATFORM_KEYS = ['enabled', 'mode', 'profileEdits', 'maxQuotesPerDay', 'maxCashPerDay', 'services'];
 
 const CHAIN = '(?:\\??\\.[A-Za-z_]\\w*)';
 const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1');

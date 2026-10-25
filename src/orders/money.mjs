@@ -7,6 +7,7 @@
 import { seoulParts } from '../core/clock.mjs';
 import { notifyOperator } from '../core/notify.mjs';
 import { catalogServicesFor } from '../pipeline/thread.mjs';
+import { answeredServices } from '../economics/catalog.mjs';
 import catalog from '../economics/services.json' with { type: 'json' };
 import { classifyNotice } from './notices.mjs';
 import { queuePayRequest } from './requests.mjs';
@@ -106,7 +107,7 @@ function serviceFor(descriptor, thread, threadRef, quote) {
 
 // The hire: the newest sent quote becomes accepted (a quote made outside fsw is recorded from the row's
 // own quote), and the job row opens as ordered.
-function accept({ ledger, platform, descriptor, thread, threadRef, at }) {
+function accept({ ledger, config, platform, descriptor, thread, threadRef, at }) {
   const sent = quotesOf(ledger, platform, thread, threadRef, 'sent').at(-1) ?? null;
   let quote = sent ? ledger.updateQuote(sent.id, { status: 'accepted' }) : quotesOf(ledger, platform, thread, threadRef, 'accepted').at(-1) ?? null;
   if (!quote) {
@@ -116,14 +117,17 @@ function accept({ ledger, platform, descriptor, thread, threadRef, at }) {
   const id = jobIdFor(platform, thread.externalId);
   const existing = ledger.getJob(id);
   const service = serviceFor(descriptor, thread, threadRef, quote);
+  // A deal in a service the catalog does not hold, or in one this instance does not answer on the
+  // platform (a lesson, unless config platforms.<id>.services lists it), is the operator's own work: its
+  // money is recorded, and the order runner never starts it.
+  const manual = !service ? 'no catalog service for the label ' + (threadRef.service ?? 'none')
+    : !answeredServices(config, platform).includes(service) ? 'service ' + service + ' is not answered on ' + platform + ' (config platforms.' + platform + '.services)' : null;
   const job = existing ?? ledger.upsertJob({
     id, threadId: thread.id, platform, service, title: catalog[service]?.ko ?? null, priceKRW: quote.amountKRW ?? null, status: 'ordered',
     meta: {
       acceptedAt: at ?? new Date().toISOString(), quoteId: quote.id, requestId: threadRef.requestId ?? null, label: threadRef.service ?? null,
       ...(quote.amountKRW == null && threadRef.quote?.unit === 'hour' ? { hourlyKRW: threadRef.quote.priceKRW } : {}),
-      // A deal in a service the catalog does not hold (a lesson) is the operator's own work: its money is
-      // recorded, and the order runner never starts it.
-      ...(service ? {} : { manual: 'no catalog service for the label ' + (threadRef.service ?? 'none') }),
+      ...(manual ? { manual } : {}),
     },
   });
   if (existing && ['lead', 'quoted', 'lost'].includes(existing.status)) ledger.upsertJob({ id, status: 'ordered' });
@@ -191,7 +195,7 @@ export async function recordMoney({ ledger, instance, platform, descriptor, thre
     let paymentId = null;
     if (live) {
       if (s.event === 'hired') {
-        const r = accept({ ledger, platform, descriptor, thread, threadRef, at: s.at });
+        const r = accept({ ledger, config: instance.config, platform, descriptor, thread, threadRef, at: s.at });
         job = r.job;
         applied = true;
         note = 'quote ' + r.quote.id + ' accepted, job ' + job.id + ' ordered';
@@ -211,7 +215,7 @@ export async function recordMoney({ ledger, instance, platform, descriptor, thre
           await notify(instance, { kind: 'order', title: platform + ' ' + s.event + ' notice without a readable amount in thread ' + thread.externalId, body: 'No payment row was written; check the chat. Evidence: ' + String(s.text).slice(0, 160), dedupeKey: 'money-noamount:' + key });
           continue;
         }
-        if (!job) job = accept({ ledger, platform, descriptor, thread, threadRef, at: s.at }).job;
+        if (!job) job = accept({ ledger, config: instance.config, platform, descriptor, thread, threadRef, at: s.at }).job;
         const r = settleOrWrite({ ledger, platform, job, signal: s, key });
         paymentId = r.paymentId;
         applied = paymentId != null;

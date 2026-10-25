@@ -32,7 +32,8 @@
       "mode": "draft",
       "profileEdits": "approval",
       "maxQuotesPerDay": 5,
-      "maxCashPerDay": 0
+      "maxCashPerDay": 0,
+      "services": null
     },
     "wishket": {
       "enabled": false,

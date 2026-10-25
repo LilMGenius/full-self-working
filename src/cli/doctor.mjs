@@ -9,6 +9,7 @@ import { runCodex } from '../brain/codex.mjs';
 import { DEFAULT_PROXY_URL } from '../brain/codex.mjs';
 import { exampleDir, instanceDir, readJson, repoRoot } from '../core/instance.mjs';
 import { catalogServicesFor, pipelineSettings } from '../pipeline/thread.mjs';
+import { answeredServices } from '../economics/catalog.mjs';
 import { listDescriptors, loadDescriptor } from '../platforms/registry.mjs';
 import { placeholderFields } from '../profile/validate.mjs';
 import { bskStatus } from '../supervisor/keepalive.mjs';
@@ -182,9 +183,11 @@ export async function runChecks(ctx = {}) {
       const l = await adapter.login();
       push(l.loggedIn ? result('ok', name, `signed in${l.nickname ? ' as ' + l.nickname : ''}${l.sellerMode === false ? ' (not in seller mode)' : ''}`) : result('FAIL', name, 'not signed in', `sign in to ${id} in Chrome (the profile BrowserSkill drives), then run fsw doctor again`));
       // A platform that matches requests to the items set on each offered service (soomgo) sends a
-      // service without items nothing, so an offered catalog service left unset is a silent zero.
+      // service without items nothing, so an offered catalog service left unset is a silent zero. A
+      // service the instance does not answer there (config platforms.<id>.services) is the operator's own.
       if (l.loggedIn && adapter.services) {
-        const unset = (await adapter.services()).filter((s) => !s.itemsSet && catalogServicesFor(loadDescriptor(id), s.name)?.length).map((s) => s.name);
+        const answered = answeredServices(instance.config, id);
+        const unset = (await adapter.services()).filter((s) => !s.itemsSet && catalogServicesFor(loadDescriptor(id), s.name)?.some((sv) => answered.includes(sv))).map((s) => s.name);
         push(unset.length
           ? result('warn', `items ${id}`, `${unset.join(', ')}: no request items set, so ${id} sends these services no requests`, `list the items you can serve in platforms/${id}-service-items.json, then run: fsw services ${id} --apply`)
           : result('ok', `items ${id}`, 'every offered catalog service has request items set'));

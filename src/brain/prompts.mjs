@@ -3,6 +3,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { repoRoot } from '../core/instance.mjs';
+import { operatorDelivered } from '../economics/catalog.mjs';
 
 export const INTENTS = ['inquiry', 'quote_request', 'negotiation', 'order_detail', 'revision', 'delivery', 'smalltalk', 'system', 'spam', 'unsupported'];
 export const LESSONS_IN_PROMPT = 12;
@@ -65,6 +66,18 @@ function catalogLines(catalog, profile) {
     .join('\n');
 }
 
+// Services the operator delivers (lessons): what a reply asks before quoting one, and how its price reads.
+function operatorServiceLines(catalog) {
+  const ids = catalogIds(catalog).filter((id) => operatorDelivered(id, catalog));
+  if (!ids.length) return [];
+  return [
+    '',
+    '# Services I deliver myself',
+    'I teach these myself in sessions I schedule with the client, online or in person; no files are delivered and nothing starts before the deposit. Before quoting one, ask what its line lists that the customer has not said. Its standard package and a request quote price one session of the length below, so the quote scope names the number of sessions and their length. With no price row for it on this platform, write no price and set needsOperator.',
+    ...ids.map((id) => '- ' + id + ' (' + catalog[id].ko + '): ' + (catalog[id].humanMinutes?.standard ?? 60) + '-minute sessions; ask ' + (catalog[id].questions ?? []).join('; ')),
+  ];
+}
+
 export function threadHistory(thread, limit = HISTORY_IN_PROMPT) {
   const msgs = (thread.messages ?? []).slice(-limit);
   if (!msgs.length) return '(no messages)';
@@ -108,6 +121,7 @@ export function buildDecisionPrompt({ thread, instance, descriptor, priceRows = 
     '',
     '# Service catalog (set service to one of these ids, or null)',
     catalogLines(catalog, p),
+    ...operatorServiceLines(catalog),
     '',
     '# Price rows on this platform (KRW)',
     priceLines(priceRows, catalog),

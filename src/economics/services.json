@@ -19,7 +19,10 @@
     "kmongForm": "Values for the kmong gig edit form of that category, read from the live form 2026-10-25: meta is the 주요 특징 selects by label, packageSelects and packageChecks are package rows by label with one value per STANDARD, DELUXE, PREMIUM column (작업 기간 and 수정 횟수 come from the listing), scope is what each package covers and is handed to the copy writer so the package text and the form agree.",
     "freelancerJob": "The Freelancer.com job (skill) whose active fixed-price projects are the service's market, matched by its exact name through the public jobs API; a service without one has no job there that sells the same deliverable.",
     "wishketField": "The 위시켓 project field (the pf filter label on /project/) whose 외주 projects are the service's market; only fields that sell the service's deliverable are mapped, so broad buckets such as 그래픽ㆍ영상 등 and 기획서ㆍ제안서 등 stay out.",
-    "fiverrQuery": "The Fiverr gig search whose first 30 gigs are the service's market; detail_page_design has none, since Fiverr sells no long Korean product detail page."
+    "fiverrQuery": "The Fiverr gig search whose first 30 gigs are the service's market; detail_page_design has none, since Fiverr sells no long Korean product detail page.",
+    "delivery": "Who delivers the service: agent (the default when absent) runs its recipe in a job; operator means the operator does the work, so the service has no recipe and no job run, and a paid job is handed to the operator (src/orders/run.mjs). An operator service is answered only on platforms whose config platforms.<id>.services lists it.",
+    "questions": "What a reply asks before quoting an operator-delivered service, read into the decision prompt.",
+    "lesson_tutoring": "A subject lesson the operator teaches in sessions, online or in person. humanMinutes.standard is one 60-minute session and agentHours are zero, since the agent only answers and quotes. 숨고's 프로그래밍/코딩 레슨 guide publishes only an hourly average, which prices one session."
   },
   "landing_page_web": {
     "ko": "랜딩페이지 제작",
@@ -394,6 +397,30 @@
     "deliverables": [
       "blog post document",
       "source list"
+    ]
+  },
+  "lesson_tutoring": {
+    "ko": "과외 및 레슨",
+    "en": "Lessons and tutoring",
+    "delivery": "operator",
+    "kmongCategory": null,
+    "soomgoGuide": "프로그래밍/코딩 레슨",
+    "agentHours": {
+      "standard": 0,
+      "deluxe": 0,
+      "premium": 0
+    },
+    "humanMinutes": {
+      "standard": 60
+    },
+    "questions": [
+      "the subject and what the learner wants to be able to do",
+      "the learner's current level",
+      "the schedule: days, times, session length and how many sessions",
+      "online or in person, and the area when in person"
+    ],
+    "deliverables": [
+      "sessions taught by the operator"
     ]
   }
 }

@@ -6,6 +6,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join } from 'node:path';
 import { repoRoot } from '../core/instance.mjs';
+import { deliveryOf } from '../economics/catalog.mjs';
 
 export const recipeDir = join(repoRoot, 'recipes');
 const servicesFile = join(repoRoot, 'src', 'economics', 'services.json');
@@ -74,6 +75,7 @@ export function validateRecipe(recipe, { file = 'recipe', services = serviceCata
 
   const service = services[recipe.service];
   if (!service) err('service', 'unknown service ' + JSON.stringify(recipe.service));
+  else if (deliveryOf(service) === 'operator') err('service', recipe.service + ' is delivered by the operator, so it has no recipe');
   else if (file !== 'recipe' && basename(file, '.json') !== recipe.service) err('service', 'must match the file name ' + basename(file));
   if (!isPosInt(recipe.version)) err('version', 'must be a positive integer');
   if (recipe.executor !== undefined && !EXECUTORS.includes(recipe.executor)) err('executor', 'must be one of ' + EXECUTORS.join(', '));

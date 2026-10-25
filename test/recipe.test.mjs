@@ -4,11 +4,14 @@ import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { listRecipes, loadRecipe, RecipeError, resolveSkill, serviceCatalog, validateRecipe } from '../src/jobs/recipe.mjs';
+import { deliveryOf } from '../src/economics/catalog.mjs';
 
-test('every service in services.json has a recipe that validates', () => {
-  const services = Object.keys(serviceCatalog());
+test('every service the agent delivers has a recipe that validates, and an operator service has none', () => {
+  const services = Object.keys(serviceCatalog()).filter((s) => deliveryOf(serviceCatalog()[s]) === 'agent');
   assert.deepEqual(listRecipes(), [...services].sort());
   for (const s of services) assert.equal(loadRecipe(s).service, s);
+  const lesson = { ...structuredClone(loadRecipe('landing_page_web')), service: 'lesson_tutoring' };
+  assert.ok(validateRecipe(lesson).some((e) => /lesson_tutoring is delivered by the operator/.test(e)));
 });
 
 test('a broken recipe fails with errors naming the file and the path', () => {

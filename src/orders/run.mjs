@@ -7,6 +7,7 @@ import { mkdirSync, openSync, closeSync } from 'node:fs';
 import { join } from 'node:path';
 import { repoRoot } from '../core/instance.mjs';
 import { notifyOperator } from '../core/notify.mjs';
+import { operatorDelivered } from '../economics/catalog.mjs';
 import { agreedScope, jobPaths, pidAlive, runningJobs, startAllowed } from '../jobs/run.mjs';
 import { loadRecipe } from '../jobs/recipe.mjs';
 import { loadDescriptor } from '../platforms/registry.mjs';
@@ -34,6 +35,7 @@ export function spawnJobRun(instance, jobId) {
 export function startBlocker(job, ledger) {
   if (job.meta?.manual) return job.meta.manual;
   if (!job.service) return 'no catalog service';
+  if (operatorDelivered(job.service)) return 'delivered by the operator, so no job run starts';
   const recipe = loadRecipe(job.service);
   const pay = startAllowed(job, ledger, loadDescriptor(job.platform), recipe);
   if (!pay.ok) return pay.reason;

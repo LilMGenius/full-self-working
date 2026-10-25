@@ -15,6 +15,7 @@ import { notifyOperator } from '../core/notify.mjs';
 import { MODES, flushApprovals, processThread } from '../pipeline/thread.mjs';
 import { recordOrderCounters } from '../orders/money.mjs';
 import { latestAllocation, prioritize } from '../economics/priority.mjs';
+import { answeredServices } from '../economics/catalog.mjs';
 import { loadDescriptor } from '../platforms/registry.mjs';
 import { dueJobs, JOBS, nextWake } from './schedule.mjs';
 import { createBrowserKeeper, holdAwake } from './keepalive.mjs';
@@ -318,7 +319,9 @@ export const JOB_HANDLERS = {
     ]);
     const enabled = Object.entries(ctx.instance.config.platforms ?? {}).filter(([, p]) => p.enabled).map(([id]) => id);
     const descriptors = Object.fromEntries(enabled.map((id) => [id, loadDescriptor(id)]));
-    const arms = armStats(ctx.ledger, { descriptors, services, config: ctx.instance.config });
+    // A catalog service a platform does not answer (config platforms.<id>.services) gets no arm there.
+    const arms = armStats(ctx.ledger, { descriptors, services, config: ctx.instance.config })
+      .filter((a) => !(a.service in services) || answeredServices(ctx.instance.config, a.platform, services).includes(a.service));
     const weights = allocate(arms, { priceTable: await latestPriceRows(ctx.instance), config: ctx.instance.config });
     const file = join(ctx.instance.paths.pricing, 'allocation-' + dayKey(ctx.now) + '.json');
     mkdirSync(ctx.instance.paths.pricing, { recursive: true });

@@ -1,0 +1,166 @@
+// 위시켓 projects: the list and detail readers on synthetic markup and text written for these tests;
+// real project pages never enter the repository.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { DEFAULT_CHROME, openRenderer } from '../src/render/html2png.mjs';
+import { listUrl } from '../src/platforms/wishket/market.mjs';
+import {
+  APPLY_UNMAPPED, applyToProject, budgetOf, descriptionBudget, detailUrl, listQuery, openProjectReader, parseListCard, parseProjectDetail, requestedItems,
+} from '../src/platforms/wishket/projects.mjs';
+
+const NOW = new Date('2026-10-25T03:00:00Z'); // 12:00 Seoul
+const CHROME = process.env.FSW_CHROME ?? DEFAULT_CHROME;
+
+const DESCRIPTION = [
+  '[프로젝트 개요]',
+  '- 사내 회의실과 장비를 예약하는 웹을 만들려고 합니다.',
+  '',
+  '[제안 포함 필수 사항]',
+  '지원 내용은 아래 기준으로 검토합니다.',
+  '- 비슷한 예약 시스템 구축 사례',
+  '- 단계별 일정과 견적',
+  '',
+  '[오픈 시점과 예산]',
+  '- 12월 오픈 목표',
+  '',
+  '[견적 시 함께 부탁드립니다]',
+  '1. 오픈 후 유지보수 조건',
+].join('\r\n');
+
+const card = (over = {}) => ({
+  href: '/project/700001/', title: '사내 예약 관리 웹 구축', status: '모집 중', budget: '예상 금액 12,000,000원', term: '예상 기간40일', field: '중개ㆍ매칭 플랫폼 외 1개',
+  type: '외주', posted: '· 등록일자 2026.10.21.', applicants: '12명', private: false, deadline: '마감 4일 3시간 전', location: '서울특별시 강남구', ...over,
+});
+
+const raw = (over = {}) => ({
+  url: detailUrl(700001), title: '사내 예약 관리 웹 구축', text: '', heading: '사내 예약 관리 웹 구축', marks: ['모집 중', '외주'], private: false, privateNotice: false,
+  posted: '등록 일자 2026.10.21.', categories: [['개발', '디자인'], ['웹'], ['중개ㆍ매칭 플랫폼,', '기타(내부 시스템)']],
+  budget: '12,000,000원', term: '40일', applicants: '12명',
+  rows: [{ label: '모집 마감일', data: '2026년 10월 29일', chips: [] }, { label: '예상 시작일', data: '계약 체결 이후, 즉시 시작', chips: [] }, { label: '관련 기술', data: '', chips: ['React', 'PostgreSQL'] }],
+  location: '서울특별시 강남구', preQuestions: true, inquiries: '3',
+  jobPosting: { description: DESCRIPTION, identifier: '700001', datePosted: '2026-10-21', validThrough: '2026-10-29T23:59', location: '서울특별시 강남구' }, ldErrors: [], ...over,
+});
+
+test('budgets: a stated amount, a negotiable one, a monthly one, and a description budget for a negotiable page', () => {
+  assert.equal(budgetOf('예상 금액 22,000,000원').amountKRW, 22000000);
+  assert.deepEqual(budgetOf('협의 후 결정'), { statedKRW: null, amountKRW: null, negotiable: true, monthly: false, budgetSource: null });
+  assert.equal(budgetOf('월 금액 10,000,000원 /월').monthly, true);
+  assert.equal(budgetOf('월 금액 10,000,000원 /월').amountKRW, null);
+  assert.equal(descriptionBudget('[오픈 시점과 예산]\n- 예산: 1,200만 원 (부가세 별도)'), 12000000);
+  assert.equal(descriptionBudget('예산은 협의하고 싶습니다\n총 예산 800만원에서 1,000만원 사이'), 8000000, 'a range counts at its lower end');
+  assert.equal(descriptionBudget('예산 집행은 2026년 11월부터'), null);
+  const negotiable = parseProjectDetail(raw({ budget: '협의 후 결정', jobPosting: { ...raw().jobPosting, description: DESCRIPTION + '\r\n\r\n[오픈 시점과 예산]\r\n- 예산: 900만원' } }), { now: NOW });
+  assert.deepEqual([negotiable.statedKRW, negotiable.amountKRW, negotiable.budgetSource], [null, 9000000, 'description']);
+});
+
+test('requested items are the marked lines under the proposal and quote headings', () => {
+  assert.deepEqual(requestedItems(DESCRIPTION), ['비슷한 예약 시스템 구축 사례', '단계별 일정과 견적', '오픈 후 유지보수 조건']);
+  assert.deepEqual(requestedItems('[프로젝트 개요]\n- 예약 웹'), []);
+});
+
+test('a card and its detail page read alike, and the detail carries what scoring and drafting need', () => {
+  const listed = parseListCard(card(), { now: NOW });
+  assert.deepEqual([listed.id, listed.amountKRW, listed.durationDays, listed.applicants, listed.projectType, listed.private, listed.postedOn], [700001, 12000000, 40, 12, 'task_based', false, '2026-10-21']);
+  const d = parseProjectDetail(raw(), { now: NOW });
+  assert.equal(d.hash, listed.hash, 'one page version hashes alike from the list and the detail');
+  assert.deepEqual([d.status, d.projectType, d.deadlineAt, d.deadlineDays, d.startDate, d.startText], ['open', 'task_based', '2026-10-29', 4, null, '계약 체결 이후, 즉시 시작']);
+  assert.deepEqual(d.subcategories, ['중개ㆍ매칭 플랫폼', '기타(내부 시스템)']);
+  assert.deepEqual([d.root.name, d.sub.name, d.skills, d.preQuestions, d.inquiries], ['개발, 디자인', '중개ㆍ매칭 플랫폼, 기타(내부 시스템)', ['React', 'PostgreSQL'], true, 3]);
+  assert.equal(d.requested.length, 3);
+  assert.ok(!d.description.includes('\r'));
+  assert.notEqual(parseListCard(card({ budget: '예상 금액 15,000,000원' }), { now: NOW }).hash, listed.hash, 'a new budget is a new page version');
+  assert.equal(parseListCard(card({ applicants: '30명' }), { now: NOW }).hash, listed.hash, 'more applicants is not a page change');
+  assert.equal(parseListCard(card({ href: null }), { now: NOW }), null);
+  const hidden = parseListCard(card({ private: true, applicants: '비공개' }), { now: NOW });
+  assert.deepEqual([hidden.private, hidden.applicants, hidden.applicantsHidden], [true, null, true]);
+  assert.equal(parseListCard(card({ type: '기간제', budget: '월 금액 5,000,000원 /월' }), { now: NOW }).projectType, 'term_based');
+});
+
+test('a closed, a private and an unreadable detail page', () => {
+  assert.equal(parseProjectDetail(raw({ marks: ['모집 마감', '외주'] }), { now: NOW }).status, 'closed');
+  const hidden = parseProjectDetail(raw({ private: true, marks: ['프라이빗 매칭', '모집 중', '외주'], jobPosting: null }), { now: NOW });
+  assert.deepEqual([hidden.private, hidden.description, hidden.requested], [true, '', []]);
+  assert.throws(() => parseProjectDetail(raw({ jobPosting: null, ldErrors: ['JSON-LD: Unexpected token'] }), { now: NOW }), (e) => e.code === 'FSW_WISHKET_PROJECT_DETAIL' && /Unexpected token/.test(e.message));
+  assert.throws(() => parseProjectDetail(raw({ heading: null }), { now: NOW }), (e) => e.code === 'FSW_WISHKET_PROJECT_DETAIL');
+});
+
+test('applying refuses by name until the signed-in form is mapped', () => {
+  assert.throws(() => applyToProject({ id: 700001 }), (e) => e.code === APPLY_UNMAPPED && /700001/.test(e.message));
+});
+
+// ---- the page-side readers on synthetic markup in the owned headless browser ----
+
+const LZ = '<script>window.LZString = { compressToBase64: (q) => "ENC:" + q };</script>';
+const listCard = ({ id, title, budget, term = '30일', type = '외주', field = '랜딩ㆍ소개 페이지', applicants = '5명', isPrivate = false }) => '<div class="project-info-box"><section class="project-organic-info">'
+  + '<div class="project-status-label recruiting-status">' + (isPrivate ? '<div class="status-mark private-mark">프라이빗 매칭<div class="status-mark-tooltip">일부 파트너에게만 공개</div></div>' : '') + '<div class="status-mark recruiting-mark">모집 중</div></div>'
+  + '<a class="project-link" href="/project/' + id + '/"><p>' + title + '</p></a>'
+  + '<div class="project-core-info"><p class="budget">' + budget + '</p><p class="term">예상 기간<span>' + term + '</span></p></div>'
+  + '<p class="project-field-subcategory">' + field + '</p>'
+  + '<div class="project-minor-info"><div class="project-status-label"><div class="status-mark project-type-mark with-img"><img alt="">' + type + '</div></div>'
+  + '<p class="location-data">서울특별시 마포구</p><p class="start-recruitment-data">· 등록일자 2026.10.22.</p></div></section>'
+  + '<section class="proposal-and-client-info"><div class="proposal-info"><p class="info-detail">마감 <span>3일 2시간 전</span></p><p class="info-detail">지원자 <span>' + applicants + '</span></p></div></section></div>';
+const listPage = (total, cards) => '<!doctype html><html><head><meta charset="utf-8"><title>프로젝트 찾기</title>' + LZ + '</head><body><p>' + total + '개의 프로젝트</p>' + cards.map(listCard).join('') + '</body></html>';
+const detailPage = (ld) => '<!doctype html><html><head><meta charset="utf-8"><title>사내 예약 관리 웹 구축</title><script type="application/ld+json">' + JSON.stringify(ld) + '</script></head><body>'
+  + '<div class="project-content-title"><div class="status-guide"><div class="project-status-label"><div style="display:flex"><div class="status-mark recruiting-mark">모집 중</div><div class="status-mark project-type-mark with-img"><img alt="">외주</div></div><p class="project-recruit-guide">등록 일자 2026.10.21.</p></div></div>'
+  + '<h1>사내 예약 관리 웹 구축</h1><div class="project-classification"><p class="project-category"><span class="category-wrapper">개발</span><span class="category-wrapper">디자인</span></p><p class="project-category"><span class="category-wrapper">웹</span></p>'
+  + '<p class="project-category"><span class="category-wrapper">중개ㆍ매칭 플랫폼,</span> <span class="category-wrapper">기타(내부 시스템)</span></p></div></div>'
+  + '<div class="project-important-condition task_based"><div class="project-condition-box project-budget"><p class="condition-box-name">예상 금액</p><p class="project-condition-data">12,000,000원</p></div>'
+  + '<div class="project-condition-box project-term"><p class="project-condition-data">40일</p></div><div class="project-condition-box project-applicant"><p class="project-condition-data">12명</p></div></div>'
+  + '<div class="project-detail-condition-row"><p class="condition-label">모집 마감일</p><p class="condition-data">2026년 10월 29일<img alt=""><span class="condition-accent">마감 4일 3시간 전</span></p></div>'
+  + '<div class="project-detail-condition-row"><p class="condition-label">예상 시작일</p><p class="condition-data">계약 체결 이후, 즉시 시작</p></div>'
+  + '<div class="project-detail-condition-row"><p class="condition-label">진행 분류</p><p class="condition-data"><img alt=""></p></div>'
+  + '<div class="project-detail-condition-row"><p class="condition-label">관련 기술</p><div class="condition-data-split"><div class="project-skills-box"><div class="subcategory-box">React</div><div class="subcategory-box">PostgreSQL</div></div></div></div>'
+  + '<p class="meeting-condition-data">서울특별시 강남구</p><a href="#pre_question">지원 전 질문</a><span class="comment-layer-count">3</span></body></html>';
+
+test('the reader pages through open projects and reads a detail page from its markup', { skip: !existsSync(CHROME) && 'Chrome not installed' }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'fsw-wishket-'));
+  const file = (name, html) => (writeFileSync(join(dir, name), html), pathToFileURL(join(dir, name)).href);
+  const routes = new Map([
+    ['https://www.wishket.com/project/', file('index.html', listPage(12, []))],
+    [listUrl('ENC:' + listQuery(1)), file('page1.html', listPage(12, [
+      { id: 700001, title: '사내 예약 관리 웹 구축', budget: '예상 금액 <span>12,000,000원</span>', field: '중개ㆍ매칭 플랫폼 외 1개', applicants: '12명' },
+      { id: 700002, title: '브랜드 소개 페이지', budget: '예상 금액 <span>협의 후 결정</span>' },
+      { id: 700003, title: '교육 플랫폼 구축', budget: '예상 금액 <span>40,000,000원</span>', applicants: '비공개', isPrivate: true },
+    ]))],
+    [listUrl('ENC:' + listQuery(2)), file('page2.html', listPage(12, [{ id: 700004, title: '사내 대시보드', budget: '예상 금액 <span>8,000,000원</span>' }]))],
+    [detailUrl(700001), file('detail.html', detailPage({ '@context': 'https://schema.org', '@type': 'JobPosting', title: '사내 예약 관리 웹 구축 전문가', description: DESCRIPTION, identifier: { '@type': 'PropertyValue', value: '700001' }, datePosted: '2026-10-21', validThrough: '2026-10-29T23:59', jobLocation: { '@type': 'Place', address: { '@type': 'PostalAddress', streetAddress: '서울특별시 강남구' } } }))],
+  ]);
+  const visited = [];
+  const renderer = await openRenderer();
+  try {
+    const routed = {
+      async page(opts) {
+        const page = await renderer.page(opts);
+        return {
+          async navigate(url) {
+            visited.push(url);
+            if (!routes.has(url)) throw new Error('no synthetic page for ' + url);
+            await page.navigate(routes.get(url), { settle: 0 });
+          },
+          evaluate: page.evaluate,
+          close: page.close,
+        };
+      },
+    };
+    const reader = await openProjectReader({ renderer: routed, pacing: { minGapMs: 0, maxActionsPerHour: 100, maxMessagesPerHour: 100 } });
+    const { projects, total } = await reader.listProjects({ pages: 3, now: NOW });
+    assert.equal(total, 12);
+    assert.deepEqual(visited, ['https://www.wishket.com/project/', listUrl('ENC:' + listQuery(1)), listUrl('ENC:' + listQuery(2))], 'a third page is not read when twelve projects fit in two');
+    assert.deepEqual(projects.map((p) => [p.id, p.amountKRW, p.negotiable, p.private, p.applicants, p.durationDays, p.deadlineText]), [
+      [700001, 12000000, false, false, 12, 30, '마감 3일 2시간 전'], [700002, null, true, false, 5, 30, '마감 3일 2시간 전'], [700003, 40000000, false, true, null, 30, '마감 3일 2시간 전'], [700004, 8000000, false, false, 5, 30, '마감 3일 2시간 전'],
+    ]);
+    const d = await reader.readProject(700001, { now: NOW });
+    assert.deepEqual([d.title, d.amountKRW, d.durationDays, d.applicants, d.deadlineAt, d.status, d.projectType, d.private], ['사내 예약 관리 웹 구축', 12000000, 40, 12, '2026-10-29', 'open', 'task_based', false]);
+    assert.deepEqual([d.subcategories, d.platforms, d.skills, d.startText, d.location, d.preQuestions, d.inquiries], [['중개ㆍ매칭 플랫폼', '기타(내부 시스템)'], ['웹'], ['React', 'PostgreSQL'], '계약 체결 이후, 즉시 시작', '서울특별시 강남구', true, 3]);
+    assert.deepEqual(d.requested, ['비슷한 예약 시스템 구축 사례', '단계별 일정과 견적', '오픈 후 유지보수 조건']);
+    assert.equal(reader.loads(), 4);
+    await reader.close();
+  } finally {
+    await renderer.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

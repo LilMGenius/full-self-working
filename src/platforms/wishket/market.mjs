@@ -5,6 +5,8 @@
 // 결정), a monthly amount and a 기간제 project are skipped and counted by name. The list keeps its filter
 // in a d parameter compressed with the site's own lz-string (LZString.compressToBase64), so the query is
 // encoded in the page; field ids are read from the list's own filter inputs by label on every run.
+// pageCards and encodeFilter are also the project reader's (projects.mjs), so one reader serves the
+// list markup.
 import { ChallengeError, challengeOf, sampleEach, toInt } from '../kit.mjs';
 
 const BASE = 'https://www.wishket.com';
@@ -15,9 +17,11 @@ const pageFields = () => ({
   text: (document.body?.innerText ?? '').slice(0, 2000),
   fields: [...document.querySelectorAll('input[name=pf]')].map((i) => [i.getAttribute('data-name'), i.value]),
 });
-const encodeFilter = (query) => window.LZString?.compressToBase64(query) ?? null;
+export const encodeFilter = (query) => window.LZString?.compressToBase64(query) ?? null;
 
-function pageCards() {
+// Page-side: every project card on a list page. private is the 프라이빗 매칭 mark, which only PRIME, PRO
+// and BOOST partners can apply through; deadline is the relative 마감 line (마감 5일 10시간 전).
+export function pageCards() {
   const text = (box, sel) => box.querySelector(sel)?.innerText?.replace(/\s+/g, ' ').trim() ?? null;
   const boxes = [...document.querySelectorAll('.project-info-box')];
   return {
@@ -34,6 +38,9 @@ function pageCards() {
       type: text(box, '.project-type-mark'),
       posted: text(box, '.start-recruitment-data'),
       applicants: (box.innerText.match(/지원자\s*([\d,]+명|비공개)/) || [])[1] ?? null,
+      private: Boolean(box.querySelector('.private-mark')),
+      deadline: [...box.querySelectorAll('.proposal-info .info-detail')].map((e) => e.innerText.replace(/\s+/g, ' ').trim()).find((t) => t.startsWith('마감')) ?? null,
+      location: text(box, '.location-data'),
     })),
   };
 }

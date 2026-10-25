@@ -27,6 +27,7 @@ function setup(edits) {
     setIntro: async (s, text, o) => (calls.push(['intro', text, o.dryRun]), { changed: true, saved: !o.dryRun }),
     appendServiceDetail: async (s, text, o) => (calls.push(['detail', text, o.dryRun]), { changed: true, saved: !o.dryRun }),
     addQuoteTemplate: async (s, t, o) => (calls.push(['template', t.title, t.costKRW, o.dryRun]), { changed: true, saved: !o.dryRun }),
+    addService: async (s, name, o) => (calls.push(['service', name, o.dryRun]), { changed: true, saved: !o.dryRun }),
   };
   const events = [];
   const ctx = { instance, writers, session: {}, ledger: { addEvent: (e) => events.push(e) }, log: () => {} };
@@ -34,19 +35,20 @@ function setup(edits) {
 }
 
 const EDITS = {
-  approved: { intro: true, detail: false, templates: true },
+  approved: { intro: true, detail: false, templates: true, services: false },
   intro: '전 스타트업 리드 개발자 | 웹과 자동화를 끝까지 만드는 개발자',
   detailAppend: '레슨 외에 외주 제작도 맡습니다.',
   templates: [
     { title: '랜딩 페이지 제작', service: 'landing_page_web', priceType: 'total', description: '랜딩 페이지를 기획부터 배포까지 진행합니다.' },
     { title: '없는 서비스', service: 'no_such_service', priceType: 'total', description: '가격 행이 없는 서비스입니다.' },
   ],
+  addServices: ['데이터 크롤링'],
 };
 
 test('a dry run types every part, approved or not, and saves nothing', async () => {
   const { ctx, calls, events } = setup(EDITS);
   assert.equal(await run(['soomgo'], ctx), 1);
-  assert.deepEqual(calls, [['intro', EDITS.intro, true], ['detail', EDITS.detailAppend, true], ['template', '랜딩 페이지 제작', 575000, true]]);
+  assert.deepEqual(calls, [['intro', EDITS.intro, true], ['detail', EDITS.detailAppend, true], ['template', '랜딩 페이지 제작', 575000, true], ['service', '데이터 크롤링', true]]);
   assert.equal(events.length, 0);
 });
 

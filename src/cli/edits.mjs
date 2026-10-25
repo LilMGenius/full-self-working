@@ -1,6 +1,7 @@
-// fsw edits soomgo [--apply] [--only intro|detail|templates]: applies the operator-approved profile text in the
-// instance's platforms/soomgo-edits.json ({approved: {intro, detail, templates}, intro, detailAppend,
-// templates: [{title, service, priceType, description}]}, keys starting with _ are notes). A part is saved
+// fsw edits soomgo [--apply] [--only intro|detail|templates|services]: applies the operator-approved profile
+// changes in the instance's platforms/soomgo-edits.json ({approved: {intro, detail, templates, services},
+// intro, detailAppend, templates: [{title, service, priceType, description}], addServices: [name]}, keys
+// starting with _ are notes). A part is saved
 // only with --apply and its approved flag set, which the operator's approval sets; without --apply every
 // part is typed and read back as a dry run and nothing is saved. Every text passes the outbound gate as
 // kind profile first, and a template's cost is its service's base price in the newest price table, read
@@ -13,11 +14,12 @@ import { openLedger } from '../core/ledger.mjs';
 import { gateOutbound } from '../policy/gate.mjs';
 import { loadDescriptor } from '../platforms/registry.mjs';
 import { addQuoteTemplate, appendServiceDetail, setIntro } from '../platforms/soomgo/edits.mjs';
+import { addService } from '../platforms/soomgo/services.mjs';
 import { latestTable } from './price.mjs';
 
-const USAGE = 'usage: fsw edits soomgo [--apply] [--only intro|detail|templates]';
-const PARTS = ['intro', 'detail', 'templates'];
-const WRITERS = { setIntro, appendServiceDetail, addQuoteTemplate };
+const USAGE = 'usage: fsw edits soomgo [--apply] [--only intro|detail|templates|services]';
+const PARTS = ['intro', 'detail', 'templates', 'services'];
+const WRITERS = { setIntro, appendServiceDetail, addQuoteTemplate, addService };
 
 export function loadEdits(instance) {
   const file = join(instance.paths.platforms, 'soomgo-edits.json');
@@ -48,6 +50,8 @@ export async function run(argv, ctx = {}) {
     const write = row ? (s) => writers.addQuoteTemplate(s, { title: t.title, priceType: t.priceType, costKRW: row.baseKRW, description: t.description }, { dryRun: !apply }) : `no soomgo price row for ${t.service}`;
     steps.push(['templates', `template ${t.title}${row ? ' at ' + row.baseKRW + ' KRW' : ''}`, t.description, write]);
   }
+  // A new service gets its request items afterwards (fsw services soomgo), once its item modal exists.
+  for (const name of edits.addServices ?? []) steps.push(['services', `service ${name}`, name, (s) => writers.addService(s, name, { dryRun: !apply })]);
 
   let failed = 0;
   let session = ctx.session ?? null;

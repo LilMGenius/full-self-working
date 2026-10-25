@@ -111,6 +111,51 @@ async function openModal(s, name, wait) {
 
 const describe = (items) => items.map((i) => i.heading + ' / ' + i.label).join('; ');
 
+// In-page: clicks the visible button whose text is exactly label; false when there is none.
+const pageClickButton = (label) => {
+  const button = [...document.querySelectorAll('button')].find((b) => {
+    const r = b.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 && b.innerText.replace(/\s+/g, ' ').trim() === label;
+  });
+  if (!button) return false;
+  button.click();
+  return true;
+};
+
+// Adds a service to the offered ones from the 서비스 추가 modal: its top-level category tab (외주 for
+// outsourcing work), then the service's own button. The modal lists every soomgo service, and a full
+// snapshot of it stalled the browser extension for minutes on 2026-10-25, so inside it buttons are found
+// and clicked by their text in the page. A dry run finds the service's button and reloads the page,
+// which adds nothing. A real run presses it and reports whether the services page then lists the
+// service; its request items are set afterwards with setServiceItems, from a modal that exists only
+// once the service is offered.
+export async function addService(s, name, { category = '외주', dryRun = false, wait = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+  const rows = await readServices(s);
+  if (rows.some((r) => r.name === name)) return { name, changed: false };
+  s.guard?.beforeAction();
+  if (!(await s.evaluate(pageClickButton, '서비스 추가'))) throw new AdapterRefusal('FSW_EDITOR_MISSING', 'no 서비스 추가 button on the services page');
+  await wait(2500);
+  if (!(await s.evaluate(pageClickButton, category))) {
+    await s.navigate(`${BASE}/profile/services`);
+    throw new AdapterRefusal('FSW_EDITOR_MISSING', `no ${category} category in the add-service modal`);
+  }
+  await wait(2500);
+  const found = await s.evaluate((label) => [...document.querySelectorAll('button')].some((b) => b.innerText.replace(/\s+/g, ' ').trim() === label && b.getBoundingClientRect().width > 0), name);
+  if (!found) {
+    await s.navigate(`${BASE}/profile/services`);
+    throw new AdapterRefusal('FSW_SERVICE_UNKNOWN', `${category} has no service named ${name}`);
+  }
+  if (dryRun) {
+    await s.navigate(`${BASE}/profile/services`);
+    return { name, changed: true, saved: false, dryRun };
+  }
+  s.guard?.beforeAction();
+  await s.evaluate(pageClickButton, name);
+  await wait(3500);
+  const after = await readServices(s);
+  return { name, changed: true, saved: after.some((r) => r.name === name) };
+}
+
 // Adds the wanted items to one offered service and leaves every other item as it was. Escape does not
 // close this modal, so it is discarded by loading the services page again, which saves nothing; a dry
 // run ends that way after ticking the boxes and reading them back. A real run saves, then reopens the

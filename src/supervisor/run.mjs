@@ -368,6 +368,27 @@ function record(ctx, kind, ref, payload) {
 // One pass: every due job in schedule order, each isolated. A job that ran, failed or is not wired has
 // had its turn for the period; the period's failure stays in the events for the digest, and the next
 // period tries again.
+// A platform whose poll keeps failing is invisible while the daemon itself stays healthy: the browser
+// extension stalled for 25 minutes on 2026-10-25 and every tick failed quietly. After STUCK_POLLS failed
+// polls in a row (half an hour of 5 minute ticks) the operator hears once, with the newest error.
+export const STUCK_POLLS = 6;
+
+async function reportStuckPolls(instance, state, summary, now) {
+  const polled = summary.jobs.flatMap((j) => j.platforms ?? []);
+  if (!polled.length) return;
+  const streaks = { ...(state.pollFailures ?? {}) };
+  for (const p of polled) streaks[p.platform] = p.status === 'failed' ? (streaks[p.platform] ?? 0) + 1 : 0;
+  state.pollFailures = streaks;
+  for (const p of polled.filter((x) => x.status === 'failed' && streaks[x.platform] === STUCK_POLLS)) {
+    await notifyOperator(instance, {
+      kind: 'supervisor',
+      title: p.platform + ' failed ' + STUCK_POLLS + ' polls in a row',
+      body: 'Newest error: ' + (p.error ?? 'unknown') + '\nA BrowserSkill timeout means the extension in Chrome stalled; reloading the extension or restarting Chrome brings it back, and the next tick reads again.',
+      dedupeKey: 'poll-stuck:' + p.platform + ':' + dayKey(now),
+    });
+  }
+}
+
 export async function runTick(ctx = {}) {
   const instance = ctx.instance ?? loadInstance();
   const ownLedger = !ctx.ledger;
@@ -397,6 +418,7 @@ export async function runTick(ctx = {}) {
       if (!keepDue) state.lastRuns = { ...state.lastRuns, [id]: period };
     }
     summary.failures = summary.jobs.filter((j) => j.status === 'failed').length + summary.jobs.flatMap((j) => j.platforms ?? []).filter((p) => p.status === 'failed').length;
+    await reportStuckPolls(instance, state, summary, now);
     record(job, 'supervisor.tick', null, { jobs: summary.jobs.map((j) => j.job + ':' + j.status), failures: summary.failures, forceMode });
     state.lastTick = { at: summary.at, failures: summary.failures };
     if (ctx.persist !== false) writeState(instance, state);

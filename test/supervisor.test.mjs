@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
-import { acquireLock, effectiveMode, pidAlive, readLock, releaseLock, runTick } from '../src/supervisor/run.mjs';
+import { acquireLock, effectiveMode, pidAlive, readLock, releaseLock, runTick, STUCK_POLLS } from '../src/supervisor/run.mjs';
 import { writeDigest } from '../src/supervisor/digest.mjs';
 import { seoulParts } from '../src/core/clock.mjs';
 import { dueJobs, JOBS, nextWake, periodKey } from '../src/supervisor/schedule.mjs';
@@ -158,6 +158,25 @@ test('a job that throws is recorded as failed and the next job still runs', asyn
   assert.equal(state.lastRuns.hourly, '2026102511');
   const again = await runTick({ instance, ledger, now: new Date('2026-10-25T02:04:00Z'), state, only: ['hourly', 'poll'], handlers, persist: false });
   assert.deepEqual(again.jobs, []);
+});
+
+test('a platform that fails its poll STUCK_POLLS ticks in a row is reported to the operator once', async () => {
+  const instance = makeInstance();
+  const ledger = openLedger(':memory:');
+  const state = { lastRuns: {} };
+  let fail = true;
+  const handlers = { poll: async () => ({ status: fail ? 'failed' : 'ok', platforms: [{ platform: 'kmong', status: fail ? 'failed' : 'ok', error: fail ? 'tool RPC timed out after 47s' : undefined }] }) };
+  const tick = (i) => runTick({ instance, ledger, now: new Date(Date.parse('2026-10-25T04:00:00Z') + i * 300_000), state, only: ['poll'], handlers, persist: false });
+  const requests = () => { try { return readFileSync(join(instance.paths.operator, 'requests.md'), 'utf8'); } catch { return ''; } };
+  for (let i = 0; i < STUCK_POLLS - 1; i++) await tick(i);
+  assert.doesNotMatch(requests(), /failed 6 polls in a row/);
+  await tick(STUCK_POLLS - 1);
+  assert.match(requests(), /kmong failed 6 polls in a row/);
+  await tick(STUCK_POLLS);
+  assert.equal(requests().match(/kmong failed 6 polls in a row/g).length, 1);
+  fail = false;
+  await tick(STUCK_POLLS + 1);
+  assert.equal(state.pollFailures.kmong, 0);
 });
 
 test('a deploy skipped by a forced observe pass stays due for the next unforced tick', async () => {

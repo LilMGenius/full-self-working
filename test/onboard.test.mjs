@@ -132,6 +132,7 @@ test('freelancer skill results and the selected panel read as plain skill names'
   assert.equal(skillOfResult('Web Scraping  (42 jobs)'), 'Web Scraping');
   assert.equal(skillOfResult('Node.js (1,203 jobs)'), 'Node.js');
   assert.deepEqual(parseSelectedSkills('2 out of 20 skills selected\nWeb Scraping\nNode.js\n'), ['Web Scraping', 'Node.js']);
+  assert.deepEqual(parseSelectedSkills('996 jobs matching your skills\nWeb Scraping\nNode.js'), ['Web Scraping', 'Node.js']);
   assert.deepEqual(parseSelectedSkills('0 skills selected\nSelect at least one skill to help us recommend customized jobs for you.'), []);
 });
 

@@ -20,12 +20,14 @@ const norm = (s) => String(s ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
 const sameSet = (a, b) => a.length === b.length && a.every((x) => b.some((y) => norm(x) === norm(y)));
 const settings = (ctx) => ctx.instance.config?.onboarding?.freelancer ?? {};
 
-// The selected panel lists its heading ("3 out of 20 skills selected"), then one line per skill.
+// The selected panel lists its heading, then one line per skill. The heading reads "3 out of 20 skills
+// selected" and, once the wizard has counted matching jobs, "996 jobs matching your skills" (live
+// 2026-10-26, after all 12 skills were added).
 export function parseSelectedSkills(text) {
   return String(text ?? '')
     .split(/\n/)
     .map((l) => l.trim())
-    .filter((l) => l && !/skills? selected$/i.test(l) && !/^Select at least one skill/i.test(l));
+    .filter((l) => l && !/skills? selected$/i.test(l) && !/^[\d,]+ jobs? matching your skills$/i.test(l) && !/^Select at least one skill/i.test(l));
 }
 
 // A search result reads "Web Scraping (42 jobs)"; the name is the part before the count.

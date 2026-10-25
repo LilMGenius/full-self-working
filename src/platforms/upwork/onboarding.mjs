@@ -8,7 +8,7 @@ import catalog from '../../economics/services.json' with { type: 'json' };
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { answeredServices } from '../../economics/catalog.mjs';
-import { clickMatch, clickVisible, gated, googleSignIn, Needs, needs, pathOf, pickDate, pickOption, readIdentity, sleep, typeInto, waitFor, walkWizard } from '../onboarding.mjs';
+import { clickMatch, clickVisible, gated, googleSignIn, Needs, needs, pathOf, MONTH_NAMES, pickDate, pickOption, readIdentity, sleep, typeInto, waitFor, walkWizard } from '../onboarding.mjs';
 
 export const START = 'https://www.upwork.com/nx/create-profile/';
 const BASE = '/nx/create-profile/';
@@ -60,8 +60,6 @@ export function upworkSpecialties({ config, profile, services = catalog }) {
 const norm = (s) => String(s ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
 export const sameSet = (a, b) => a.length === b.length && a.every((x) => b.some((y) => norm(x) === norm(y)));
 
-export const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-
 // A profile period: "2024.12 to present", "2021.03 to 2023.02", "2021.08" or "present". A side without a
 // year and month is null; current is true when it runs to the present.
 export function parsePeriod(period) {
@@ -74,7 +72,7 @@ export function parsePeriod(period) {
   return { start: ym(from), end: current ? null : ym(to ?? from), current };
 }
 
-const monthYear = (d) => (d ? MONTHS[d.month - 1] + ' ' + d.year : 'Present');
+const monthYear = (d) => (d ? MONTH_NAMES[d.month - 1] + ' ' + d.year : 'Present');
 
 // The work entry dialog refuses a title of 70 characters or more ("Must be less than 70 characters").
 export const TITLE_MAX = 69;
@@ -437,10 +435,10 @@ export const HANDLERS = {
         await typeInto(s, D + 'input[aria-labelledby=company-label]', e.company);
         const current = await s.evaluate(() => !!document.querySelector('[role=dialog] input[type=checkbox]')?.checked);
         if (current !== (e.end === null)) await clickMatch(s, D + 'label[data-test=checkbox-label]', /currently working/i);
-        await pickOption(s, D + '[aria-labelledby=start-date-month]', MONTHS[e.start.month - 1]);
+        await pickOption(s, D + '[aria-labelledby=start-date-month]', MONTH_NAMES[e.start.month - 1]);
         await pickOption(s, D + '[aria-labelledby=start-date-year]', String(e.start.year));
         if (e.end) {
-          await pickOption(s, D + '[aria-labelledby=end-date-month]', MONTHS[e.end.month - 1]);
+          await pickOption(s, D + '[aria-labelledby=end-date-month]', MONTH_NAMES[e.end.month - 1]);
           await pickOption(s, D + '[aria-labelledby=end-date-year]', String(e.end.year));
         }
         if (e.description) {

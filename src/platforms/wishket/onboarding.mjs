@@ -281,8 +281,9 @@ async function introStep(session, ctx, user) {
   if (!changed.length) return result('introduction', 'done', 'introduction matches the profile');
   if (!ctx.apply) return result('introduction', 'filled', 'dry run: would replace ' + changed.join(', '));
   for (const k of changed) {
-    if (want[k]) await session.fill('[name="' + k + '"]', want[k]);
-    else await session.evaluate((n) => { const e = document.querySelector('[name="' + n + '"]'); e.value = ''; e.dispatchEvent(new Event('input', { bubbles: true })); }, k);
+    // form-scoped: the page head holds a <meta name="description"> that a bare [name=description] hits first
+    if (want[k]) await session.fill('form [name="' + k + '"]', want[k]);
+    else await session.evaluate((n) => { const e = document.querySelector('form [name="' + n + '"]'); e.value = ''; e.dispatchEvent(new Event('input', { bubbles: true })); }, k);
   }
   await session.evaluate(() => document.querySelector('.edit-menu-box form .btn-submit, form .btn-submit')?.setAttribute('data-fsw', 'intro-submit'));
   await session.click('[data-fsw=intro-submit]');
@@ -302,8 +303,7 @@ async function readItems(session, menu) {
     const view = b.querySelector('.view-box-content');
     const title = (view?.querySelector('.title, .body-1-medium')?.innerText ?? '').trim();
     const date = (view?.querySelector('.date-employ')?.innerText ?? '').match(/(\d{4})년\s*(\d{2})월/);
-    const company = (view?.querySelector('.info-content')?.innerText ?? '').trim();
-    return { pk, title, start: date ? date[1] + '-' + date[2] : null, company, menu };
+    return { pk, title, start: date ? date[1] + '-' + date[2] : null, menu };
   }).filter((x) => x.pk), menu);
 }
 
@@ -357,11 +357,13 @@ async function listStep(session, ctx, { id, menu, url, desired, keyOfPage }) {
     if (err.code !== 'FSW_PACING_LIMIT') throw err;
     failures.push('stopped at the hourly action budget; rerun to continue');
   }
+  if (done) ctx.ledger?.addEvent({ kind: 'platform.profile_edit', platform: 'wishket', ref: id, payload: { changes: done } });
+  // The read back is a page load too, so a spent budget leaves it to the next run.
+  if (failures.some((f) => /budget/.test(f))) return result(id, 'filled', done + ' of ' + (plan.add.length + plan.remove.length) + ' changes written, then ' + failures.join('; '));
   await session.navigate(url);
   const after = planList((await readItems(session, menu)).map((i) => ({ ...i, key: keyOfPage(i) })), desired);
-  if (done) ctx.ledger?.addEvent({ kind: 'platform.profile_edit', platform: 'wishket', ref: id, payload: { changes: done } });
   if (!after.add.length && !after.remove.length) return result(id, 'done', summary + ', read back');
-  return result(id, failures.some((f) => /budget/.test(f)) ? 'filled' : 'needs-operator', 'after writing: add ' + after.add.length + ', delete ' + after.remove.length + ' remain; ' + failures.join('; '));
+  return result(id, 'needs-operator', 'after writing: add ' + after.add.length + ', delete ' + after.remove.length + ' remain; ' + failures.join('; '));
 }
 
 async function educationStep(session, user) {
@@ -398,16 +400,23 @@ export async function onboard(session, ctx) {
     if (!/wishket\.com/.test(await session.evaluate(() => location.href).catch(() => ''))) await session.navigate(IDENTITY_URL);
     return (user = await userPath(session));
   };
+  let stopped = false;
   const run = async (id, fn) => {
     if (!want(id)) return;
+    if (stopped) {
+      out.push(result(id, 'filled', 'not read: the hourly action budget was spent by an earlier step'));
+      return;
+    }
     try {
       const r = await fn();
       out.push(r);
       log(id + ': ' + r.state + ' ' + r.detail);
     } catch (err) {
-      if (/timed out|timeout/i.test(err.message)) {
-        out.push(result(id, 'needs-operator', 'browser timed out: ' + err.message));
-        throw err;
+      // The descriptor's hourly budget is spent: later steps wait for the next run.
+      if (err.code === 'FSW_PACING_LIMIT') {
+        out.push(result(id, 'filled', 'stopped at the hourly action budget; rerun after an hour to continue'));
+        stopped = true;
+        return;
       }
       throw err;
     }
@@ -421,7 +430,8 @@ export async function onboard(session, ctx) {
     const entries = careerEntries(ctx.instance, skills);
     const bad = gateTexts(entries.flatMap((e) => [e.fields.company_name, e.fields.position, e.fields.description]), ctx);
     if (bad.length) return result('employment', 'needs-operator', 'the gate refused a career item: ' + bad.join('; '));
-    return listStep(session, ctx, { id: 'employment', menu: 'employment', url: BASE + u + 'employment/update/', desired: entries, keyOfPage: (i) => (i.title === '프리랜서' ? '프리랜서' : i.company || i.title) + '|' + i.start });
+    // A career card's title line is its company name, or 프리랜서 for a freelance item.
+    return listStep(session, ctx, { id: 'employment', menu: 'employment', url: BASE + u + 'employment/update/', desired: entries, keyOfPage: (i) => i.title + '|' + i.start });
   });
   await run('prize', async () => {
     const u = await userOf();

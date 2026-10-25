@@ -16,9 +16,12 @@
 // - Languages save as soon as a row has both values; "Add languages" adds a row. Language codes are ISO
 //   (KO, EN) and levels BASIC, CONVERSATIONAL, FLUENT, NATIVE_OR_BILINGUAL.
 // - A skill is typed, picked from the suggestions, given BEGINNER, INTERMEDIATE or PRO and added with "Add".
+// - Mid-session, about an hour after the first edits, the overview answered with a PerimeterX page ("It needs a
+//   human touch", ERRCODE PXCR...). That is a human check; every step stops and reports it.
 // - The display name in the recommended form (first name and last initial) was refused with
 //   "This name violates our Terms of Service."; the full English name was accepted.
 import { gateOutbound } from '../../policy/gate.mjs';
+import { challengeOf } from '../kit.mjs';
 
 export const OVERVIEW_URL = 'https://www.fiverr.com/seller_onboarding/overview';
 
@@ -116,7 +119,7 @@ async function press(session, body) {
 const buttonByText = (text) => "return [...document.querySelectorAll('button')].find((b) => b.offsetWidth && b.innerText.trim() === " + JSON.stringify(text) + ')';
 
 async function readPage(session) {
-  return session.evaluate(() => {
+  const page = await session.evaluate(() => {
     const field = (ph) => document.querySelector('input[placeholder="' + ph + '"]')?.value ?? null;
     const about = document.querySelector('textarea[placeholder^="Share some details"]');
     const aboutText = (document.body.innerText.match(/About\n([\s\S]*?)\nSkills and expertise/)?.[1] ?? '').trim();
@@ -130,6 +133,9 @@ async function readPage(session) {
       photo: !!document.querySelector('img[src*="profile"], img[alt*="profile" i]') && !/Add profile picture|Upload photo/i.test(document.body.innerText.slice(0, 600)),
     };
   });
+  const wall = challengeOf({ title: page.heading, text: page.text.slice(0, 2000) });
+  if (wall) throw Object.assign(new Error('Fiverr shows a ' + wall + ' human check (' + page.heading.slice(0, 40) + '); the operator passes it in Chrome'), { code: 'FSW_FIVERR_CHALLENGE' });
+  return page;
 }
 
 async function setInline(session, placeholder, value) {
@@ -284,7 +290,16 @@ export async function onboard(session, ctx) {
   const want = (id) => !ctx.step || ctx.step === id;
   for (const [id, fn] of [['start', startStep], ['profile', profileStep], ['continue', continueStep]]) {
     if (!want(id)) continue;
-    const r = await fn(session, ctx);
+    let r;
+    try {
+      r = await fn(session, ctx);
+    } catch (err) {
+      if (err.code !== 'FSW_FIVERR_CHALLENGE') throw err;
+      r = result(id, 'needs-operator', err.message);
+      out.push(r);
+      log(id + ': ' + r.state + ' ' + r.detail);
+      break;
+    }
     out.push(r);
     log(id + ': ' + r.state + ' ' + r.detail);
     if (r.state !== 'done' && id === 'start' && ctx.apply) break;

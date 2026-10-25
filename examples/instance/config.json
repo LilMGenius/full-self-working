@@ -70,6 +70,24 @@
     "timeoutMs": 240000
   },
   "jobs": {
-    "maxParallel": 3
+    "maxParallel": 3,
+    "timeoutMs": null,
+    "model": null,
+    "effort": null,
+    "jwc": {
+      "model": null,
+      "thinking": null
+    }
+  },
+  "orders": {
+    "watched": false
+  },
+  "listings": {
+    "studio": null
+  },
+  "site": {
+    "domain": null,
+    "vercelTeam": null,
+    "project": null
   }
 }

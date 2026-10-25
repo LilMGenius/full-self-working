@@ -50,12 +50,12 @@ export async function runCodex({ prompt, schema, model, effort, cwd, sandbox, ti
   if (typeof prompt !== 'string' || !prompt.trim()) throw new TypeError('runCodex needs a prompt');
   if (!schema || typeof schema !== 'object') throw new TypeError('runCodex needs a JSON schema object');
   const dir = mkdtempSync(join(tmpdir(), 'fsw-codex-'));
-  const schemaFile = join(dir, 'schema.json');
-  const outFile = join(dir, 'last.txt');
-  writeFileSync(schemaFile, JSON.stringify(schema));
-  const args = codexArgs({ schemaFile, outFile, model, effort, cwd, sandbox, proxyUrl: proxyUrl === '' || proxyUrl === 'none' ? null : proxyUrl });
-  const started = Date.now();
   try {
+    const schemaFile = join(dir, 'schema.json');
+    const outFile = join(dir, 'last.txt');
+    writeFileSync(schemaFile, JSON.stringify(schema));
+    const args = codexArgs({ schemaFile, outFile, model, effort, cwd, sandbox, proxyUrl: proxyUrl === '' || proxyUrl === 'none' ? null : proxyUrl });
+    const started = Date.now();
     const { exitCode, stderr, timedOut } = await new Promise((resolve, reject) => {
       // No shell: libuv finds codex.exe on PATH and quotes each argument; the prompt travels on stdin.
       const child = spawn(bin, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });

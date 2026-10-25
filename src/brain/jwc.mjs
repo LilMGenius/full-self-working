@@ -85,11 +85,11 @@ export async function runJwc({ prompt, model, thinking, cwd, timeoutMs = 3_600_0
   if (typeof prompt !== 'string' || !prompt.trim()) throw new TypeError('runJwc needs a prompt');
   if (!cwd) throw new TypeError('runJwc needs a working directory');
   const dir = mkdtempSync(join(tmpdir(), 'fsw-jwc-'));
-  const promptFile = join(dir, 'prompt.md');
-  writeFileSync(promptFile, prompt);
-  const args = jwcArgs({ promptFile, model, thinking });
-  const started = Date.now();
   try {
+    const promptFile = join(dir, 'prompt.md');
+    writeFileSync(promptFile, prompt);
+    const args = jwcArgs({ promptFile, model, thinking });
+    const started = Date.now();
     const { exitCode, stdout, stderr, timedOut } = await new Promise((resolve, reject) => {
       // jwc is an npm shim (jwc.cmd) on Windows, which only a shell can start; every argument is quoted.
       const win = process.platform === 'win32';

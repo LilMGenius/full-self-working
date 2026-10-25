@@ -158,6 +158,8 @@
       "hourlyRateUSD": null
     },
     "freelancer": {
+      "headline": "Web developer for landing pages and web apps",
+      "summary": null,
       "skills": [
         "Web Development",
         "JavaScript"

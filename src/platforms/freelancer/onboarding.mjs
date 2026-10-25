@@ -3,16 +3,20 @@
 // dry run types and reads back without saving. Values come from config.onboarding.freelancer and the
 // profile; every typed text passes the outbound gate as kind profile first. Bids and deposits are never
 // part of onboarding.
-import { Needs, clickMatch, googleSignIn, needs, pathOf, readIdentity, sleep, typeInto, waitFor, walkWizard } from '../onboarding.mjs';
+import { Needs, clickMatch, gated, googleSignIn, needs, pathOf, readIdentity, sleep, typeInto, waitFor, walkWizard } from '../onboarding.mjs';
 
 export const START = 'https://www.freelancer.com/new-freelancer/skills';
 const BASE = '/new-freelancer/';
 export const MAX_SKILLS = 20;
+export const SUMMARY_MAX = 3000;
+const HEADLINE = 'input[placeholder="e.g. Data Scientist"]';
+const SUMMARY = 'main textarea';
 
 export const STEPS = [
   { id: 'skills', detect: { path: BASE + 'skills', heading: /tell us your top skills/i } },
   { id: 'linked-accounts', detect: { path: BASE + 'linked-accounts', heading: /link your accounts/i } },
   { id: 'profile-details/photo-and-name', detect: { path: BASE + 'profile-details/photo-and-name', heading: /what is your name/i } },
+  { id: 'profile-details/headline-and-summary', detect: { path: BASE + 'profile-details/headline-and-summary', heading: /tell us a bit about yourself/i } },
 ];
 
 // A step is the wizard path after /new-freelancer/, since profile-details holds several pages.
@@ -137,7 +141,29 @@ export const HANDLERS = {
       return page.next ? null : 'the profile photo is taken with the camera for identity verification: on /new-freelancer/profile-details/photo-and-name press the camera button, Continue, allow the camera and take the picture; the names are typed';
     },
   },
+  // Mapped 2026-10-26: "What do you do?" is a one line headline (placeholder "e.g. Data Scientist") and
+  // "Describe yourself" a textarea of 3,000 characters. The headline is config onboarding.freelancer.headline
+  // and the description onboarding.freelancer.summary, else profile.summary_en; both pass the gate.
+  'profile-details/headline-and-summary': {
+    read: (s) => s.evaluate(({ h, d }) => ({ headline: document.querySelector(h)?.value ?? '', summary: document.querySelector(d)?.value ?? '' }), { h: HEADLINE, d: SUMMARY }),
+    want: (ctx) => headlineAndSummary(ctx),
+    same: (cur, want) => norm(cur.headline) === norm(want.headline) && norm(cur.summary) === norm(want.summary),
+    write: async (s, want, cur) => {
+      if (norm(cur.headline) !== norm(want.headline)) await typeInto(s, HEADLINE, want.headline);
+      if (norm(cur.summary) !== norm(want.summary)) await s.fill(SUMMARY, want.summary);
+    },
+  },
 };
+
+export function headlineAndSummary(ctx) {
+  const set = settings(ctx);
+  const headline = String(set.headline ?? '').trim();
+  const summary = String(set.summary ?? ctx.instance.profile?.summary_en ?? '').trim();
+  if (!headline) return needs('set config onboarding.freelancer.headline to a one line description of what you do');
+  if (summary.length > SUMMARY_MAX) return needs('the summary is ' + summary.length + ' characters and Freelancer takes ' + SUMMARY_MAX);
+  const refused = gated(ctx, headline, 'onboarding.freelancer.headline') ?? gated(ctx, summary, 'the summary');
+  return refused ? needs(refused) : { headline, summary };
+}
 
 // A step holding private values describes them by want.private, never by value.
 const describe = (want) => (Array.isArray(want) ? want.join(', ') : want?.private ? want.private : typeof want === 'object' ? JSON.stringify(want) : String(want));

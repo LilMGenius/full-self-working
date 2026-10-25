@@ -6,7 +6,7 @@ import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { parseArgs, run } from '../src/cli/onboard.mjs';
 import { blockOf, dayLabel, humanize, readIdentity, walkWizard } from '../src/platforms/onboarding.mjs';
-import { HANDLERS as FREELANCER, STEPS as FREELANCER_STEPS, addSkill, parseSelectedSkills, resultPattern, skillOfResult, splitLegalName, stepOfUrl as freelancerStep } from '../src/platforms/freelancer/onboarding.mjs';
+import { HANDLERS as FREELANCER, STEPS as FREELANCER_STEPS, addSkill, headlineAndSummary, parseSelectedSkills, resultPattern, skillOfResult, splitLegalName, stepOfUrl as freelancerStep } from '../src/platforms/freelancer/onboarding.mjs';
 import { HANDLERS as UPWORK, employmentEntries, onboard, parseEmploymentCard, parsePeriod, splitTitle, stepOfUrl, upworkSpecialties } from '../src/platforms/upwork/onboarding.mjs';
 import { tempDir } from './tmp.mjs';
 
@@ -174,6 +174,28 @@ test('freelancer photo-and-name types the legal name as given and family name an
   assert.match(await h.pending(session), /camera/);
   page.next = true;
   assert.equal(await h.pending(session), null);
+});
+
+test('freelancer headline-and-summary takes the configured headline and the profile summary through the gate', async () => {
+  const inst = instance();
+  const ctx = { instance: inst, descriptor: loadDescriptor('freelancer') };
+  const want = headlineAndSummary(ctx);
+  assert.equal(want.headline, inst.config.onboarding.freelancer.headline);
+  assert.equal(want.summary, inst.profile.summary_en.trim());
+  inst.config.onboarding.freelancer.summary = 'Builds web apps \u2014 fast.';
+  assert.match(headlineAndSummary(ctx).message, /refused by the gate/);
+  inst.config.onboarding.freelancer = { skills: ['x'] };
+  assert.match(headlineAndSummary(ctx).message, /onboarding.freelancer.headline/);
+  const h = FREELANCER['profile-details/headline-and-summary'];
+  const page = { headline: '', summary: '' };
+  const session = {
+    evaluate: async (fn, arg) => (arg?.selector ? true : { ...page }),
+    click: async () => {},
+    typeKeys: async (_sel, text) => { page.headline = text; },
+    fill: async (_sel, text) => { page.summary = text; },
+  };
+  await h.write(session, want, await h.read(session));
+  assert.ok(h.same(await h.read(session), want));
 });
 
 test('a run within the cooldown of the last one stops before opening the browser, unless forced', async () => {

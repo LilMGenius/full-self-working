@@ -277,6 +277,15 @@ test('allocate keeps the exploration floor for young arms and zeroes non-viable,
   assert.equal(w['off/star'].reason, 'platform not enabled');
 });
 
+test('an arm whose price row has no adapter gets no weight, whatever its value', () => {
+  const table = [rowP('star', 500000), { ...rowP('ghost', 900000), adapter: false }];
+  const arms = ['star', 'ghost'].map((service) => ({ platform: 'p', service, leads: 0, wins: 0, losses: 0, expectedHours: 4 }));
+  const w = Object.fromEntries(allocate(arms, { priceTable: table, config: allocConfig, rng: mulberry32(7) }).map((r) => [r.service, r]));
+  assert.equal(w.ghost.weight, 0);
+  assert.equal(w.ghost.reason, 'no adapter');
+  assert.equal(w.star.weight, 1);
+});
+
 test('with more young arms than the floors can serve, the floors share the exploration mass and value still leads', () => {
   const services = Array.from({ length: 24 }, (_, i) => 's' + String(i).padStart(2, '0'));
   const table = services.map((s, i) => rowP(s, (i + 1) * 20000));

@@ -1,5 +1,11 @@
 // fsw price: rebuild the price table from the newest market summary, the profile's service fit and
-// each platform's review count, and write a new table only when a row changed.
+// each platform's review count, and write a new table only when a row changed. Every platform with
+// summary entries is priced, enabled or not, so a market sampled before any login shows what that
+// login would pay. A platform without a state file is priced as a new seller (0 reviews), and each row
+// says whether this build has an adapter for its platform, which the allocation requires. A platform
+// that is not enabled and cannot be priced (fees unknown, say) is listed under skipped by name, so it
+// never blocks the enabled platforms' rows; an enabled platform that cannot be priced still fails the
+// run and keeps the previous table.
 import { existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { ensureDir, loadInstance } from '../core/instance.mjs';
@@ -7,7 +13,7 @@ import { dayKey } from '../core/clock.mjs';
 import { latestSummary } from '../economics/market.mjs';
 import { buildPriceTable } from '../economics/pricing.mjs';
 import { EconomicsError } from '../economics/errors.mjs';
-import { loadDescriptor } from '../platforms/registry.mjs';
+import { listDescriptors, loadDescriptor } from '../platforms/registry.mjs';
 import services from '../economics/services.json' with { type: 'json' };
 
 const TABLE_RE = /^price-table-(\d{8})\.json$/;
@@ -30,15 +36,30 @@ export function latestTable(dir) {
 export async function run(argv, ctx = {}) {
   const log = ctx.log ?? console.log;
   const instance = ctx.instance ?? loadInstance(ctx.instanceDir ? { dir: ctx.instanceDir } : {});
+  // The supervisor's loader owns what counts as an adapter; it is imported here only, so the modules
+  // that read latestTable stay light.
+  const adapterFor = ctx.loadAdapter ?? (await import('../supervisor/run.mjs')).loadAdapter;
   const summary = latestSummary(instance);
   const enabled = Object.entries(instance.config.platforms ?? {}).filter(([, p]) => p.enabled).map(([id]) => id);
-  const descriptors = Object.fromEntries(enabled.map((id) => [id, loadDescriptor(id)]));
+  const known = new Set(listDescriptors());
+  const ids = [...new Set([...enabled, ...summary.entries.map((e) => e.platform)])].filter((id) => known.has(id));
   const sellerStats = {};
-  for (const id of enabled) {
-    const statePath = join(instance.paths.platforms, id + '-state.json');
-    if (existsSync(statePath)) sellerStats[id] = sellerStatsFrom(JSON.parse(readFileSync(statePath, 'utf8')), id);
+  const rows = [];
+  const skipped = [];
+  for (const id of ids) {
+    try {
+      const statePath = join(instance.paths.platforms, id + '-state.json');
+      if (existsSync(statePath)) sellerStats[id] = sellerStatsFrom(JSON.parse(readFileSync(statePath, 'utf8')), id);
+      else if (!enabled.includes(id)) sellerStats[id] = { reviews: 0, basis: 'no account state: priced as a new seller' };
+      const built = buildPriceTable({ summary, services, profile: instance.profile, sellerStats, config: instance.config, descriptors: { [id]: loadDescriptor(id) } });
+      const adapter = Boolean(await adapterFor(id));
+      rows.push(...built.map((r) => ({ ...r, adapter })));
+    } catch (err) {
+      if (enabled.includes(id)) throw err;
+      skipped.push({ platform: id, code: err.code ?? null, message: err.message });
+    }
   }
-  const rows = buildPriceTable({ summary, services, profile: instance.profile, sellerStats, config: instance.config, descriptors });
+  for (const s of skipped) log('price ' + s.platform + ' skipped: ' + s.message);
   const dir = instance.paths.pricing;
   const previous = latestTable(dir);
   if (previous && JSON.stringify(previous.table.rows) === JSON.stringify(rows)) {
@@ -48,7 +69,7 @@ export async function run(argv, ctx = {}) {
   ensureDir(dir);
   const file = join(dir, 'price-table-' + (ctx.day ?? dayKey(new Date())) + '.json');
   const tmp = file + '.' + process.pid + '.tmp';
-  writeFileSync(tmp, JSON.stringify({ summaryFile: basename(summary.file), observedAt: summary.observedAt, sellerStats, rows }, null, 2) + '\n');
+  writeFileSync(tmp, JSON.stringify({ summaryFile: basename(summary.file), observedAt: summary.observedAt, sellerStats, skipped, rows }, null, 2) + '\n');
   renameSync(tmp, file);
   const viable = rows.filter((r) => r.viable);
   log('price table written: ' + basename(file) + ' (' + rows.length + ' rows, ' + viable.length + ' viable, ' + rows.filter((r) => r.pricedAtFloor).length + ' raised to the cost floor)');

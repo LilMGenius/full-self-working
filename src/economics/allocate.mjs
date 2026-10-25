@@ -75,6 +75,8 @@ export function allocate(arms, { priceTable, config, rng = Math.random }) {
     if (config.platforms?.[a.platform]?.enabled !== true) return { ...out, reason: 'platform not enabled' };
     const row = priceTable.find((r) => r.platform === a.platform && r.service === a.service);
     if (!row) return { ...out, reason: 'no price row' };
+    // An arm on a platform this build cannot work (no adapter) gets nothing until one exists and signs in.
+    if (row.adapter === false) return { ...out, reason: 'no adapter' };
     if (!row.viable) return { ...out, reason: row.reason ?? 'price row not viable' };
     const value = requireNumber(row.baseNetKRW, `price row ${a.platform}/${a.service}.baseNetKRW`, 'FSW_PRICE_ROW_MISSING');
     if (!(a.expectedHours > 0)) throw new EconomicsError('FSW_ARM_INVALID', `arm ${a.platform}/${a.service} has no expected hours`);

@@ -6,6 +6,7 @@
 // gives roles, education and the overview text, which passes the outbound gate before it is typed.
 import catalog from '../../economics/services.json' with { type: 'json' };
 import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { answeredServices } from '../../economics/catalog.mjs';
 import { clickMatch, clickVisible, gated, googleSignIn, Needs, needs, pathOf, pickDate, pickOption, readIdentity, sleep, typeInto, waitFor, walkWizard } from '../onboarding.mjs';
 
@@ -32,6 +33,7 @@ export const STEPS = [
   { id: 'overview', detect: { path: BASE + 'overview', heading: /write a bio to tell the world about yourself/i } },
   { id: 'rate', detect: { path: BASE + 'rate', heading: /set your hourly rate/i } },
   { id: 'location', detect: { path: BASE + 'location', heading: /a few last details/i } },
+  { id: 'submit', detect: { path: BASE + 'submit', heading: /preview profile/i } },
 ];
 
 export const stepOfUrl = (url) => {
@@ -235,6 +237,23 @@ const radioStep = (key, values) => ({
 });
 
 export const HANDLERS = {
+  // Mapped 2026-10-26: the preview page shows the whole profile and two "Submit profile" buttons;
+  // submitting leaves create-profile. The last step of the wizard, so the walk ends here, and the page
+  // the site lands on is captured to the evidence folder.
+  submit: {
+    saves: true,
+    final: true,
+    read: (s) => s.evaluate(() => !location.pathname.startsWith('/nx/create-profile/submit')),
+    want: () => true,
+    same: (cur) => cur === true,
+    write: async (s, want, cur, ctx) => {
+      if (!(await clickMatch(s, 'button', 'Submit profile'))) throw new Error('no Submit profile button');
+      if (!(await waitFor(s, () => !location.pathname.startsWith('/nx/create-profile/submit'), null, { timeoutMs: 30000 }))) throw new Error('the profile page stayed on submit');
+      await sleep(4000);
+      if (ctx.evidenceDir) await s.screenshot(join(ctx.evidenceDir, 'submitted-' + Date.now() + '.jpg'));
+    },
+  },
+
   // Mapped 2026-10-25: "Upload photo" opens a dialog with a file input, a crop view and "Attach photo",
   // which saves at once; the saved portrait shows as an img from /profile-portraits/. Mapped 2026-10-26:
   // date of birth (a date picker, pickDate), street, Apt/Suite, city (a typeahead), state, ZIP and a phone
@@ -511,7 +530,7 @@ export const HANDLERS = {
 };
 
 const describe = (want) => {
-  if (want === true) return 'profile photo in place';
+  if (want === true) return 'in place';
   if (want?.private) return want.private + ' (values withheld)';
   const one = (w) => (typeof w !== 'object' ? w : w.level ? w.language + ' ' + w.level : w.school ? [w.school, w.degree, w.field, w.from && w.from + '-' + w.to].filter(Boolean).join(', ') : w.title + ' at ' + w.company + ', ' + w.dates);
   if (Array.isArray(want)) return want.map(one).join('; ') + (want.skipped?.length ? '; left out without a start month or over the title limit: ' + want.skipped.join(', ') : '');

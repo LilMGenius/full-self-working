@@ -216,6 +216,8 @@ export async function walkWizard(session, ctx, wiz) {
       break;
     }
     if (r.state === 'needs-operator' || r.state === 'unmapped' || only) break;
+    // A final step (the submit button) leaves the wizard itself, so nothing follows it.
+    if (wiz.handlers[id].final) break;
     const pending = wiz.handlers[id].pending ? await wiz.handlers[id].pending(session) : null;
     if (pending) {
       results.push(result(id, 'needs-operator', pending));

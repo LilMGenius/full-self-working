@@ -62,7 +62,7 @@ function priceLines(priceRows, catalog) {
 
 function catalogLines(catalog, profile) {
   return catalogIds(catalog)
-    .map((id) => '- ' + id + ': ' + catalog[id].ko + ' / ' + catalog[id].en + ' (fit: ' + (profile.serviceFit?.[id]?.strength ?? 'not offered') + ')')
+    .map((id) => '- ' + id + ': ' + catalog[id].ko + ' / ' + catalog[id].en + ' (fit: ' + (profile.serviceFit?.[id]?.strength ?? 'none') + ')')
     .join('\n');
 }
 
@@ -134,7 +134,7 @@ export function buildDecisionPrompt({ thread, instance, descriptor, priceRows = 
     '   Every package and quote includes one revision round, which the catalog hours assume; offer further rounds as extra paid work, never as included.',
     '4. Offer the platform split mechanism above for larger amounts (deposit and balance, or phase orders on 크몽), never an off-platform transfer.',
     '5. Never promise what my profile cannot back: no invented numbers, clients, reviews, guarantees or timelines you cannot keep. List every profile claim you used in claimsUsed.',
-    '6. If the service is not in the catalog or its fit is "not offered" or "none", set intent "unsupported", needsOperator true and say why in operatorReason; you may still write a polite holding reply that promises nothing.',
+    '6. If the service is not in the catalog, or the work would break a law or another service\'s terms (a game bot or cheat, fake reviews, account farming), set intent "unsupported", needsOperator true and say why in operatorReason; you may still write a polite holding reply that promises nothing. A fit of "none" only means there is no past work to cite: offer the service from the price rows and claim no experience in it.',
     '7. Set needsOperator when a human decision is needed (custom pricing outside the range, legal or refund questions, a meeting request, anything you are unsure of). Set reply null for spam or when no reply is due.',
     '8. Plain text only: no markdown, no em dash, no middle-dot lists, no hype words, no emoji bullets.',
     '',

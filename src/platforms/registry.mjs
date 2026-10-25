@@ -48,6 +48,13 @@ export function validateDescriptor(d, id = d?.id) {
     if (v === undefined) throw invalid(id, path, 'missing');
     if (!ok(v)) throw invalid(id, path, `unexpected value ${JSON.stringify(v)}`);
   }
+  const basis = d.fees.sellerTierBasis;
+  if (basis !== undefined && !['marginal', 'whole'].includes(basis)) throw invalid(id, 'fees.sellerTierBasis', `unexpected value ${JSON.stringify(basis)}`);
+  // A whole-amount tier that raised the rate would net less on a larger gross, and the cost floor's
+  // search needs net to grow with gross.
+  if (basis === 'whole' && !(Array.isArray(d.fees.seller) && d.fees.seller.every((t, i, all) => i === 0 || t.rate <= all[i - 1].rate))) {
+    throw invalid(id, 'fees.seller', 'whole-amount tiers must list rates that never rise');
+  }
   if (id !== undefined && d.id !== id) throw invalid(id, 'id', `file is ${id} but id is ${d.id}`);
   return d;
 }

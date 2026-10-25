@@ -9,17 +9,17 @@
   ],
   "fees": {
     "seller": 0.1,
-    "paymentNetworkRate": "unknown",
-    "vatOnFees": "unknown",
+    "paymentNetworkRate": 0,
+    "vatOnFees": 0,
     "buyer": {
       "rate": 0.03,
       "notes": "on projects (secondary and the official fees page snippet)"
     },
-    "notes": "10% of the project, minimum 5 USD; contest winners 10% or 5 USD. Payments beyond the winning bid add 3% client and 10% freelancer."
+    "notes": "Fixed-price projects pay 10% or 5 USD, whichever is greater, and hourly projects 10% (official fees page, read 2026-10-25). The 5 USD minimum is not modeled, so a project under 50 USD nets less than the price table says. Taxes on fees apply only to residents of the countries the page lists (Australia, Chile, the EU, India, Mexico, the Philippines, Russia, Switzerland), and Korea is not one of them. Withdrawals cost 1 USD (express, PayPal, Skrill, Payoneer) or 25 USD (wire) each with a 50 USD minimum, outside any one project. Payments beyond the winning bid add 3% client and 10% freelancer."
   },
   "bidCost": {
     "unit": "bids",
-    "notes": "Free with a monthly limit: Free 6, Basic 50, Plus 100, Professional 300, Premier 1500 (official FAQ)."
+    "notes": "Free with a monthly limit: Free 6, Basic 50, Plus 100, Professional 300, Premier 1500 (official FAQ). Placing any bid needs an available account balance of at least 20 USD (official fees page)."
   },
   "escrow": true,
   "milestones": "native",

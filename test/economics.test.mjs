@@ -69,6 +69,15 @@ test('sellerNet fails closed when the descriptor has no numeric fee data', () =>
   assert.throws(() => sellerNet(1000, { id: 'x' }), { code: 'FSW_FEES_MISSING' });
 });
 
+test('whole-amount tiers charge the whole gross at one rate, and the cost floor crosses the cliff', () => {
+  const cliff = { id: 'cliff', fees: { seller: [{ uptoKRW: 5000000, rate: 0.25 }, { uptoKRW: null, rate: 0.2 }], sellerTierBasis: 'whole', paymentNetworkRate: 0, vatOnFees: 0 } };
+  assert.equal(sellerNet(4999000, cliff).net, 3749250);
+  assert.equal(sellerNet(5000000, cliff).net, 4000000);
+  // No gross under 5,000,000 nets 3,800,000 (the most is 3,749,999), so the floor is the cliff itself.
+  assert.equal(costFloor({ agentHours: 1900, humanMinutes: 0, agentHourCostKRW: 2000, humanHourValueKRW: 30000, descriptor: cliff }), 5000000);
+  assert.throws(() => sellerNet(1000, { ...cliff, fees: { ...cliff.fees, sellerTierBasis: 'flat' } }), { code: 'FSW_FEES_MISSING' });
+});
+
 const services = {
   _notes: { a: 'ignored' },
   svc: { kmongCategory: 'cat', soomgoGuide: null, agentHours: { standard: 1, deluxe: 2, premium: 4 }, humanMinutes: { standard: 15 } },

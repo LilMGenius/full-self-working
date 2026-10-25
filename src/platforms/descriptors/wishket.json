@@ -5,15 +5,28 @@
   "currency": "KRW",
   "model": "bidding",
   "fees": {
-    "seller": "unknown",
-    "paymentNetworkRate": "unknown",
-    "vatOnFees": "unknown",
-    "buyer": "unknown",
-    "notes": "Secondary sources report a partner commission of 10% to 20% for 외주 (도급) and 5% for 기간제 (상주); the official table was not fetched."
+    "seller": [
+      {
+        "uptoKRW": 5000000,
+        "rate": 0.25
+      },
+      {
+        "uptoKRW": null,
+        "rate": 0.2
+      }
+    ],
+    "sellerTierBasis": "whole",
+    "paymentNetworkRate": 0,
+    "vatOnFees": 0,
+    "buyer": {
+      "rate": 0,
+      "notes": "The client pays only the project cost plus 10% VAT; premium services cost extra (official price page)."
+    },
+    "notes": "외주(도급) partner fee from the official price page, read 2026-10-25: 25% of a project under 5,000,000 KRW and 20% of one at 5,000,000 KRW or more, charged on the whole amount; Prime and Pro partners pay a flat 20%. A business partner receives the rest plus VAT, so no VAT is charged on the fee. 기간제(상주) projects pay 10%."
   },
   "bidCost": {
-    "unit": "unknown",
-    "notes": "Applying appears free (not verified)."
+    "unit": "none",
+    "notes": "Applying is free; the fee arises only once a contracted project proceeds (official price page)."
   },
   "escrow": true,
   "milestones": "native",
@@ -33,7 +46,7 @@
     "notes": "unknown"
   },
   "aiPolicy": "unknown",
-  "taxInvoice": "The client pays the project cost plus 10% VAT; invoice details unknown.",
+  "taxInvoice": "A business partner issues a tax invoice for the amount it receives; an individual partner has 3.3% withheld and 위시켓 files the tax for them (official price page).",
   "pacing": {
     "minGapMs": 10000,
     "maxActionsPerHour": 30,
@@ -57,6 +70,7 @@
     "portfolio, reviews and manager recommendation (secondary)"
   ],
   "sources": [
+    "https://support.wishket.com/customer-support/price/",
     "https://www.wishket.com/news-center/detail/806/",
     "https://blog.wishket.com/blog/freelancer-platform-comparison"
   ]

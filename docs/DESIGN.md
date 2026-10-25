@@ -48,6 +48,7 @@ Before anything is opened, an item is parked from its list row alone when the pl
 | `src/brain/respond.mjs` | `decide(thread, ctx)` | classify, reply, quote, operator flag |
 | `src/platforms/<id>/market.mjs` | `sample(session, targets)` returns {rows, errors} | 크몽 reads the first 30 gig cards per category page (`kmongCategoryId`) or keyword search; 숨고 reads its public price guide |
 | `src/economics/market.mjs` | `summarize(samples)`, `summarizeDay(rows)`, `latestSummary(instance)` | quantiles and review-weighted median for listings; guide figures and their unit pass through |
+| `src/economics/fx.mjs` | `loadFx(instance)`, `toKRW(amount, currency, fx)`, `fxNote(currency, fx)` | ECB reference rates from Frankfurter (no key), read once per Seoul day into `market/fx-<day>.json`; fails with `FSW_FX_UNAVAILABLE` and caches nothing when the source cannot answer |
 | `src/cli/market.mjs` | `run(argv, ctx)` | samples every enabled platform, retries a failed category once, writes the day's files only when the summary changed; a run replaces only the (platform, category) pairs it read, so naming one platform keeps the rest of the day |
 | `src/economics/pricing.mjs` | `buildPriceTable({summaries, profile, reviews, config})`, `quoteFor(row, complexity)`, `splitPayment(amount, config, descriptor)` | |
 | `src/economics/yield.mjs` | `armStats(ledger)` | net KRW per weighted hour per (platform, service) |

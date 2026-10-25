@@ -57,6 +57,7 @@
     "humanHourValueKRW": 30000,
     "humanHourWeight": 4,
     "explorationFloor": 0.05,
+    "explorationShare": 0.3,
     "exploreUntilLeads": 10
   },
   "notify": {

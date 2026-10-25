@@ -234,7 +234,7 @@ test('Marsaglia-Tsang Beta draws match the Beta mean', () => {
 });
 
 const allocConfig = {
-  yield: { explorationFloor: 0.05, exploreUntilLeads: 10 },
+  yield: { explorationFloor: 0.05, explorationShare: 0.3, exploreUntilLeads: 10 },
   platforms: { p: { enabled: true }, off: { enabled: false } },
 };
 const rowP = (service, baseNetKRW, viable = true) => ({ platform: 'p', service, baseNetKRW, viable, reason: viable ? undefined : 'under cost floor' });
@@ -266,4 +266,18 @@ test('allocate keeps the exploration floor for young arms and zeroes non-viable,
   assert.equal(w['p/unpriced'].weight, 0);
   assert.equal(w['off/star'].weight, 0);
   assert.equal(w['off/star'].reason, 'platform not enabled');
+});
+
+test('with more young arms than the floors can serve, the floors share the exploration mass and value still leads', () => {
+  const services = Array.from({ length: 24 }, (_, i) => 's' + String(i).padStart(2, '0'));
+  const table = services.map((s, i) => rowP(s, (i + 1) * 20000));
+  const arms = services.map((s) => ({ platform: 'p', service: s, leads: 0, wins: 0, losses: 0, expectedHours: 4 }));
+  const runs = 200;
+  const mean = Object.fromEntries(services.map((s) => [s, 0]));
+  const rng = mulberry32(3);
+  for (let k = 0; k < runs; k++) for (const r of allocate(arms, { priceTable: table, config: allocConfig, rng })) mean[r.service] += r.weight / runs;
+  const floor = 0.3 / 24;
+  for (const s of services) assert.ok(mean[s] >= floor - 1e-12, s + ' kept its exploration floor');
+  assert.ok(mean.s23 > 3 * mean.s00, 'the most valuable arm gets several times the least valuable one');
+  assert.ok(mean.s23 > 1 / 24 + 0.02, 'weights are not uniform');
 });

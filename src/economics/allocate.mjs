@@ -1,7 +1,9 @@
 // Thompson-sampling allocation over (platform, service) arms (docs/DESIGN.md, Economics).
 // Each arm draws a win rate from Beta(1 + wins, 1 + losses); its score is win rate x the net of the
 // price table's base / expected weighted hours. Scores are normalized into weights, and every enabled
-// arm still under config.yield.exploreUntilLeads leads keeps at least config.yield.explorationFloor.
+// arm still under config.yield.exploreUntilLeads leads keeps a floor: config.yield.explorationFloor, cut
+// so that all floors together stay within config.yield.explorationShare. Without that cap, twenty young
+// arms at 5 percent each would take the whole mass and every arm would get the same weight.
 import { EconomicsError, requireNumber } from './errors.mjs';
 
 // mulberry32 by Tommy Ettinger (public domain), the 32-bit PRNG widely quoted from
@@ -63,7 +65,8 @@ function applyFloor(shares, floorArms, floor) {
 }
 
 export function allocate(arms, { priceTable, config, rng = Math.random }) {
-  const floor = requireNumber(config?.yield?.explorationFloor, 'config.yield.explorationFloor');
+  const maxFloor = requireNumber(config?.yield?.explorationFloor, 'config.yield.explorationFloor');
+  const share = requireNumber(config?.yield?.explorationShare, 'config.yield.explorationShare');
   const untilLeads = requireNumber(config?.yield?.exploreUntilLeads, 'config.yield.exploreUntilLeads');
   // Draw in a fixed order so a seeded run does not depend on the order arms arrive in.
   const ordered = [...arms].sort((x, y) => x.platform.localeCompare(y.platform) || String(x.service).localeCompare(String(y.service)));
@@ -82,6 +85,7 @@ export function allocate(arms, { priceTable, config, rng = Math.random }) {
   if (total > 0) {
     const shares = results.map((r) => r.score / total);
     const floorArms = new Set(results.flatMap((r, i) => (r.exploring ? [i] : [])));
+    const floor = floorArms.size ? Math.min(maxFloor, share / floorArms.size) : 0;
     applyFloor(shares, floorArms, floor).forEach((w, i) => (results[i].weight = w));
   }
   return results.sort((x, y) => y.weight - x.weight || x.platform.localeCompare(y.platform) || String(x.service).localeCompare(String(y.service)));

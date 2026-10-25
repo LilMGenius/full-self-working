@@ -91,7 +91,7 @@ Prices are market based. For a (platform, service) row the market base is read f
 
 Payment split: below `payment.milestoneThresholdKRW` the deposit is `payment.depositRatio` of the amount and the balance is the rest; above it the milestones in `payment.milestones` apply. On a platform that escrows the whole order the split is offered only through the mechanism its descriptor names.
 
-Yield per arm (platform, service) is the sum of net KRW (price minus platform fee, quote costs and tool costs) divided by weighted hours (agent hours plus human hours x `yield.humanHourWeight`). Allocation samples a win rate from Beta(1 + wins, 1 + losses) and a value from the price table, scores win rate x value / expected hours, and normalizes; each enabled arm keeps at least 5 percent weight until it has 10 leads. The weights order request bidding, listing work and budget use.
+Yield per arm (platform, service) is the sum of net KRW (price minus platform fee, quote costs and tool costs) divided by weighted hours (agent hours plus human hours x `yield.humanHourWeight`). Allocation samples a win rate from Beta(1 + wins, 1 + losses) and a value from the price table, scores win rate x value / expected hours, and normalizes; each enabled arm under `yield.exploreUntilLeads` leads keeps a floor of `yield.explorationFloor`, cut so all floors together stay within `yield.explorationShare`, so value leads from the first day while every arm is still tried. The weights order request bidding, listing work and budget use.
 
 ## Portfolio
 

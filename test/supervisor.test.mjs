@@ -248,3 +248,47 @@ test('a thread whose pass threw is passed again on the next ticks, at most THREA
   assert.equal(needsWork({ id: 'r1', at }, { ...row, lastOutboundAt: '2026-10-25T03:05:00Z', meta: failedAt }), false);
 });
 
+// A chat whose list time a platform notice moved past its newest stored message, as 숨고 chat 239668351
+// was on 2026-10-25, when it went through the model on every tick for an hour.
+function noticeMovedChat() {
+  const state = { listAt: '2026-10-25T13:30:00Z', reads: 0, decisions: 0 };
+  const adapter = {
+    login: async () => ({ loggedIn: true }),
+    inbox: async () => [{ id: 'c1', unread: false, at: state.listAt }],
+    requests: async () => [],
+    readThread: async (id) => (state.reads += 1, { id, messages: [{ direction: 'in', text: '견적 확인했어요. 생각해 보고 연락드릴게요.', externalId: 'm1', at: '2026-10-25T13:00:00Z' }] }),
+    stop: async () => {},
+  };
+  const decide = async () => (state.decisions += 1, {
+    action: 'none', modelCalls: 1,
+    decision: { intent: 'inquiry', service: 'detail_page_design', language: 'ko', reply: null, quote: null, needsOperator: false, operatorReason: null, confidence: 0.99, claimsUsed: [] },
+  });
+  return { state, adapter, decide };
+}
+
+test('a chat decided with nothing to send goes through the model again only when its list time moves', async () => {
+  const instance = makeInstance({ soomgo: { enabled: true, mode: 'auto' } });
+  instance.config.activeHours = { ...instance.config.activeHours, outbound: ['00:00', '00:00'] };
+  const ledger = openLedger(':memory:');
+  const { state, adapter, decide } = noticeMovedChat();
+  const tick = (i) => runPlatform('soomgo', { instance, ledger, now: new Date(Date.parse('2026-10-25T14:00:00Z') + i * 300_000), priceTable: [], loadAdapter: async () => async () => adapter, decide });
+  for (let i = 0; i < 3; i++) await tick(i);
+  assert.deepEqual([state.reads, state.decisions], [1, 1]);
+  state.listAt = '2026-10-25T14:20:00Z';
+  await tick(3);
+  assert.deepEqual([state.reads, state.decisions], [2, 2]);
+});
+
+test('a chat read at night is read once, then decided once when the outbound hours open', async () => {
+  const instance = makeInstance({ soomgo: { enabled: true, mode: 'auto' } });
+  instance.config.activeHours = { ...instance.config.activeHours, outbound: ['08:00', '22:00'] };
+  const ledger = openLedger(':memory:');
+  const { state, adapter, decide } = noticeMovedChat();
+  state.listAt = '2026-10-25T14:00:00Z';
+  const tick = (start, i) => runPlatform('soomgo', { instance, ledger, now: new Date(Date.parse(start) + i * 300_000), priceTable: [], loadAdapter: async () => async () => adapter, decide });
+  for (let i = 0; i < 3; i++) await tick('2026-10-25T14:30:00Z', i); // 23:30 Seoul
+  assert.deepEqual([state.reads, state.decisions], [1, 0]);
+  for (let i = 0; i < 3; i++) await tick('2026-10-25T23:00:00Z', i); // 08:00 Seoul
+  assert.deepEqual([state.reads, state.decisions], [2, 1]);
+});
+

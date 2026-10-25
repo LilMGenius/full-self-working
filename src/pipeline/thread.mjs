@@ -150,6 +150,11 @@ export async function processThread({ platform, threadRef, adapter, ledger, inst
     event('thread.' + action, { reason, service: threadRef.service ?? null });
     return { action, opened: false, reason };
   };
+  // A pass that read the thread remembers the list time it covered under the same settings key, so a
+  // list time a platform notice moved past the newest stored message does not send the thread through
+  // the model on every tick. A read in observe mode covers observe ticks only, so the first tick inside
+  // the outbound hours still decides.
+  const settled = (by) => ({ at: threadRef.at ?? null, by, key: parkKey(instance.config, descriptor) });
   // A platform notice stays unread on the platform and needs no reply.
   if (unread && threadRef.preview && isSystemNotice({ text: threadRef.preview })) return park('system', 'platform notice: ' + threadRef.preview);
   const skip = settings && skipReason(threadRef, kind, now, settings);
@@ -177,12 +182,13 @@ export async function processThread({ platform, threadRef, adapter, ledger, inst
   }
   if (mode === 'observe') {
     event('thread.observed', { unread: false, messages: thread.messages.length });
+    ledger.upsertThread({ platform, externalId: ref, kind, meta: { ...row.meta, settled: settled('observe') } });
     return { action: 'observed', opened: true };
   }
 
   const result = await decide(thread, { instance, descriptor, priceTable, ...(runCodex ? { runCodex } : {}) });
   const d = result.decision;
-  ledger.upsertThread({ platform, externalId: ref, kind, service: d.service ?? undefined, language: d.language ?? undefined, status: d.intent, meta: { stage } });
+  ledger.upsertThread({ platform, externalId: ref, kind, service: d.service ?? undefined, language: d.language ?? undefined, status: d.intent, meta: { stage, settled: settled('decide') } });
   event('brain.decision', { intent: d.intent, service: d.service, action: result.action, confidence: d.confidence, modelCalls: result.modelCalls, needsOperator: d.needsOperator });
   // A change request on delivered work reopens its job whatever happens to the reply.
   await noteRevision({ instance, ledger, platform, thread: row, decision: d, text: pendingInbound(thread).map(msgText).join('\n'), now });

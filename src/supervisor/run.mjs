@@ -178,13 +178,17 @@ export const THREAD_ATTEMPTS = 3;
 // Whether a listed item needs a pass this tick: new to the ledger, unread, newer than what the ledger
 // holds, or failed with passes left and nothing sent since. An item parked as skipped at the list time
 // it still shows waits for a newer message, while the settings it was parked under (key, parkKey) hold.
-export const needsWork = (ref, row, key) => {
+// An item a pass already read at the list time it still shows waits the same way, except that a read in
+// observe mode holds only while the tick observes.
+export const needsWork = (ref, row, key, mode = 'auto') => {
   if (!row) return true;
   if (row.meta?.skipped && row.meta.skipped.at === (ref.at ?? null) && row.meta.skipped.key === key) return false;
   if (ref.unread) return true;
   const failed = row.meta?.failed;
   if (failed && failed.count < THREAD_ATTEMPTS && !(Date.parse(row.lastOutboundAt ?? 0) > Date.parse(failed.at))) return true;
   if (!ref.at) return false;
+  const settled = row.meta?.settled;
+  if (settled && settled.at === ref.at && settled.key === key && (settled.by !== 'observe' || mode === 'observe')) return false;
   const seen = Math.max(Date.parse(row.lastInboundAt ?? 0) || 0, Date.parse(row.lastOutboundAt ?? 0) || 0);
   return Date.parse(ref.at) > seen;
 };
@@ -229,7 +233,7 @@ export async function runPlatform(id, ctx) {
     // Open conversations first, then requests by the allocation weight of their service, so the per-tick
     // cap and the daily quote budget go to the arms with the best expected yield.
     const key = parkKey(instance.config, descriptor);
-    const work = prioritize(refs.filter((r) => needsWork(r, known.get(String(r.id)), key)), { allocation: latestAllocation(instance), descriptor });
+    const work = prioritize(refs.filter((r) => needsWork(r, known.get(String(r.id)), key, mode)), { allocation: latestAllocation(instance), descriptor });
     // The cap bounds pages opened per tick. An item settled from its list row (a notice, a closed or old
     // item, a service outside the catalog) opens nothing, so it does not take one of the slots.
     let opened = 0;

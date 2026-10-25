@@ -9,6 +9,7 @@ import { notifyOperator } from '../core/notify.mjs';
 import { catalogServicesFor } from '../pipeline/thread.mjs';
 import catalog from '../economics/services.json' with { type: 'json' };
 import { classifyNotice } from './notices.mjs';
+import { queuePayRequest } from './requests.mjs';
 
 // A signal older than this is history (the account's past deals), recorded without effect.
 export const MONEY_LOOKBACK_DAYS = 7;
@@ -194,6 +195,9 @@ export async function recordMoney({ ledger, instance, platform, descriptor, thre
         job = r.job;
         applied = true;
         note = 'quote ' + r.quote.id + ' accepted, job ' + job.id + ' ordered';
+        // The deposit is asked for through the platform's own request, as an operator item.
+        const pay = await queuePayRequest({ instance, ledger, descriptor, job, why: 'hired' });
+        note += pay.queued ? '; payment request ' + pay.approval.id + ' waits for approval' : descriptor.milestones === 'multi_pay' ? '; no payment request: ' + pay.reason : '';
       } else if (s.event === 'hire_cancelled') {
         for (const q of ledger.listQuotes({ threadId: thread.id, status: 'accepted' })) ledger.updateQuote(q.id, { status: 'declined' });
         if (job && !ledger.jobPayments(job.id).length) ledger.upsertJob({ id: job.id, status: 'lost' });

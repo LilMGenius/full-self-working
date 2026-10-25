@@ -10,7 +10,10 @@ import { classifyNotice } from '../src/orders/notices.mjs';
 import { recordMoney, recordOrderCounters } from '../src/orders/money.mjs';
 import { processThread } from '../src/pipeline/thread.mjs';
 import { listApprovals } from '../src/brain/approvals.mjs';
+import { resolveApproval } from '../src/brain/approvals.mjs';
+import { flushApprovals } from '../src/pipeline/thread.mjs';
 import { parseChats, parseChatThread } from '../src/platforms/soomgo/parse.mjs';
+import { openSoomgo } from '../src/platforms/soomgo/adapter.mjs';
 
 function makeInstance(edit = (c) => c) {
   const dir = mkdtempSync(join(tmpdir(), 'fsw-orders-'));
@@ -31,6 +34,51 @@ const NOTICE = {
 };
 const NOW = new Date('2026-10-20T15:00:00+09:00');
 const quietNotify = async () => ({});
+
+// A driver stand-in for the soomgo adapter: extractors answer by function name and every action is logged.
+function fakeSession(answers) {
+  const log = [];
+  const s = {
+    log,
+    guard: { beforeMessage: () => log.push('message') },
+    navigate: async (url) => { log.push('navigate ' + url); return url; },
+    evaluate: async (fn, arg) => { log.push('evaluate ' + (fn.name || 'inline')); const a = answers[fn.name]; return typeof a === 'function' ? a(arg) : a; },
+    click: async (t) => log.push('click ' + t),
+    fill: async (t) => log.push('fill ' + t),
+    typeKeys: async (t, v) => log.push('type ' + t + ' ' + v),
+    press: async (k) => log.push('press ' + k),
+    stop: async () => {},
+  };
+  return s;
+}
+const acted = (log) => log.filter((l) => /^(click|fill|type|press|message)/.test(l));
+
+test('soomgo payRequest refuses without approval, refuses an unread chat, and a dry run closes without confirming', async () => {
+  const read = { id: 8, customer: 'x', newMessages: 0 };
+  let dialog = { open: false };
+  const s = fakeSession({
+    pageChats: () => [read],
+    pageScrollChats: 1,
+    pageOpenChat: true,
+    pageChatThread: { url: 'u', items: [], composer: { found: true } },
+    pageOpenPayDialog: () => { dialog = { open: true, title: '숨고페이 안전결제', amountInput: true, amountValue: '', hiddenAmount: '0', confirmFound: true, confirmDisabled: true, closeFound: true }; return true; },
+    pagePayDialog: () => dialog,
+  });
+  // typeKeys fills the dialog; the close click shuts it.
+  s.typeKeys = async (t, v) => { s.log.push('type ' + t + ' ' + v); dialog = { ...dialog, amountValue: Number(v).toLocaleString('en'), hiddenAmount: v, confirmDisabled: false }; };
+  s.click = async (t) => { s.log.push('click ' + t); if (t.includes('pay-close')) dialog = { open: false }; };
+  const g = await openSoomgo({ session: s });
+  const refused = await g.payRequest('8', { amountKRW: 50000 });
+  assert.match(refused.reason, /approved operator item/);
+  assert.equal((await g.payRequest('8', { amountKRW: 1000, dryRun: true })).sent, false);
+  assert.deepEqual(acted(s.log), []);
+  const dry = await g.payRequest('8', { amountKRW: 50000, dryRun: true });
+  assert.deepEqual([dry.dryRun, dry.amountTyped, dry.confirmEnabledFilled, dry.closed, dry.sent], [true, true, true, true, false]);
+  assert.ok(!s.log.some((l) => l.includes('pay-confirm')));
+  assert.ok(!s.log.includes('message'));
+  read.newMessages = 3;
+  await assert.rejects(g.payRequest('8', { amountKRW: 50000, dryRun: true }), { code: 'FSW_UNREAD_REFUSED' });
+});
 
 test('money notices are told apart from noise and from customer text, with their amounts', () => {
   assert.deepEqual(classifyNotice({ text: NOTICE.paid }), { class: 'money', event: 'paid', amountKRW: 300000 });
@@ -137,5 +185,42 @@ test('a rise in a kmong order counter notifies the operator once and records the
   assert.equal(sent.length, 1);
   assert.match(sent[0].title, /ongoing 0 to 1/);
   assert.equal(ledger.db.prepare("SELECT count(*) n FROM events WHERE kind = 'orders.changed'").get().n, 1);
+});
+
+test('a soomgo hire queues the deposit request as an operator item, sent only once approved and still due', async () => {
+  const instance = makeInstance();
+  const ledger = openLedger(':memory:');
+  const descriptor = loadDescriptor('soomgo');
+  const thread = ledger.upsertThread({ platform: 'soomgo', externalId: 'c2', kind: 'message', service: 'landing_page_web' });
+  ledger.addQuote({ threadId: thread.id, platform: 'soomgo', service: 'landing_page_web', amountKRW: 600000, scope: ['page'], deliveryDays: 7, costKRW: 0, status: 'sent' });
+  await recordMoney({ ledger, instance, platform: 'soomgo', descriptor, thread, notices: [{ text: NOTICE.hired, at: '2026-10-20T10:00:00+09:00' }], now: NOW, notify: quietNotify });
+  const [item] = listApprovals(instance);
+  assert.deepEqual([item.kind, item.amountKRW, item.status, item.orderItem], ['pay_request', 300000, 'open', true]);
+  const calls = [];
+  const adapter = { async payRequest(id, opts) { calls.push({ id, ...opts }); return { observed: true, sent: true }; } };
+  await flushApprovals({ platform: 'soomgo', adapter, ledger, instance, descriptor });
+  assert.deepEqual(calls, []);
+  resolveApproval(instance, item.id, { approve: true });
+  const out = await flushApprovals({ platform: 'soomgo', adapter, ledger, instance, descriptor });
+  assert.deepEqual(out, [{ id: item.id, action: 'sent' }]);
+  assert.deepEqual(calls, [{ id: 'c2', amountKRW: 300000, approved: true }]);
+  // The request was answered; a second flush does nothing.
+  assert.deepEqual(await flushApprovals({ platform: 'soomgo', adapter, ledger, instance, descriptor }), []);
+});
+
+test('an approved payment request that is no longer due is closed stale, not sent', async () => {
+  const instance = makeInstance();
+  const ledger = openLedger(':memory:');
+  const descriptor = loadDescriptor('soomgo');
+  const thread = ledger.upsertThread({ platform: 'soomgo', externalId: 'c3', kind: 'message', service: 'landing_page_web' });
+  ledger.addQuote({ threadId: thread.id, platform: 'soomgo', service: 'landing_page_web', amountKRW: 600000, scope: ['page'], deliveryDays: 7, costKRW: 0, status: 'sent' });
+  const args = { ledger, instance, platform: 'soomgo', descriptor, thread, now: NOW, notify: quietNotify };
+  await recordMoney({ ...args, notices: [{ text: NOTICE.hired, at: '2026-10-20T10:00:00+09:00' }] });
+  const [item] = listApprovals(instance);
+  resolveApproval(instance, item.id, { approve: true });
+  // The customer paid the deposit by themselves before the request went out.
+  await recordMoney({ ...args, notices: [{ text: NOTICE.paid, at: '2026-10-20T11:30:00+09:00' }] });
+  const adapter = { async payRequest() { throw new Error('must not request a paid deposit'); } };
+  assert.deepEqual(await flushApprovals({ platform: 'soomgo', adapter, ledger, instance, descriptor }), [{ id: item.id, action: 'stale' }]);
 });
 

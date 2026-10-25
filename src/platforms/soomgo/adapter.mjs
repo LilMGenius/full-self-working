@@ -167,7 +167,43 @@ function pageQuotesTop() {
   return i >= 0 ? { date: t[i], customer: t[i + 1] ?? null } : null;
 }
 
+// The 숨고페이 요청 dialog (a Bootstrap modal .safe-payment-modal, read 2026-10-25): a tel amount input
+// (maxLength 11) mirrored into a hidden safePaymentAmount, date radios, a Close button and the confirm
+// 거래 요청하기, disabled until an amount is typed.
+function pagePayDialog() {
+  const modal = document.querySelector('.modal.safe-payment-modal.show') ?? document.querySelector('.modal.safe-payment-modal');
+  const shown = !!modal && modal.classList.contains('show') && modal.getBoundingClientRect().height > 0;
+  if (!shown) return { open: false };
+  const amount = modal.querySelector('input[type=tel]');
+  const hidden = modal.querySelector('input[name=safePaymentAmount]');
+  const confirm = [...modal.querySelectorAll('button')].find((b) => b.innerText.trim() === '거래 요청하기');
+  const close = modal.querySelector('button.close, button[aria-label=Close]');
+  if (amount) amount.setAttribute('data-fsw', 'pay-amount');
+  if (confirm) confirm.setAttribute('data-fsw', 'pay-confirm');
+  if (close) close.setAttribute('data-fsw', 'pay-close');
+  return {
+    open: true,
+    title: modal.querySelector('.modal-body')?.innerText.split('\n')[0]?.trim() ?? null,
+    amountInput: !!amount,
+    amountValue: amount?.value ?? '',
+    hiddenAmount: hidden?.value ?? null,
+    confirmFound: !!confirm,
+    confirmDisabled: !confirm || confirm.disabled || confirm.classList.contains('disabled'),
+    closeFound: !!close,
+  };
+}
+
+function pageOpenPayDialog() {
+  const b = [...document.querySelectorAll('button')].find((x) => x.innerText.trim() === '숨고페이 요청');
+  if (!b) return false;
+  b.click();
+  return true;
+}
+
 // ---- adapter ----
+
+// 숨고페이 takes 15,000 to 5,000,000 KRW per payment (descriptor splitMechanism).
+export const PAY_REQUEST_RANGE = [15_000, 5_000_000];
 
 export async function openSoomgo({ session } = {}) {
   const s = session ?? (await openSession('soomgo', { platform: 'soomgo', pacing: loadDescriptor('soomgo').pacing }));
@@ -306,6 +342,52 @@ export async function openSoomgo({ session } = {}) {
     // 숨고 has no order list; a hire shows as the chat's status.
     async orders({ pages = 0 } = {}) {
       return (await adapter.inbox({ pages })).filter((c) => c.status === 'hired' || c.hired);
+    },
+
+    // 숨고페이 요청: opens the dialog from the chat header, types the amount and checks that the dialog holds
+    // it and enables 거래 요청하기. dryRun (and any mismatch) closes the dialog with its Close button and
+    // reports whether it closed. A real request needs approved true, the operator's approval of this
+    // exact amount, and is observed only when the chat shows the 거래를 요청했어요 line with that amount.
+    // A dry run opens only a chat with no new messages.
+    async payRequest(id, { amountKRW, approved = false, dryRun = false } = {}) {
+      if (!Number.isInteger(amountKRW) || amountKRW < PAY_REQUEST_RANGE[0] || amountKRW > PAY_REQUEST_RANGE[1]) {
+        return { sent: false, observed: false, reason: 'amountKRW must be an integer from ' + PAY_REQUEST_RANGE.join(' to ') };
+      }
+      if (!dryRun && approved !== true) return { sent: false, observed: false, reason: '숨고페이 요청 asks the customer for money; it needs an approved operator item' };
+      const { page: before } = await openChat(id, { willReply: !dryRun });
+      const priorNotices = parseChatThread({ id: String(id), items: before.items }).notices.length;
+      if (!(await s.evaluate(pageOpenPayDialog))) return { sent: false, observed: false, reason: 'the chat header has no 숨고페이 요청 button' };
+      await wait(3000);
+      const opened = await s.evaluate(pagePayDialog);
+      if (!opened.open || !opened.amountInput || !opened.confirmFound) return { sent: false, observed: false, reason: 'the 숨고페이 dialog did not show its amount input and confirm control', dialog: opened };
+      // The amount input reformats with separators as it types, which fill() cannot follow, and the
+      // dialog validates on blur: 거래 요청하기 stays disabled until focus leaves the input.
+      await s.typeKeys('[data-fsw=pay-amount]', String(amountKRW));
+      await s.press('Tab');
+      await wait(1500);
+      const typed = await s.evaluate(pagePayDialog);
+      const amountOk = typed.amountValue.replace(/\D/g, '') === String(amountKRW) && String(typed.hiddenAmount ?? '').replace(/\D/g, '') === String(amountKRW);
+      const report = { title: opened.title, confirmDisabledEmpty: opened.confirmDisabled, amountTyped: amountOk, hiddenAmount: typed.hiddenAmount, confirmEnabledFilled: !typed.confirmDisabled };
+      if (dryRun || !amountOk || typed.confirmDisabled) {
+        await s.click('[data-fsw=pay-close]');
+        await wait(1500);
+        const closed = !(await s.evaluate(pagePayDialog)).open;
+        const out = { sent: false, observed: false, ...report, closed };
+        return dryRun ? { ...out, dryRun: true } : { ...out, reason: amountOk ? 'the confirm control stayed disabled' : 'the dialog did not hold the typed amount' };
+      }
+      s.guard.beforeMessage();
+      await s.click('[data-fsw=pay-confirm]');
+      await wait(5000);
+      // Observable result: a new platform line saying the request reached the customer, with this amount.
+      // Gap: no real request has been sent yet, so whether 숨고 shows a second confirm step after
+      // 거래 요청하기 is unknown; a dialog still open here is reported as unobserved for the operator.
+      const after = await s.evaluate(pageChatThread);
+      const dialog = await s.evaluate(pagePayDialog);
+      const fresh = parseChatThread({ id: String(id), items: after.items }).notices.slice(priorNotices);
+      const line = fresh.find((n) => /거래를\s*요청했어요/.test(n.text) && n.text.replace(/\D/g, '').includes(String(amountKRW)));
+      return line
+        ? { sent: true, observed: true, ...report, observedSnippet: line.text.slice(0, 120) }
+        : { sent: false, observed: false, ...report, reason: dialog.open ? 'the dialog is still open after 거래 요청하기' : 'no 거래 요청 line with the amount appeared in the chat', dialogOpen: dialog.open };
     },
 
     async profile() {

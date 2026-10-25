@@ -52,8 +52,10 @@ export function listApprovals(instance, { status } = {}) {
 
 // An open approval, or an approved one the pipeline has not sent yet, means the thread is waiting on
 // the operator's item; asking the model again would cost a call and queue a duplicate.
+// Order items (a 숨고페이 request, a delivery; src/orders/requests.mjs) do not hold the thread: the
+// customer may write while one waits, and that message still needs its own answer.
 export function openApprovalFor(instance, platform, threadRef) {
-  return listApprovals(instance).find((a) => a.platform === platform && String(a.threadRef) === String(threadRef) && (a.status === 'open' || (a.status === 'approved' && !a.closedAt))) ?? null;
+  return listApprovals(instance).find((a) => !a.orderItem && a.platform === platform && String(a.threadRef) === String(threadRef) && (a.status === 'open' || (a.status === 'approved' && !a.closedAt))) ?? null;
 }
 
 export function resolveApproval(instance, id, { approve, editedText, reason } = {}) {
@@ -77,6 +79,14 @@ export function resolveApproval(instance, id, { approve, editedText, reason } = 
 export function closeApproval(instance, id, patch) {
   const record = getApproval(instance, id);
   const next = { ...record, ...patch, closedAt: new Date().toISOString() };
+  writeAtomic(fileOf(instance, id), next);
+  return next;
+}
+
+// Records progress on an approved item that is not finished yet (a delivery waiting for its balance).
+export function updateApproval(instance, id, patch) {
+  const record = getApproval(instance, id);
+  const next = { ...record, ...patch };
   writeAtomic(fileOf(instance, id), next);
   return next;
 }

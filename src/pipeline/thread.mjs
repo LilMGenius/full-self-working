@@ -11,6 +11,7 @@ import { CATEGORY_FIELD } from '../economics/pricing.mjs';
 import { decide as defaultDecide, isSystemNotice, loadGateRules } from '../brain/respond.mjs';
 import { closeApproval, listApprovals, openApprovalFor, queueApproval } from '../brain/approvals.mjs';
 import { ordersWatched, recordMoney, stageFromLedger } from '../orders/money.mjs';
+import { flushOrderItems } from '../orders/flush.mjs';
 import catalog from '../economics/services.json' with { type: 'json' };
 
 export const MODES = ['observe', 'draft', 'auto'];
@@ -214,7 +215,7 @@ export async function flushApprovals({ platform, adapter, ledger, instance, desc
   const out = [];
   const lessonsRules = loadGateRules(instance);
   for (const a of listApprovals(instance, { status: 'approved' })) {
-    if (a.platform !== platform || a.closedAt) continue;
+    if (a.platform !== platform || a.closedAt || a.orderItem) continue;
     const item = { ...(a.item ?? { platform, kind: a.kind, thread: { stage: 'pre_order' } }), text: a.finalText, amountKRW: a.quote?.amountKRW };
     const gate = gateOutbound(item, { descriptor, instance, priceRow: a.priceRow ?? null, lessonsRules });
     if (!gate.ok) {
@@ -234,5 +235,6 @@ export async function flushApprovals({ platform, adapter, ledger, instance, desc
     ledger.addEvent({ kind: 'approval.sent', platform, ref: a.threadRef, payload: { approvalId: a.id, edited: a.edited } });
     out.push({ id: a.id, action: 'sent' });
   }
-  return out;
+  // Approved order items (payment requests, deliveries) go out through their own checks.
+  return [...out, ...(await flushOrderItems({ platform, adapter, ledger, instance, descriptor }))];
 }

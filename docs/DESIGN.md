@@ -42,6 +42,7 @@ Before anything is opened, an item is parked from its list row alone when the pl
 | `src/policy/gate.mjs` | `gateOutbound(item, ctx)` returns {ok, violations, warnings} | deterministic; see Policy gate |
 | `src/platforms/registry.mjs` | `loadDescriptor(id)`, `listDescriptors()` | descriptors are JSON data validated on load |
 | `src/platforms/<id>/adapter.mjs` | see Browser | one adapter per marketplace |
+| `src/platforms/soomgo/services.mjs` | `setServiceItems(session, service, wanted, {dryRun})`, `parseServiceRows`, `parseItemModal`, `planItems` | 숨고 sends a pro only the requests whose answers match the items set on each offered service; `fsw services soomgo [--apply]` ticks the items in the instance's `platforms/soomgo-service-items.json` and reads them back |
 | `src/browser/driver.mjs` | `openSession(name)` | wraps the omowright attached engine on the operator's signed-in Chrome |
 | `src/brain/codex.mjs` | `runCodex({prompt, schema, model, effort, cwd, sandbox, timeoutMs})` | `codex exec --ephemeral --output-schema` |
 | `src/brain/respond.mjs` | `decide(thread, ctx)` | classify, reply, quote, operator flag |

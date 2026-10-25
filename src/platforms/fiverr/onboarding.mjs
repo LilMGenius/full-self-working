@@ -21,19 +21,20 @@
 // - The display name in the recommended form (first name and last initial) was refused with
 //   "This name violates our Terms of Service."; the full English name was accepted.
 import { gateOutbound } from '../../policy/gate.mjs';
-import { challengeOf } from '../kit.mjs';
+import { challengeOf, squash } from '../kit.mjs';
+import { result, sleep } from '../onboarding.mjs';
 
 export const OVERVIEW_URL = 'https://www.fiverr.com/seller_onboarding/overview';
 
+const EDITOR_HEADING = /(Edit|Review) your new profile/;
+
 export const STEPS = [
   { id: 'start', detect: { path: /^\/seller_onboarding\/overview/, heading: /Grow your brand/ } },
-  { id: 'profile', detect: { path: /^\/seller_onboarding\/overview/, heading: /(Edit|Review) your new profile/ } },
+  { id: 'profile', detect: { path: /^\/seller_onboarding\/overview/, heading: EDITOR_HEADING } },
   { id: 'continue', detect: { path: /^\/seller_onboarding\// } },
 ];
 
 // ---- pure planning ----
-
-const squash = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
 
 // The display name: profile.person.nameEn when it fits the page's 3 to 15 characters.
 export function displayName(profile) {
@@ -92,14 +93,21 @@ export function parseProfileText(text) {
   return { speaks, skills, nameRefused: /violates our Terms of Service/.test(t), missing: t.match(/You need to add ([^\n.]+)/)?.[1] ?? null };
 }
 
+// The profile fields the page does not hold yet, by what want plans, what the page shows and what its text reads.
+export function unsetFields(want, held, seen) {
+  const left = [];
+  if (want.name && (held.name !== want.name || seen.nameRefused)) left.push('display name');
+  if (want.title && held.title !== want.title) left.push('title');
+  if (want.languages.some((l) => !seen.speaks.includes(l.name))) left.push('languages');
+  if (want.about && squash(held.about) !== want.about) left.push('about');
+  return left;
+}
+
 export function gateTexts(texts, ctx) {
   return texts.filter((t) => String(t ?? '').trim()).flatMap((text) => gateOutbound({ kind: 'profile', platform: 'fiverr', text }, { descriptor: ctx.descriptor, instance: ctx.instance }).violations.map((v) => v.rule + ' ' + v.detail));
 }
 
 // ---- page actions ----
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const result = (step, state, detail) => ({ step, state, detail });
 
 // Sends the synthetic pointer and mouse sequence to the element the body returns (body sees document).
 async function press(session, body) {
@@ -186,14 +194,14 @@ async function addSkill(session, name, level) {
 async function startStep(session, ctx) {
   await session.navigate(OVERVIEW_URL);
   const page = await readPage(session);
-  if (/(Edit|Review) your new profile/.test(page.heading)) return result('start', 'done', 'manual profile chosen');
+  if (EDITOR_HEADING.test(page.heading)) return result('start', 'done', 'manual profile chosen');
   if (!/Grow your brand/.test(page.heading)) return result('start', 'unmapped', 'overview shows ' + page.heading.slice(0, 80));
   if (!ctx.apply) return result('start', 'filled', 'dry run: would choose to fill out the profile manually');
   await press(session, "return document.querySelector('[data-testid=fill-out-manually-button]')");
   await press(session, "return document.querySelector('[data-testid=continue-button]')");
   await sleep(4000);
   const after = await readPage(session);
-  return /(Edit|Review) your new profile/.test(after.heading) ? result('start', 'done', 'chose the manual profile') : result('start', 'unmapped', 'after choosing manual the page shows ' + after.heading.slice(0, 80));
+  return EDITOR_HEADING.test(after.heading) ? result('start', 'done', 'chose the manual profile') : result('start', 'unmapped', 'after choosing manual the page shows ' + after.heading.slice(0, 80));
 }
 
 async function profileStep(session, ctx) {
@@ -203,17 +211,13 @@ async function profileStep(session, ctx) {
   const bad = gateTexts([want.title, want.about], ctx);
   if (bad.length) return result('profile', 'needs-operator', 'the gate refused profile copy: ' + bad.join('; '));
   let page = await readPage(session);
-  if (!/(Edit|Review) your new profile/.test(page.heading)) {
+  if (!EDITOR_HEADING.test(page.heading)) {
     await session.navigate(OVERVIEW_URL);
     page = await readPage(session);
-    if (!/(Edit|Review) your new profile/.test(page.heading)) return result('profile', 'unmapped', 'the profile editor is not open (' + page.heading.slice(0, 60) + ')');
+    if (!EDITOR_HEADING.test(page.heading)) return result('profile', 'unmapped', 'the profile editor is not open (' + page.heading.slice(0, 60) + ')');
   }
   const seen = parseProfileText(page.text);
-  const todo = [];
-  if (want.name && (page.name !== want.name || seen.nameRefused)) todo.push('display name');
-  if (want.title && page.title !== want.title) todo.push('title');
-  if (want.languages.some((l) => !seen.speaks.includes(l.name))) todo.push('languages');
-  if (want.about && squash(page.about) !== want.about) todo.push('about');
+  const todo = unsetFields(want, page, seen);
   const candidates = skillCandidates(p);
   const missingSkills = candidates.filter((c) => !seen.skills.some((s) => s.toLowerCase() === c.toLowerCase()));
   const photoFile = instance.config?.onboarding?.photo ?? null;
@@ -256,11 +260,7 @@ async function profileStep(session, ctx) {
   }
   const after = await readPage(session);
   const seenAfter = parseProfileText(after.text);
-  const left = [];
-  if (want.name && (after.name !== want.name || seenAfter.nameRefused)) left.push('display name');
-  if (want.title && after.title !== want.title) left.push('title');
-  if (want.languages.some((l) => !seenAfter.speaks.includes(l.name))) left.push('languages');
-  if (want.about && squash(after.about) !== want.about) left.push('about');
+  const left = unsetFields(want, after, seenAfter);
   if (!seenAfter.skills.length) left.push('skills');
   if (seenAfter.missing) left.push('page still asks for: ' + seenAfter.missing);
   const detail = 'skills added: ' + (added.join(', ') || 'none') + '; photo ' + photo + (left.length ? '; not set: ' + left.join(', ') : '');

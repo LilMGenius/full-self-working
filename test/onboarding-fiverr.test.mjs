@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
-import { STEPS, aboutOf, displayName, gateTexts, languagesOf, parseProfileText, skillCandidates, skillLevel, titleOf } from '../src/platforms/fiverr/onboarding.mjs';
+import { STEPS, aboutOf, displayName, gateTexts, languagesOf, parseProfileText, skillCandidates, skillLevel, titleOf, unsetFields } from '../src/platforms/fiverr/onboarding.mjs';
 
 const about = 'I build web products and AI tools from the first sketch to deployment. I write the code, ship it, and check it on phone widths before handing it over, and I keep my tools public so the work can be checked.';
 const instance = {
@@ -58,3 +58,11 @@ test('the profile text reader finds languages, skills, a refused name and the mi
   assert.deepEqual(parseProfileText('Edit your new profile\nAdd languages'), { speaks: [], skills: [], nameRefused: false, missing: null });
 });
 
+test('unset fields name each profile field the page does not hold yet', () => {
+  const want = { name: 'Gildong Hong', title: 'Web and AI tools developer', about, languages: languagesOf(instance.profile) };
+  const held = { name: 'Gildong Hong', title: 'Web and AI tools developer', about: ' ' + about + ' ' };
+  assert.deepEqual(unsetFields(want, held, { speaks: ['Korean', 'English'], nameRefused: false }), []);
+  assert.deepEqual(unsetFields(want, { ...held, name: 'Gil', title: '', about: 'x' }, { speaks: ['Korean'], nameRefused: false }), ['display name', 'title', 'languages', 'about']);
+  assert.deepEqual(unsetFields(want, held, { speaks: ['Korean', 'English'], nameRefused: true }), ['display name']);
+  assert.deepEqual(unsetFields({ ...want, name: null, about: null }, { name: 'x', title: want.title, about: 'x' }, { speaks: ['Korean', 'English'], nameRefused: true }), []);
+});

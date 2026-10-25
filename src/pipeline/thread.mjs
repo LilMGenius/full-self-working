@@ -31,6 +31,18 @@ export function catalogServicesFor(descriptor, label, services = catalog) {
   return [...new Set([...ids, ...(descriptor.serviceLabels?.[label] ?? [])])];
 }
 
+// The settings a list-time park was decided under: the services the instance answers on the platform,
+// the reply windows, and how the platform's labels map onto the catalog. A park holds only while they do,
+// so an operator who starts answering a service or widens a window gets every item parked under the old
+// settings checked again from its list row, and a park written before parks carried this key is checked
+// once.
+export function parkKey(config, descriptor, services = catalog) {
+  const field = CATEGORY_FIELD[descriptor.id];
+  const labels = Object.entries(services).filter(([id]) => !id.startsWith('_')).map(([id, def]) => [id, field ? def[field] ?? null : null]);
+  const basis = [answeredServices(config, descriptor.id, services), config?.pipeline?.replyWindowHours ?? null, descriptor.serviceLabels ?? null, labels];
+  return createHash('sha256').update(JSON.stringify(basis)).digest('hex').slice(0, 16);
+}
+
 // pipeline settings every non-observe pass needs: hours after which an item is too old to answer, per
 // kind, and the decision confidence below which auto mode asks the operator instead of sending. A missing
 // value is a config error raised before anything is opened, never a default that answers any age.
@@ -134,7 +146,7 @@ export async function processThread({ platform, threadRef, adapter, ledger, inst
   // An item settled from its list row is remembered with the list time it was settled at, so the
   // supervisor leaves it alone until a newer message arrives.
   const park = (action, reason) => {
-    ledger.upsertThread({ platform, externalId: ref, kind, meta: { skipped: { at: threadRef.at ?? null, reason } } });
+    ledger.upsertThread({ platform, externalId: ref, kind, meta: { skipped: { at: threadRef.at ?? null, reason, key: parkKey(instance.config, descriptor) } } });
     event('thread.' + action, { reason, service: threadRef.service ?? null });
     return { action, opened: false, reason };
   };

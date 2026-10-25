@@ -7,7 +7,8 @@ import { openLedger } from '../src/core/ledger.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { listApprovals } from '../src/brain/approvals.mjs';
 import { decide } from '../src/brain/respond.mjs';
-import { catalogServicesFor, processThread } from '../src/pipeline/thread.mjs';
+import { catalogServicesFor, parkKey, processThread } from '../src/pipeline/thread.mjs';
+import { needsWork } from '../src/supervisor/run.mjs';
 import { answeredServices } from '../src/economics/catalog.mjs';
 import { targetsFor } from '../src/cli/market.mjs';
 import { recordMoney } from '../src/orders/money.mjs';
@@ -78,6 +79,21 @@ test('a lesson request stays parked for the operator by default and is answered 
   assert.match(r2.reason, /quote without a viable price row for lesson_tutoring/);
   assert.equal(listApprovals(instance)[0].service, 'lesson_tutoring');
   assert.match(runCodex.prompts[0], /# Services I deliver myself\n[^]*- lesson_tutoring \(과외 및 레슨\): 60-minute sessions; ask the subject/);
+});
+
+test('a lesson parked while the settings did not answer lessons is checked again once they do', async () => {
+  const ledger = openLedger(':memory:');
+  const descriptor = loadDescriptor('soomgo');
+  const off = makeInstance();
+  const r = await processThread({ platform: 'soomgo', threadRef: lessonRequest, adapter: requestAdapter(), ledger, instance: off, descriptor, mode: 'auto', now: NOW, runCodex: async () => { throw new Error('no model call for a parked lesson'); } });
+  assert.equal(r.action, 'operator');
+  const [row] = ledger.listThreads({ platform: 'soomgo' });
+  assert.equal(needsWork(lessonRequest, row, parkKey(off.config, descriptor)), false);
+  const on = parkKey(makeInstance(LESSONS_ON_SOOMGO).config, descriptor);
+  assert.equal(needsWork(lessonRequest, row, on), true);
+  // A park written before parks carried the key is checked once under the current settings.
+  const legacy = { ...row, meta: { skipped: { at: lessonRequest.at, reason: 'service ' + LESSON + ' is not in the catalog' } } };
+  assert.equal(needsWork(lessonRequest, legacy, on), true);
 });
 
 test('the model sees only the services and price rows the instance answers on the platform', async () => {

@@ -12,7 +12,7 @@ import { loadInstance, repoRoot } from '../core/instance.mjs';
 import { openLedger } from '../core/ledger.mjs';
 import { logEvent } from '../core/log.mjs';
 import { notifyOperator } from '../core/notify.mjs';
-import { MODES, flushApprovals, processThread } from '../pipeline/thread.mjs';
+import { MODES, flushApprovals, parkKey, processThread } from '../pipeline/thread.mjs';
 import { recordOrderCounters } from '../orders/money.mjs';
 import { latestAllocation, prioritize } from '../economics/priority.mjs';
 import { answeredServices } from '../economics/catalog.mjs';
@@ -177,10 +177,10 @@ export const THREAD_ATTEMPTS = 3;
 
 // Whether a listed item needs a pass this tick: new to the ledger, unread, newer than what the ledger
 // holds, or failed with passes left and nothing sent since. An item parked as skipped at the list time
-// it still shows waits for a newer message.
-export const needsWork = (ref, row) => {
+// it still shows waits for a newer message, while the settings it was parked under (key, parkKey) hold.
+export const needsWork = (ref, row, key) => {
   if (!row) return true;
-  if (row.meta?.skipped && row.meta.skipped.at === (ref.at ?? null)) return false;
+  if (row.meta?.skipped && row.meta.skipped.at === (ref.at ?? null) && row.meta.skipped.key === key) return false;
   if (ref.unread) return true;
   const failed = row.meta?.failed;
   if (failed && failed.count < THREAD_ATTEMPTS && !(Date.parse(row.lastOutboundAt ?? 0) > Date.parse(failed.at))) return true;
@@ -228,7 +228,8 @@ export async function runPlatform(id, ctx) {
     const known = new Map(ledger.listThreads({ platform: id }).map((t) => [t.externalId, t]));
     // Open conversations first, then requests by the allocation weight of their service, so the per-tick
     // cap and the daily quote budget go to the arms with the best expected yield.
-    const work = prioritize(refs.filter((r) => needsWork(r, known.get(String(r.id)))), { allocation: latestAllocation(instance), descriptor });
+    const key = parkKey(instance.config, descriptor);
+    const work = prioritize(refs.filter((r) => needsWork(r, known.get(String(r.id)), key)), { allocation: latestAllocation(instance), descriptor });
     // The cap bounds pages opened per tick. An item settled from its list row (a notice, a closed or old
     // item, a service outside the catalog) opens nothing, so it does not take one of the slots.
     let opened = 0;

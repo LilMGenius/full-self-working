@@ -6,7 +6,7 @@ import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { listApprovals } from '../src/brain/approvals.mjs';
-import { processThread } from '../src/pipeline/thread.mjs';
+import { parkKey, processThread } from '../src/pipeline/thread.mjs';
 import { catalogIds, loadCatalog } from '../src/brain/prompts.mjs';
 import { needsWork } from '../src/supervisor/run.mjs';
 import { digestNumbers } from '../src/supervisor/digest.mjs';
@@ -74,8 +74,9 @@ test('a thread past the reply window is parked unopened until a newer message ar
   assert.match(r.reason, /stale/);
   assert.deepEqual([adapter.calls.readThread, decide.calls, adapter.calls.send], [0, 0, 0]);
   const [row] = s.ledger.listThreads({ platform: 'kmong' });
-  assert.equal(needsWork(ref, row), false);
-  assert.equal(needsWork({ ...ref, at: '2026-10-25T11:00:00+09:00' }, row), true);
+  const key = parkKey(s.instance.config, s.descriptor);
+  assert.equal(needsWork(ref, row, key), false);
+  assert.equal(needsWork({ ...ref, at: '2026-10-25T11:00:00+09:00' }, row, key), true);
 });
 
 test('an expired request is parked without opening its detail', async () => {
@@ -93,8 +94,9 @@ test('an unread platform notice is parked once and returns only with a newer mes
   const r = await processThread({ ...s, threadRef: ref, adapter, mode: 'auto', decide: decideWith({}) });
   assert.deepEqual([r.action, adapter.calls.readThread], ['system', 0]);
   const [row] = s.ledger.listThreads({ platform: 'soomgo' });
-  assert.equal(needsWork(ref, row), false);
-  assert.equal(needsWork({ ...ref, at: '2026-10-25T02:00:00Z', preview: '혹시 다음 주에 시작 가능할까요?' }, row), true);
+  const key = parkKey(s.instance.config, s.descriptor);
+  assert.equal(needsWork(ref, row, key), false);
+  assert.equal(needsWork({ ...ref, at: '2026-10-25T02:00:00Z', preview: '혹시 다음 주에 시작 가능할까요?' }, row, key), true);
 });
 
 test('items settled from the list do not use up the per-tick slots', async () => {

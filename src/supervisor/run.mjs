@@ -286,7 +286,11 @@ export const JOB_HANDLERS = {
   async poll(ctx) {
     const ids = pollTargets(ctx.instance);
     if (!ids.length) return { status: 'skipped', detail: 'no platform in draft or auto mode' };
-    return runPlatforms(ids, ctx);
+    // The keeper's daemon is a child of the supervisor that started it and ends with it, so after a
+    // code handover nothing answers until a check starts a new one; every poll checks before the pages.
+    const browser = ctx.keeper ? await ctx.keeper.check(ctx.now) : null;
+    const out = await runPlatforms(ids, ctx);
+    return browser && browser.status !== 'daemon answering' ? { ...out, browser } : out;
   },
   async orders(ctx) {
     const { ordersJob } = await import('../orders/run.mjs');

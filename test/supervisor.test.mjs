@@ -124,6 +124,15 @@ test('runTick isolates a throwing platform pipeline and records its error', asyn
   assert.equal(ledger.listThreads({ platform: 'kmong' }).length, 1);
 });
 
+test('a poll checks the browser keeper before it opens any page', async () => {
+  const instance = makeInstance({ kmong: { enabled: true, mode: 'auto' } });
+  const calls = [];
+  const keeper = { check: async () => (calls.push('check'), { status: 'daemon started', daemon: true, browsers: 1, started: 4242 }) };
+  const s = await runTick({ instance, ledger: openLedger(':memory:'), now: new Date('2026-10-25T02:03:00Z'), state: { lastRuns: {} }, only: ['poll'], keeper, loadAdapter: async () => okAdapter(calls), forceMode: 'observe', persist: false });
+  assert.deepEqual(calls, ['check', 'login', 'inbox']);
+  assert.equal(s.jobs[0].browser.status, 'daemon started');
+});
+
 test('a missing adapter is reported as adapter missing and counted as a failure', async () => {
   const instance = makeInstance({ kmong: { enabled: true, mode: 'draft' } });
   const ledger = openLedger(':memory:');

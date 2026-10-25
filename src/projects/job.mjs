@@ -68,6 +68,10 @@ export function approvalSummary(project, proposal, reason) {
   return '크몽 엔터프라이즈 제안 검토: ' + project.title + ' (예산 ' + krw(project.amountKRW) + ', 제안 마감 ' + (project.deadlineAt ?? '미상') + '). 제안 금액 ' + krw(proposal.totalKRW) + ', ' + proposal.phases.length + '단계. 보류 사유: ' + reason;
 }
 
+// The time the job's own clock says, so the events usedToday counts fall on the Seoul day the job's
+// quota was read for, however long the pass ran.
+const stamp = (ctx) => (ctx.now ?? new Date()).toISOString();
+
 async function queueProposal(ctx, { project, verdict, proposal, gate, critic, violations = [], reason }) {
   const { instance, ledger } = ctx;
   const row = projectThread(ledger, project.id);
@@ -79,7 +83,7 @@ async function queueProposal(ctx, { project, verdict, proposal, gate, critic, vi
     proposal: { totalKRW: proposal.totalKRW, phases: proposal.phases, floorKRW: proposal.floorKRW }, critic: critic ?? null, violations, warnings: gate?.warnings ?? [],
   });
   markProject(ledger, project.id, 'queued', { proposal: { approvalId: approval.id, queuedAt: new Date().toISOString(), totalKRW: proposal.totalKRW } });
-  ledger.addEvent({ kind: 'project.queued', platform: 'kmong', ref: project.id, payload: { approvalId: approval.id, reason } });
+  ledger.addEvent({ at: stamp(ctx), kind: 'project.queued', platform: 'kmong', ref: project.id, payload: { approvalId: approval.id, reason } });
   saveProposalRecord(instance, project.id, { project, score: verdict, proposal, gate, critic: critic ?? null, approvalId: approval.id, status: 'queued', reason });
   return { id: project.id, action: 'queued', approvalId: approval.id, reason };
 }
@@ -128,7 +132,7 @@ async function send(ctx, { seller, project, verdict, proposal, gate, critic, app
     return { observed: false, res };
   }
   markProject(ledger, project.id, 'proposed', { proposal: { at: new Date().toISOString(), totalKRW: proposal.totalKRW, status: res.status, label: res.label, approvalId } });
-  ledger.addEvent({ kind: 'project.proposed', platform: 'kmong', ref: project.id, payload: { totalKRW: proposal.totalKRW, service: verdict.service, approvalId } });
+  ledger.addEvent({ at: stamp(ctx), kind: 'project.proposed', platform: 'kmong', ref: project.id, payload: { totalKRW: proposal.totalKRW, service: verdict.service, approvalId } });
   saveProposalRecord(instance, project.id, { status: res.status ?? 'unknown', observedStatus: res.label ?? null });
   logEvent(instance, 'project.proposed', { id: project.id, totalKRW: proposal.totalKRW });
   return { observed: true, res };

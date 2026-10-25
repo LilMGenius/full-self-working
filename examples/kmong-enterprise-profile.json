@@ -1,0 +1,60 @@
+{
+  "_note": "Values for the kmong enterprise profile, one decision per field, each taken from profile.json or a record it cites. Copy to <instance>/platforms/kmong-enterprise-profile.json and run node scripts/kmong-enterprise-profile.mjs headline intro skills years careers portfolios education awards resume state, read the page, then consent register. Skills must be names kmong's picker offers; participation is a multiple of 10; dates are YYYY.MM; end null means 재직 중 or 진행 중; files are relative to the instance.",
+  "headline": "웹과 자동화를 만드는 개발자",
+  "intro": "랜딩 페이지, 웹 앱, 데이터 수집 자동화를 직접 기획하고 개발합니다.",
+  "skills": [
+    "JavaScript",
+    "TypeScript",
+    "NodeJS"
+  ],
+  "totalCareer": {
+    "years": 2,
+    "months": 0,
+    "why": "the dated roles in profile.json"
+  },
+  "careers": [
+    {
+      "company": "예시회사",
+      "start": "2022.01",
+      "end": "2024.12",
+      "skills": [
+        "JavaScript"
+      ],
+      "description": "소프트웨어 엔지니어. 사내 웹 서비스를 개발했습니다."
+    }
+  ],
+  "portfolios": [
+    {
+      "title": "예시 프로젝트",
+      "start": "2024.03",
+      "end": null,
+      "skills": [
+        "JavaScript"
+      ],
+      "participation": 100,
+      "role": "개발",
+      "file": "portfolio/media/example.jpg"
+    }
+  ],
+  "education": [
+    {
+      "school": "예시대학교",
+      "type": "대학교(4년)",
+      "major": "컴퓨터공학",
+      "start": "2018.03",
+      "end": "2022.02"
+    }
+  ],
+  "awards": [
+    {
+      "title": "예시 해커톤 우수상",
+      "organization": "예시 주최",
+      "date": "2023.11"
+    }
+  ],
+  "resume": "documents/resume-ko.pdf",
+  "consents": {
+    "fee": true,
+    "thirdParty": false
+  }
+}

@@ -154,7 +154,8 @@ export function buildBrief({ job, thread, messages, quote, recipe, service }) {
   return lines.join('\n');
 }
 
-const SLOP_RULES = 'No em dash or horizontal bar, no middle dot between words, no placeholder text (lorem ipsum, TODO, bracketed names), no self-reference as an AI, no hype words, and no number, client name or result the brief does not state.';
+const SLOP_RULES = 'No em dash or horizontal bar, no middle dot between words, no placeholder text (lorem ipsum, TODO, bracketed names), no self-reference as an AI, no hype words, and no number, client name or result the brief does not state. ' +
+  'No visible text that describes the page or its images (such as a caption saying a picture is an illustration); descriptions for screen readers go in alt or aria-label.';
 
 export function buildPrompt({ paths, recipe, skills, language, failures }) {
   const steps = recipe.steps.filter((s) => s.type === 'invoke-model-skill');

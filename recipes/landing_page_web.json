@@ -21,7 +21,7 @@
       "type": "invoke-model-skill",
       "input": "brief.md, notes/direction.md",
       "output": "site/index.html",
-      "does": "Build one responsive page with self-contained CSS, real copy from the brief and no external font or script requests."
+      "does": "Build one responsive page with self-contained CSS, real copy from the brief and no external font or script requests. The sandbox has no network, so each font stack names an installed face for Windows, Apple and Android devices before its generic family."
     },
     {
       "id": "copy",

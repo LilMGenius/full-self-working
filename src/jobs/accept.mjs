@@ -175,7 +175,16 @@ const viewportProbe = (width) => '(() => {' +
   'const wide = [...document.body.querySelectorAll("*")].filter((e) => e.getBoundingClientRect().right > iw + 1)' +
   '.slice(0, 5).map((e) => e.tagName.toLowerCase() + (e.id ? "#" + e.id : "") + (e.classList.length ? "." + [...e.classList].join(".") : ""));' +
   'const failedFonts = [...document.fonts].filter((f) => f.status === "error").map((f) => f.family);' +
-  'return { iw, sw, wide, failedFonts, fontStatus: document.fonts.status };' +
+  // A word without spaces, up to 20 characters, laid out on more than one line was split mid-word
+  // (a Korean label such as 영업시간 breaking after its third syllable in a narrow column).
+  'const split = []; const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);' +
+  'for (let n = walk.nextNode(); n && split.length < 5; n = walk.nextNode()) {' +
+  'const t = n.textContent.trim(); if (t.length < 2 || t.length > 20 || /\\s/.test(t)) continue;' +
+  'const p = n.parentElement; if (!p || p.closest("script,style,svg") || getComputedStyle(p).visibility === "hidden") continue;' +
+  'const range = document.createRange(); range.selectNodeContents(n);' +
+  'const lines = new Set([...range.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top)));' +
+  'if (lines.size > 1) split.push(t); }' +
+  'return { iw, sw, wide, failedFonts, fontStatus: document.fonts.status, split };' +
   '})()';
 
 async function checkViewports(workDir, recipe, c, { qaDir, openRenderer }) {
@@ -206,6 +215,7 @@ async function checkViewports(workDir, recipe, c, { qaDir, openRenderer }) {
           else {
             if (p.sw > p.iw) problems.push(f + '@' + width + ': horizontal overflow ' + p.sw + ' > ' + p.iw + (p.wide.length ? ' (' + p.wide.join(', ') + ')' : ''));
             if (p.failedFonts.length || p.fontStatus !== 'loaded') problems.push(f + '@' + width + ': fonts not loaded ' + (p.failedFonts.join(', ') || p.fontStatus));
+            if (p.split.length) problems.push(f + '@' + width + ': words split across lines ' + p.split.join(', '));
           }
           if (first.brokenImages.length) problems.push(f + '@' + width + ': broken images ' + first.brokenImages.join(', '));
         } catch (err) {

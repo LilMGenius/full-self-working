@@ -11,6 +11,7 @@ import { run as runCli } from '../src/cli/job.mjs';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
+import { codexArgs } from '../src/brain/codex.mjs';
 
 // A real PNG of the given size (white, 8-bit grey), so the header parser reads what a renderer writes.
 function png(width, height) {
@@ -86,6 +87,18 @@ test('viewports fails a page that overflows at phone width and writes JPEG captu
     const file = join(job, 'qa', name);
     assert.ok(existsSync(file), name);
   }
+});
+
+
+test('viewports fails a short label that breaks mid-word in a narrow column', { timeout: 120000 }, async () => {
+  const narrow = page('<dl class="row"><dt>영업시간</dt><dd>화요일부터 일요일</dd></dl>', '.row{display:grid;grid-template-columns:40px 1fr;font-size:18px}');
+  const { work } = workDir({ 'site/index.html': narrow });
+  const r = await runAcceptance(work, recipe([{ path: 'site/index.html', format: 'html' }], [{ check: 'viewports', widths: [390] }]));
+  assert.equal(r.ok, false);
+  assert.match(r.results[0].detail, /site\/index\.html@390: words split across lines 영업시간/);
+  const wide = workDir({ 'site/index.html': narrow.replace('40px', '120px') });
+  const ok = await runAcceptance(wide.work, recipe([{ path: 'site/index.html', format: 'html' }], [{ check: 'viewports', widths: [390] }]));
+  assert.equal(ok.ok, true, ok.results[0].detail);
 });
 
 test('a check that cannot run is a failure with its cause', async () => {
@@ -224,5 +237,15 @@ test('fsw job check reports acceptance and the delivery gate without calling a m
   assert.equal(code, 1);
   assert.match(lines.join('\n'), /FAIL files .*copy\/variant-b\.md: no file/);
   assert.match(lines.join('\n'), /delivery not allowed: needs the full 300000 KRW held in escrow on soomgo, has 0/);
+});
+
+
+test('a writing codex turn on Windows names the sandbox the ignored user config would have set', () => {
+  const base = { schemaFile: 's.json', outFile: 'o.txt', cwd: 'C:/w', proxyUrl: 'http://127.0.0.1:10100/v1', platform: 'win32' };
+  const write = codexArgs({ ...base, sandbox: 'workspace-write' });
+  assert.deepEqual(write.slice(write.indexOf('-s'), write.indexOf('-s') + 2), ['-s', 'workspace-write']);
+  assert.ok(write.includes('windows.sandbox="elevated"'));
+  assert.ok(!codexArgs({ ...base, sandbox: 'read-only' }).some((a) => a.startsWith('windows.')));
+  assert.ok(!codexArgs({ ...base, sandbox: 'workspace-write', platform: 'linux' }).some((a) => a.startsWith('windows.')));
 });
 

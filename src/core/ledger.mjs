@@ -94,11 +94,31 @@ const MIGRATIONS = [
     payload TEXT
   );
   `,
+  // Every money signal read from a platform (a hire, a payment notice, a confirmation), once per key, with
+  // the payment row it wrote or matched; src/orders/money.mjs owns the keys.
+  `
+  CREATE TABLE money_events (
+    id INTEGER PRIMARY KEY,
+    key TEXT NOT NULL UNIQUE,
+    platform TEXT NOT NULL,
+    thread_id INTEGER REFERENCES threads(id),
+    job_id TEXT REFERENCES jobs(id),
+    event TEXT NOT NULL,
+    amount_krw INTEGER,
+    at TEXT,
+    applied INTEGER NOT NULL,
+    note TEXT,
+    payment_id INTEGER REFERENCES payments(id),
+    evidence TEXT NOT NULL,
+    recorded_at TEXT NOT NULL
+  );
+  CREATE INDEX money_events_job ON money_events(job_id);
+  `,
 ];
 
-export const TABLES = ['threads', 'messages', 'quotes', 'jobs', 'payments', 'reviews', 'events'];
+export const TABLES = ['threads', 'messages', 'quotes', 'jobs', 'payments', 'reviews', 'events', 'money_events'];
 const JSON_COLUMNS = new Set(['meta', 'attachments', 'gate', 'scope', 'payload']);
-const BOOL_COLUMNS = new Set(['liked']);
+const BOOL_COLUMNS = new Set(['liked', 'applied']);
 
 const camel = (s) => s.replace(/_krw$/, 'KRW').replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 const snake = (s) => s.replace(/KRW$/, 'Krw').replace(/[A-Z]/g, (c) => '_' + c.toLowerCase());
@@ -226,6 +246,15 @@ export function openLedger(path) {
     return get('events', Number(r.lastInsertRowid));
   }
 
+  // Returns {inserted: false, ...row} when the key was recorded before, so a signal read twice acts once.
+  function addMoneyEvent({ key, platform, threadId, jobId, event, amountKRW, at, applied, note, paymentId, evidence }) {
+    if (!key || !platform || !event || !evidence) throw new TypeError('addMoneyEvent needs key, platform, event and evidence');
+    const found = db.prepare('SELECT * FROM money_events WHERE key = ?').get(key);
+    if (found) return { ...decode(found), inserted: false };
+    const r = insert('money_events', { key, platform, threadId, jobId, event, amountKRW, at, applied: Boolean(applied), note, paymentId, evidence: typeof evidence === 'string' ? evidence : JSON.stringify(evidence), recordedAt: now() });
+    return { ...get('money_events', Number(r.lastInsertRowid)), inserted: true };
+  }
+
   function counts() {
     return Object.fromEntries(TABLES.map((t) => [t, db.prepare(`SELECT count(*) AS n FROM ${t}`).get().n]));
   }
@@ -250,6 +279,9 @@ export function openLedger(path) {
     addReview,
     jobReviews: (jobId) => list('reviews', { jobId }),
     addEvent,
+    addMoneyEvent,
+    getMoneyEvent: (key) => decode(db.prepare('SELECT * FROM money_events WHERE key = ?').get(key)),
+    listMoneyEvents: ({ platform, threadId, jobId, event } = {}) => list('money_events', { platform, threadId, jobId, event }, 'at, id'),
     counts,
     close: () => db.close(),
   };

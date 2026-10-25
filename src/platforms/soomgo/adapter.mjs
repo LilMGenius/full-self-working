@@ -102,6 +102,8 @@ function pageChats() {
       status: c.status,
       hireStatus: c.hire_status,
       otherProHireStatus: c.other_provider_hire_status,
+      safePaymentId: c.safe_payment?.safe_payment_id ?? null,
+      safePaymentStatus: c.safe_payment?.safe_payment_status ?? null,
       quotePrice: c.quote?.price ?? null,
       quoteUnit: c.quote?.unit ?? null,
       quoteOpened: c.quote?.is_opened ?? null,
@@ -134,11 +136,14 @@ function pageChatThread() {
     }
     const box = li.querySelector('.message-box');
     const type = box?.getAttribute('data-message-type') ?? '';
-    const systemish = !box || li.querySelector('.benefit-system-message, .hire-inducement-message, .notice-text-box, .system-button-reminder') || /^ST_(?!QUOTE)/.test(type);
+    // Platform lines carry a type code (ST_001 hire, SB_201 hire confirmed, SP_ST_002 숨고페이); a text
+    // bubble has none and a quote card is ST_QUOTE.
+    const systemish = !box || li.querySelector('.benefit-system-message, .hire-inducement-message, .notice-text-box, .system-button-reminder') || (/^[A-Z]{2}_/.test(type) && type !== 'ST_QUOTE');
     const kind = type === 'ST_QUOTE' ? 'quote' : systemish ? 'system' : 'text';
     const content = box?.querySelector('[data-name=content]');
     items.push({
       kind,
+      type: type || null,
       outbound: !!box?.classList.contains('my-message'),
       text: (content ?? box ?? li).innerText.replace(/\s*전체보기\s*$/, ''),
       time: (li.querySelector('[data-name=created-at]') ?? li.querySelector('.message-time'))?.innerText ?? '',

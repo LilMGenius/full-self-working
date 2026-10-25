@@ -70,8 +70,9 @@ Before anything is opened, an item is parked from its list row alone when the pl
 | `payments` | id, job_id, kind (deposit, balance, full, milestone), amount_krw, channel, received_at, evidence |
 | `reviews` | id, job_id, platform, rating, text, liked, at |
 | `events` | id, at, kind, platform, ref, payload json |
+| `money_events` | id, key unique, platform, thread_id, job_id, event, amount_krw, at, applied, note, payment_id, evidence, recorded_at |
 
-A payment row is written only from evidence (a platform order state or a bank deposit the operator confirmed); nothing infers it.
+A payment row is written only from evidence (a platform order state or a bank deposit the operator confirmed); nothing infers it. `src/orders/notices.mjs` is the one classifier of platform notices (money or noise); `src/orders/money.mjs` records each money signal once in `money_events` under a key of platform, thread, event and the Seoul minute the platform stamped, so a list row and an opened thread showing the same line act once. A hire accepts the newest sent quote and opens the job as `ordered`; a paid notice writes one payment row with the notice text as evidence; a confirmation or remittance settles the payment it follows. A signal older than seven days is recorded as history without effect. Until `config.orders.watched` is true, every reply in an accepted or paid thread goes to the operator.
 
 ## Policy gate
 

@@ -3,6 +3,10 @@
 // whitelist of fields in the page and these parsers turn them into records with redacted snippets.
 import { lines, redactDigits, seoulIso, snippet, squash, toInt } from '../kit.mjs';
 
+// A platform notice kept as money evidence: digits runs redacted and the payout account line dropped,
+// so neither a phone number nor account digits reach the ledger.
+export const noticeEvidence = (text) => redactDigits(String(text ?? '').split(/\n/).filter((l) => !/정산\s*계좌|입금자명/.test(l)).join('\n').trim()).slice(0, 500);
+
 // Requests: rows projected from RequestItemCard.request plus the card's questionnaire summary text.
 export function parseRequests(rows) {
   return rows.map((r) => ({
@@ -52,7 +56,8 @@ export function parseRequestDetail({ id, url, pairs = [], customerText = '', ser
   };
 }
 
-// Chat rows projected from the chat list's chatItem props.
+// Chat rows projected from the chat list's chatItem props. updated_at is Seoul wall time without an
+// offset: a row stamped 22:39 opens on a line the thread prints as 오후 10:39 (read 2026-10-25).
 export function parseChats(rows) {
   return rows.map((c) => ({
     id: String(c.id),
@@ -60,7 +65,7 @@ export function parseChats(rows) {
     customer: squash(c.customer) || null,
     service: c.service ?? null,
     region: c.region ?? null,
-    at: c.updatedAt ? c.updatedAt.replace(/(\.\d{3})\d*$/, '$1') + 'Z' : null,
+    at: c.updatedAt ? c.updatedAt.replace(/(\.\d{3})\d*$/, '$1') + '+09:00' : null,
     preview: snippet(c.lastMessage),
     system: c.lastType === 'SYSTEM',
     unread: (c.newMessages ?? 0) > 0,
@@ -68,6 +73,9 @@ export function parseChats(rows) {
     status: c.status ?? null,
     hired: c.hireStatus ?? null,
     otherProHired: c.otherProHireStatus ?? null,
+    safePayment: c.safePaymentId == null && c.safePaymentStatus == null ? null : { id: c.safePaymentId == null ? null : String(c.safePaymentId), status: c.safePaymentStatus ?? null },
+    // The full newest platform line, for the money notices classifier; customer text is never kept here.
+    notice: c.lastType === 'SYSTEM' ? noticeEvidence(c.lastMessage) : null,
     quote: c.quotePrice == null ? null : { priceKRW: c.quotePrice, unit: c.quoteUnit === 'H' ? 'hour' : 'total', opened: c.quoteOpened ?? null },
     requestId: c.requestObjectId ?? null,
   }));
@@ -93,7 +101,8 @@ export function parseChatThread({ id, url, customer, items = [], composer = {} }
       at = seoulIso(day[0], day[1], day[2], h, Number(t[3]));
     }
     const direction = it.kind === 'system' ? 'system' : it.outbound ? 'out' : 'in';
-    messages.push({ externalId: `${id}:${messages.length}`, direction, type: it.kind ?? 'text', text: redactDigits(String(it.text ?? '').trim()), at });
+    const text = direction === 'system' ? noticeEvidence(it.text) : redactDigits(String(it.text ?? '').trim());
+    messages.push({ externalId: `${id}:${messages.length}`, direction, type: it.kind ?? 'text', noticeType: it.type ?? null, text, at });
   }
   return {
     id: String(id),
@@ -101,6 +110,8 @@ export function parseChatThread({ id, url, customer, items = [], composer = {} }
     customer: squash(customer) || null,
     messages: messages.filter((m) => m.direction !== 'system'),
     systemMessages: messages.filter((m) => m.direction === 'system').length,
+    // Platform lines in page order with their times, for src/orders/money.mjs.
+    notices: messages.filter((m) => m.direction === 'system').map((m) => ({ type: m.noticeType, text: m.text, at: m.at })),
     canReply: composer.found === true && composer.disabled !== true,
     composer: { found: composer.found === true, disabled: composer.disabled === true, maxChars: composer.maxChars ?? null, fileInput: composer.fileInput === true },
   };

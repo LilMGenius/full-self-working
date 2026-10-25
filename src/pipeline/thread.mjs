@@ -10,6 +10,7 @@ import { gateOutbound } from '../policy/gate.mjs';
 import { CATEGORY_FIELD } from '../economics/pricing.mjs';
 import { decide as defaultDecide, isSystemNotice, loadGateRules } from '../brain/respond.mjs';
 import { closeApproval, listApprovals, openApprovalFor, queueApproval } from '../brain/approvals.mjs';
+import { ordersWatched, recordMoney, stageFromLedger } from '../orders/money.mjs';
 import catalog from '../economics/services.json' with { type: 'json' };
 
 export const MODES = ['observe', 'draft', 'auto'];
@@ -70,10 +71,14 @@ export function cashBudgetCheck({ budget, usage, costKRW }) {
 const msgText = (m) => String(m.text ?? m.body ?? '');
 const msgExternalId = (m) => String(m.externalId ?? m.id ?? createHash('sha1').update((m.at ?? '') + '\n' + msgText(m)).digest('hex').slice(0, 16));
 
-function stageOf(full, threadRef, kind, ledger, threadId) {
-  if (full?.stage ?? threadRef.stage) return full?.stage ?? threadRef.stage;
-  if (kind === 'order') return 'post_order';
-  return ledger.listQuotes({ threadId, status: 'accepted' }).length ? 'quote_accepted' : 'pre_order';
+const STAGES = ['pre_order', 'quote_accepted', 'post_order'];
+
+// The later of what the page says and what the ledger's money evidence says: an adapter that prints
+// pre_order on every thread cannot pull a paid order back before its quote.
+function stageOf(full, threadRef, kind, ledger, platform, threadId) {
+  const page = full?.stage ?? threadRef.stage ?? (kind === 'order' ? 'post_order' : 'pre_order');
+  const evidence = stageFromLedger(ledger, platform, threadId) ?? 'pre_order';
+  return STAGES.indexOf(evidence) > STAGES.indexOf(page) ? evidence : page;
 }
 
 // A buyer request has no chat yet: its text is the one inbound message the reply answers.
@@ -115,6 +120,8 @@ export async function processThread({ platform, threadRef, adapter, ledger, inst
   const settings = mode === 'observe' ? null : pipelineSettings(instance.config);
   const row = ledger.upsertThread({ platform, externalId: ref, kind, customer: threadRef.customer });
   const event = (k, payload = {}) => ledger.addEvent({ kind: k, platform, ref, payload });
+  // Money read from the list row alone (chat status, newest platform line) opens nothing.
+  await recordMoney({ ledger, instance, platform, descriptor, thread: row, threadRef, now });
 
   const pending = openApprovalFor(instance, platform, ref);
   if (pending) {
@@ -144,7 +151,8 @@ export async function processThread({ platform, threadRef, adapter, ledger, inst
 
   const willReply = mode !== 'observe';
   const full = kind === 'request' ? await adapter.readRequest(ref) : await adapter.readThread(ref, { willReply });
-  const stage = stageOf(full, threadRef, kind, ledger, row.id);
+  if (full.notices?.length) await recordMoney({ ledger, instance, platform, descriptor, thread: row, threadRef: { requestId: threadRef.requestId, service: threadRef.service, quote: threadRef.quote }, notices: full.notices, now });
+  const stage = stageOf(full, threadRef, kind, ledger, platform, row.id);
   const thread = threadFromRead(full, { platform, ref, kind, stage, threadRef });
   for (const m of thread.messages) {
     if (m.direction === 'in') ledger.addMessage({ threadId: row.id, direction: 'in', body: msgText(m), externalId: msgExternalId(m), at: m.at, attachments: m.attachments });
@@ -177,6 +185,7 @@ export async function processThread({ platform, threadRef, adapter, ledger, inst
   if (allowed && !allowed.includes(d.service)) return queue('the decision names ' + d.service + ' but the platform labels this ' + threadRef.service + ' (' + allowed.join(', ') + ')');
   if (d.needsOperator) return queue('operator needed: ' + (d.operatorReason ?? 'no reason given'));
   if (mode === 'draft') return queue('draft mode');
+  if (stage !== 'pre_order' && !ordersWatched(instance.config)) return queue('order stage ' + stage + ': replies after a hire go to the operator until config orders.watched is true');
   if (d.confidence < settings.minAutoConfidence) return queue('confidence ' + d.confidence + ' is below ' + settings.minAutoConfidence);
 
   if (d.quote && (!result.priceRow || result.priceRow.viable === false)) return queue('quote without a viable price row for ' + (d.service ?? 'unknown service'));

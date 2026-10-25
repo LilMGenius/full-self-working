@@ -58,7 +58,7 @@ test('jobs, quotes and payments round-trip and payments need evidence', () => wi
   assert.equal(l.jobPayments('job-1').length, 1);
   assert.equal(l.addReview({ jobId: 'job-1', rating: 5, liked: true }).liked, true);
   assert.deepEqual(l.addEvent({ kind: 'tick', payload: { ok: true } }).payload, { ok: true });
-  assert.deepEqual(l.counts(), { threads: 1, messages: 0, quotes: 1, jobs: 1, payments: 1, reviews: 1, events: 1 });
+  assert.deepEqual(l.counts(), { threads: 1, messages: 0, quotes: 1, jobs: 1, payments: 1, reviews: 1, events: 1, money_events: 0 });
 }));
 
 test('reopening keeps the schema version and data', () => {
@@ -69,7 +69,7 @@ test('reopening keeps the schema version and data', () => {
     a.upsertThread({ platform: 'kmong', externalId: 'X', kind: 'order' });
     a.close();
     const b = openLedger(path);
-    assert.equal(b.db.prepare('PRAGMA user_version').get().user_version, 1);
+    assert.equal(b.db.prepare('PRAGMA user_version').get().user_version, 2);
     assert.equal(b.db.prepare('PRAGMA journal_mode').get().journal_mode, 'wal');
     assert.equal(b.counts().threads, 1);
     b.close();

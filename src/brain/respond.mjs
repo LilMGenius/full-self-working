@@ -7,6 +7,7 @@ import { gateOutbound } from '../policy/gate.mjs';
 import { COMPLEXITY_RANGE, guideOf, priceRowFor, quoteForRequest, splitPayment } from '../economics/pricing.mjs';
 import { runCodex as defaultRunCodex } from './codex.mjs';
 import { INTENTS, buildDecisionPrompt, catalogIds, loadCatalog, loadLessons, loadPlaybook } from './prompts.mjs';
+import { classifyNotice } from '../orders/notices.mjs';
 
 export class BrainError extends Error {
   constructor(code, message, detail = {}) {
@@ -17,24 +18,12 @@ export class BrainError extends Error {
   }
 }
 
-// Notices the platform writes into the chat itself. They need no reply, and answering them would
-// spend a message on nobody.
-export const SYSTEM_NOTICE_PATTERNS = [
-  /고객(?:님)?이\s*\d+\s*시간\s*동안\s*견적(?:서)?[을를]?\s*읽지\s*않/,
-  /견적(?:서)?[을를]?\s*(?:읽었어요|읽었습니다|확인했어요|확인했습니다)/,
-  /견적(?:서)?\s*(?:열람|확인)\s*알림/,
-  /(?:채팅|대화)(?:방)?이\s*종료되었/,
-  /숨고페이\s*결제(?:가)?\s*(?:완료|요청|취소)/,
-  /(?:리뷰|후기)가\s*(?:등록|작성)되었/,
-  /주문이\s*(?:접수|취소|완료)되었/,
-  /구매\s*확정(?:이|을)?\s*(?:되었|하였|했습니다|완료)/,
-  /자동\s*(?:견적|응답)\s*(?:으로|이)\s*(?:발송|전송)/,
-];
-
+// Notices the platform writes into the chat itself (src/orders/notices.mjs classifies them). They need
+// no reply, and answering them would spend a message on nobody; the money ones are recorded elsewhere.
 export function isSystemNotice(message) {
   if (message?.system === true) return true;
   const text = String(message?.text ?? message?.body ?? '').trim();
-  return text.length > 0 && SYSTEM_NOTICE_PATTERNS.some((re) => re.test(text));
+  return text.length > 0 && classifyNotice({ text, type: message?.noticeType }) !== null;
 }
 
 // Inbound messages after my last outbound message; these are what a reply would answer.

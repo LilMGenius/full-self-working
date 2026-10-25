@@ -12,6 +12,7 @@ import { openLedger } from '../core/ledger.mjs';
 import { logEvent } from '../core/log.mjs';
 import { notifyOperator } from '../core/notify.mjs';
 import { MODES, flushApprovals, processThread } from '../pipeline/thread.mjs';
+import { recordOrderCounters } from '../orders/money.mjs';
 import { loadDescriptor } from '../platforms/registry.mjs';
 import { dueJobs, JOBS, nextWake } from './schedule.mjs';
 import { createBrowserKeeper, holdAwake } from './keepalive.mjs';
@@ -189,7 +190,7 @@ export async function runPlatform(id, ctx) {
     if (typeof adapter.orders === 'function') {
       const orders = await adapter.orders();
       result.orders = orders.total ?? orders.orders?.length ?? null;
-      ledger.addEvent({ kind: 'orders.read', platform: id, payload: { counts: orders.counts ?? null, total: orders.total ?? null, gap: orders.gap ?? null } });
+      result.ordersChanged = (await recordOrderCounters({ ledger, instance, platform: id, orders })).rises;
     }
     const known = new Map(ledger.listThreads({ platform: id }).map((t) => [t.externalId, t]));
     const work = refs.filter((r) => needsWork(r, known.get(String(r.id))));

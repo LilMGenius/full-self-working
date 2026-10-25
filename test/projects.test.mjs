@@ -168,3 +168,20 @@ test('a draft above autoMaxKRW or under the critic threshold becomes an approval
     ledger.close();
   }
 });
+
+test('a signed-in session is opened per step, and one that fails to close leaves the work recorded', async () => {
+  const instance = makeInstance({ maxPerDay: 5, minFit: 'strong', autoMaxKRW: 50000000 });
+  const ledger = openLedger(':memory:');
+  const f = fakeSurfaces([project({ id: 7 })]);
+  let opened = 0;
+  const openSeller = async () => {
+    opened += 1;
+    return { ...f.seller, stop: async () => { throw Object.assign(new Error('session is not registered'), { code: 'not_found' }); } };
+  };
+  const r = await projectsJob({ instance, ledger, now: NOW, openReader: f.openReader, openSeller, runCodex: goodCodex() });
+  assert.deepEqual(r.sent, [7]);
+  assert.equal(r.status, 'partial');
+  assert.ok(r.errors.every((e) => e.ref === 'seller.stop'));
+  assert.ok(opened >= 2, 'the quota read and the send each open their own session');
+  ledger.close();
+});

@@ -187,7 +187,16 @@ export async function projectsJob(ctx) {
   const openSeller = ctx.openSeller ?? (async () => (await import('../platforms/kmong/projects.mjs')).openProjectSeller());
   const result = { status: 'ok', mode, listed: 0, judged: 0, kept: 0, drafted: [], sent: [], queued: [], errors: [] };
   const reader = await openReader();
-  let seller = null;
+  // A signed-in session lives only as long as one step: drafting takes minutes, and the browser daemon
+  // drops a session left idle that long, so each read or send opens its own and closes it.
+  const useSeller = async (fn) => {
+    const s = await openSeller();
+    try {
+      return await fn(s);
+    } finally {
+      await s.stop().catch((err) => result.errors.push({ ref: 'seller.stop', code: err.code ?? null, message: err.message }));
+    }
+  };
   try {
     const listed = new Map();
     for (const category of categoriesFor(instance.profile, policy.minFit)) {
@@ -212,8 +221,7 @@ export async function projectsJob(ctx) {
       result.detail = 'enterprise profile not registered (checked ' + state.enterpriseProfile.at + '); drafting waits for it';
     }
     if (outbound && (candidates.length || listApprovals(instance, { status: 'approved' }).some((a) => a.kind === APPROVAL_KIND && !a.closedAt)) && !profileMissing) {
-      seller = await openSeller();
-      const pageQuota = await seller.quota();
+      const pageQuota = await useSeller((s) => s.quota());
       let left = proposalsLeft({ policy, pageQuota, usedToday: usedToday(ledger, now) });
       result.quota = { page: pageQuota, left };
       for (const t of candidates) {
@@ -238,7 +246,7 @@ export async function projectsJob(ctx) {
             result.queued.push(await queueProposal(ctx, { project, verdict, proposal: draft.proposal, gate: draft.gate, critic, reason: decision.reason }));
             continue;
           }
-          const r = await send(ctx, { seller, project, verdict, proposal: draft.proposal, gate: draft.gate, critic });
+          const r = await useSeller((s) => send(ctx, { seller: s, project, verdict, proposal: draft.proposal, gate: draft.gate, critic }));
           if (r.blocked === 'profile') {
             await profileBlocked(instance, now);
             result.queued.push(await queueProposal(ctx, { project, verdict, proposal: draft.proposal, gate: draft.gate, critic, reason: '엔터프라이즈 프로필 미등록' }));
@@ -253,20 +261,19 @@ export async function projectsJob(ctx) {
         }
       }
       if (sendingHours && readJobState(instance).enterpriseProfile?.day !== dayKey(now)) {
-        result.approvalsSent = await flushProposalApprovals(ctx, { seller, reader });
+        result.approvalsSent = await useSeller((s) => flushProposalApprovals(ctx, { seller: s, reader }));
         if (result.approvalsSent.some((a) => a.action === 'waiting')) await profileBlocked(instance, now);
       }
     }
     if (outbound && ledger.listThreads({ platform: 'kmong' }).some((t) => t.kind === 'project' && ['proposed', 'meeting', 'unobserved'].includes(t.status))) {
-      seller ??= await openSeller();
-      result.statuses = await readStatuses(ctx, { seller });
+      result.statuses = await useSeller((s) => readStatuses(ctx, { seller: s }));
     }
     if (result.errors.length) result.status = 'partial';
     return result;
   } finally {
     await reader.close();
-    if (seller) await seller.stop();
   }
 }
+
 
 

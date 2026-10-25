@@ -127,7 +127,7 @@ test('FSW_CODEX_PROXY=none skips the proxy check; a platform with no adapter is 
 
 test('an offered soomgo catalog service with no request items set warns by name; services outside the catalog are not named', async () => {
   const dir = instance();
-  let rows = [{ name: '웹 개발', itemsSet: false }, { name: '게임 개발', itemsSet: false }, { name: '프로그래밍/코딩 레슨', itemsSet: true }];
+  let rows = [{ name: '웹 개발', itemsSet: false }, { name: '피아노 레슨', itemsSet: false }, { name: '프로그래밍/코딩 레슨', itemsSet: true }];
   const probes = { openAdapter: async (id) => ({ login: async () => ({ loggedIn: true }), services: id === 'soomgo' ? async () => rows : undefined, stop: async () => {} }) };
   let checks = await runChecks(base({ dir, probes }));
   assert.equal(by(checks, 'items soomgo').status, 'warn');

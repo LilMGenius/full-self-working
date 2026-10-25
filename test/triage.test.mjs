@@ -117,7 +117,7 @@ test('a request outside the catalog stays unread for the operator, costs no mode
   const s = setup('soomgo');
   const adapter = spyAdapter();
   const decide = decideWith({});
-  const ref = { id: 'r2', kind: 'request', unread: true, at: '2026-10-25T02:00:00Z', service: '게임 개발', customer: '고객' };
+  const ref = { id: 'r2', kind: 'request', unread: true, at: '2026-10-25T02:00:00Z', service: '피아노 레슨', customer: '고객' };
   const r = await processThread({ ...s, threadRef: ref, adapter, mode: 'draft', decide });
   assert.equal(r.action, 'operator');
   assert.deepEqual([adapter.calls.readRequest, decide.calls, listApprovals(s.instance).length], [0, 0, 0]);

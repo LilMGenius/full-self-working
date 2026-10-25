@@ -40,6 +40,7 @@ export const SKILL_SOURCES = {
   spreadsheets: { kind: 'plugin', path: ['openai-primary-runtime', 'spreadsheets'] },
   documents: { kind: 'plugin', path: ['openai-primary-runtime', 'documents'] },
   pdf: { kind: 'plugin', path: ['openai-primary-runtime', 'pdf'] },
+  'game-studio': { kind: 'plugin', path: ['openai-curated-remote', 'game-studio'] },
 };
 const SKILL_RE = /^(?:([a-z0-9-]+):)?([A-Za-z0-9-]+)$/;
 

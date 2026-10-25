@@ -310,10 +310,11 @@ export const JOB_HANDLERS = {
     const d = await writeDigest({ instance: ctx.instance, ledger: ctx.ledger, now: ctx.now });
     return { status: 'ok', file: d.file, notified: d.notified };
   },
-  // Listing experiments need src/listings builders and an adapter upsertListing that reads the saved
-  // gig back; until both exist this job records that it did nothing.
-  async listings() {
-    return notWired('listing experiments need src/listings builders and adapter upsertListing');
+  // Weekly: re-reads /my-gigs for every published gig so a review result (승인, 비승인) reaches the
+  // ledger and the digest. Building and submitting gigs stays the fsw listings command.
+  async listings(ctx) {
+    const { listingsJob } = await import('../cli/listings.mjs');
+    return listingsJob(ctx);
   },
 };
 

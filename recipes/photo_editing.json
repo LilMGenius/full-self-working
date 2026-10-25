@@ -1,6 +1,10 @@
 {
   "service": "photo_editing",
-  "version": 1,
+  "version": 2,
+  "notes": [
+    "Background removal runs locally with rembg 2.x: uv tool install \"rembg[cpu,cli]\" --python 3.11 (installed 2026-10-25); the isnet-general-use model downloads to ~/.u2net on first use (about 180 MB, one time).",
+    "Retouch and layout use Pillow from the rembg tool environment (%APPDATA%/uv/tools/rembg/Scripts/python.exe on Windows) or ffmpeg; nothing is installed during a job."
+  ],
   "hours": {
     "standard": 0.5,
     "deluxe": 1.5,
@@ -12,14 +16,21 @@
       "type": "invoke-model-skill",
       "input": "brief.md, ../inputs/",
       "output": "notes/plan.md",
-      "does": "List every supplied image with the edit the customer asked for and whether a local tool can make it."
+      "does": "List every supplied image with the edits the customer asked for (cutout, background, exposure, color, crop, size) and the output files each one becomes."
     },
     {
-      "id": "edit",
+      "id": "cutout",
       "type": "invoke-model-skill",
       "input": "notes/plan.md, ../inputs/",
       "output": "edited/",
-      "does": "Make the crops, resizes, exposure and color fixes with ffmpeg; leave cutouts and retouching to the person."
+      "does": "Remove backgrounds with rembg i -m isnet-general-use <in> <out.png>, then look at each cutout on a dark and on a light background and repair lost handles, holes or leftover background with Pillow before going on."
+    },
+    {
+      "id": "retouch",
+      "type": "invoke-model-skill",
+      "input": "notes/plan.md, edited/",
+      "output": "edited/",
+      "does": "Correct exposure and white balance gently so the product color looks true, then make every requested size, for example a white background square with the product centered at about 80 percent of the frame and a soft contact shadow, as JPEG quality 92; keep each transparent cutout as PNG."
     },
     {
       "id": "accept",
@@ -29,17 +40,25 @@
       "output": "qa/"
     },
     {
-      "id": "retouch",
+      "id": "review",
       "type": "user-handoff",
       "input": "edited/, notes/plan.md",
       "output": "operator decision",
-      "ask": "A person makes the cutouts and retouching and judges every image before delivery."
+      "ask": "A person checks every cutout edge and color at full size against the original before delivery."
     }
   ],
   "deliverables": [
     {
-      "path": "edited/*",
-      "format": "image",
+      "path": "edited/*.png",
+      "format": "png",
+      "constraints": {
+        "maxWidth": 8000,
+        "maxHeight": 8000
+      }
+    },
+    {
+      "path": "edited/*.jpg",
+      "format": "jpeg",
       "constraints": {
         "maxWidth": 8000,
         "maxHeight": 8000
@@ -56,6 +75,12 @@
     },
     {
       "check": "image"
+    },
+    {
+      "check": "sloplint",
+      "paths": [
+        "notes/plan.md"
+      ]
     }
   ],
   "payment": {

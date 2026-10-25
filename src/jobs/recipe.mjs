@@ -22,7 +22,8 @@ export const LINT_FORMATS = ['html', 'md', 'txt', 'srt', 'csv'];
 export const CHECKS = ['files', 'image', 'sloplint', 'viewports', 'command'];
 export const PAYMENT_LEVELS = ['none', 'deposit', 'full'];
 const CONSTRAINT_KEYS = ['width', 'height', 'minWidth', 'maxWidth', 'minHeight', 'maxHeight'];
-const TOP_KEYS = ['service', 'version', 'executor', 'hours', 'steps', 'deliverables', 'acceptance', 'payment'];
+// notes lists the local tools a recipe relies on and how each was installed, so a new machine can be set up.
+const TOP_KEYS = ['service', 'version', 'executor', 'notes', 'hours', 'steps', 'deliverables', 'acceptance', 'payment'];
 // Which coding agent runs the model steps: codex (codex exec, sandboxed) or jwc (jawcode, src/brain/jwc.mjs).
 export const EXECUTORS = ['codex', 'jwc'];
 const PACKAGES = ['standard', 'deluxe', 'premium'];
@@ -76,6 +77,7 @@ export function validateRecipe(recipe, { file = 'recipe', services = serviceCata
   else if (file !== 'recipe' && basename(file, '.json') !== recipe.service) err('service', 'must match the file name ' + basename(file));
   if (!isPosInt(recipe.version)) err('version', 'must be a positive integer');
   if (recipe.executor !== undefined && !EXECUTORS.includes(recipe.executor)) err('executor', 'must be one of ' + EXECUTORS.join(', '));
+  if (recipe.notes !== undefined && !(Array.isArray(recipe.notes) && recipe.notes.length && recipe.notes.every(isText))) err('notes', 'must be a non-empty array of strings');
 
   if (!isObj(recipe.hours)) err('hours', 'must be an object with standard, deluxe and premium');
   else {

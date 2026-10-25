@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdtempSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { parseArgs, run } from '../src/cli/onboard.mjs';
-import { blockOf, humanize, walkWizard } from '../src/platforms/onboarding.mjs';
+import { blockOf, dayLabel, humanize, readIdentity, walkWizard } from '../src/platforms/onboarding.mjs';
 import { parseSelectedSkills, skillOfResult } from '../src/platforms/freelancer/onboarding.mjs';
-import { employmentEntries, onboard, parseEmploymentCard, parsePeriod, splitTitle, stepOfUrl, upworkSpecialties } from '../src/platforms/upwork/onboarding.mjs';
+import { HANDLERS as UPWORK, employmentEntries, onboard, parseEmploymentCard, parsePeriod, splitTitle, stepOfUrl, upworkSpecialties } from '../src/platforms/upwork/onboarding.mjs';
 
 function instance() {
   const dir = mkdtempSync(join(tmpdir(), 'fsw-onboard-'));
@@ -145,5 +145,34 @@ test('a sign-in or challenge page blocks the walk and an ordinary wizard page do
   assert.match(blockOf({ url: 'https://www.upwork.com/ab/account-security/login?redir=x' }, 'upwork'), /sign in to upwork/);
   assert.match(blockOf({ url: 'https://www.freelancer.com/x', title: 'Just a moment...' }, 'freelancer'), /cloudflare challenge/);
   assert.equal(blockOf({ url: 'https://www.upwork.com/nx/create-profile/title', title: 'Add a title', text: 'Log in to see more' }, 'upwork'), null);
+});
+
+
+test('the identity file gives the national number after the country code and names missing fields', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'fsw-id-'));
+  const file = join(dir, 'identity.json');
+  writeFileSync(file, JSON.stringify({ person: { date_of_birth: '1990-01-31', phone: '+82-10-0000-1111', google_login_email: 'seller@example.com' }, business: { address_en: { street: '1 Example Road', unit: '2F', city: 'Example City', region: 'Example Province', postal_code: 12345, country: 'South Korea' } } }));
+  const ctx = { instance: { config: { onboarding: { identity: file } } } };
+  const id = readIdentity(ctx);
+  assert.equal(id.nationalNumber, '1000001111');
+  assert.equal(id.countryCode, '82');
+  assert.equal(id.address.postalCode, '12345');
+  writeFileSync(file, JSON.stringify({ person: { phone: '+82-10-0000-1111' }, business: { address_en: { city: 'Example City' } } }));
+  assert.match(readIdentity(ctx).message, /lacks date of birth, street, postal code, country/);
+  assert.match(readIdentity({ instance: { config: { onboarding: { identity: null } } } }).message, /set config onboarding.identity/);
+});
+
+test('a private step that reads back wrong names the fields and never their values', () => {
+  const want = { photo: true, private: 'x', dateOfBirth: '1990-01-31', street: '1 Example Road', unit: '', city: 'Example City', region: 'R', postalCode: '12345', phone: '1000001111' };
+  const cur = { ...want, street: '9 Other Road', phone: '' };
+  const msg = UPWORK.location.show(cur, want);
+  assert.match(msg, /street, phone/);
+  assert.doesNotMatch(msg, /Example|Other|1990|12345|1000001111/);
+  assert.equal(UPWORK.location.same({ ...want, phone: '821000001111' }, want), true);
+});
+
+test('a date picker day is found by its full label', () => {
+  assert.equal(dayLabel('1990-01-05'), 'January 05, 1990');
+  assert.equal(dayLabel('2001-12-31'), 'December 31, 2001');
 });
 

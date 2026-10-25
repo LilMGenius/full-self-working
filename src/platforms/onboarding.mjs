@@ -1,6 +1,7 @@
 // Shared by the platform onboarding scripts that fsw onboard runs (src/cli/onboard.mjs holds the
 // interface). Pages are read and clicked through DOM queries, never a whole-page snapshot, since one
 // stalled page stalls the BrowserSkill extension every agent shares (docs/DESIGN.md, Browser).
+import { existsSync, readFileSync } from 'node:fs';
 import { gateOutbound } from '../policy/gate.mjs';
 import { challengeOf } from './kit.mjs';
 
@@ -24,7 +25,10 @@ export function markInPage({ selector, spec, token, within }) {
   const roots = within ? [...document.querySelectorAll(within)].filter(onScreen) : [document];
   const test = spec.exact !== undefined ? (t) => norm(t) === norm(spec.exact) : (t) => new RegExp(spec.re, spec.flags).test(String(t ?? '').trim());
   for (const root of roots) {
-    const el = [...root.querySelectorAll(selector)].find((e) => e.getBoundingClientRect().width > 0 && test(e.innerText ?? e.textContent));
+    // Only a rendered target counts: a hidden twin with the same text (freelancer keeps a hidden
+    // social sign-in button) would open the wrong flow.
+    const shown = (e) => e.getBoundingClientRect().width > 0 && (e.checkVisibility?.({ checkOpacity: true, checkVisibilityCSS: true }) ?? true);
+    const el = [...root.querySelectorAll(selector)].find((e) => shown(e) && test(e.innerText ?? e.textContent));
     if (el) {
       el.setAttribute('data-fsw-mark', token);
       el.scrollIntoView({ block: 'center' });
@@ -148,7 +152,9 @@ export async function runStep(session, id, ctx, wiz) {
   }
   await sleep(800);
   const back = await h.read(session);
-  return h.same(back, want) ? result(id, 'filled', wiz.describe(want)) : result(id, 'needs-operator', 'read back ' + JSON.stringify(back) + ' instead of ' + JSON.stringify(want));
+  if (h.same(back, want)) return result(id, 'filled', wiz.describe(want));
+  // A step that holds private values says which fields differ, never their values.
+  return result(id, 'needs-operator', h.show ? h.show(back, want) : 'read back ' + JSON.stringify(back) + ' instead of ' + JSON.stringify(want));
 }
 
 async function advance(session, id, wiz) {
@@ -255,5 +261,56 @@ export function humanize(session, { actionGapMs = [0, 0], keyGapMs = [0, 0] } = 
       return session.typeKeys(target, text, { keyGapMs: pick(keyGapMs) });
     },
   });
+}
+
+
+// The operator's private identity for payout and verification forms, read from the JSON file that
+// config.onboarding.identity names (kept outside the repository): {person: {date_of_birth, phone},
+// business: {address_en: {street, unit, city, region, postal_code, country}}}. Its values are typed
+// into a platform's private fields only and never appear in a step report or a log.
+export function readIdentity(ctx) {
+  const file = ctx.instance.config?.onboarding?.identity;
+  if (!file || !existsSync(file)) return needs('set config onboarding.identity to the identity JSON file (date of birth, phone, address), or fill those fields yourself');
+  const { person = {}, business: org = {} } = JSON.parse(readFileSync(file, 'utf8'));
+  const a = org.address_en ?? {};
+  const phone = String(person.phone ?? '');
+  const missing = [['date of birth', person.date_of_birth], ['phone', phone], ['street', a.street], ['city', a.city], ['postal code', a.postal_code], ['country', a.country]].filter(([, v]) => !v).map(([k]) => k);
+  if (missing.length) return needs('the identity file lacks ' + missing.join(', '));
+  const cc = /^\+(\d{1,3})[\s-]/.exec(phone)?.[1] ?? null;
+  return {
+    dateOfBirth: person.date_of_birth,
+    phone,
+    countryCode: cc,
+    // The number after the country code, without the trunk 0 a national number starts with.
+    nationalNumber: (cc ? phone.slice(cc.length + 1) : phone).replace(/\D/g, '').replace(/^0/, ''),
+    address: { street: a.street, unit: a.unit ?? '', city: a.city, region: a.region ?? '', postalCode: String(a.postal_code), country: a.country },
+  };
+}
+
+
+// The upwork date picker (air3-datepicker), mapped 2026-10-26: its trigger opens a month grid whose
+// month-year button swaps it for a month list and a year list (each item's text is the month name or
+// the year) and an Apply button; each day is a button whose text starts with its full date, such as
+// "Thursday, August 03, 2000". The text input itself takes no typing (inputmode none).
+export const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+export const dayLabel = (ymd) => {
+  const [y, m, d] = String(ymd).split('-').map(Number);
+  return MONTH_NAMES[m - 1] + ' ' + String(d).padStart(2, '0') + ', ' + y;
+};
+export async function pickDate(session, trigger, ymd, { picker = '.air3-datepicker' } = {}) {
+  const [y, m] = String(ymd).split('-').map(Number);
+  if (!(await clickVisible(session, trigger))) throw new Error('no date picker trigger ' + trigger);
+  await sleep(1200);
+  if (!(await clickVisible(session, picker + ' [data-test=month-year-selector-btn]'))) throw new Error('the date picker has no month and year selector');
+  await sleep(1200);
+  const leaf = picker + ' li, ' + picker + ' [role=option], ' + picker + ' [role=menuitem], ' + picker + ' button, ' + picker + ' span';
+  if (!(await clickMatch(session, leaf, String(y)))) throw new Error('the date picker lists no year ' + y);
+  await sleep(800);
+  if (!(await clickMatch(session, leaf, MONTH_NAMES[m - 1]))) throw new Error('the date picker lists no month ' + MONTH_NAMES[m - 1]);
+  await sleep(800);
+  await clickMatch(session, picker + ' button', 'Apply');
+  await sleep(1200);
+  const day = new RegExp('^\\w+, ' + dayLabel(ymd));
+  if (!(await clickMatch(session, picker + ' button[data-test^=date-]', day))) throw new Error('the date picker shows no day ' + ymd);
 }
 

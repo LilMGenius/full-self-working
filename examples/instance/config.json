@@ -124,6 +124,7 @@
   },
   "onboarding": {
     "photo": null,
+    "identity": null,
     "wishket": {
       "certificate": null,
       "directSkills": null,

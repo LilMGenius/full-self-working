@@ -7,7 +7,7 @@
 import catalog from '../../economics/services.json' with { type: 'json' };
 import { existsSync } from 'node:fs';
 import { answeredServices } from '../../economics/catalog.mjs';
-import { clickMatch, clickVisible, gated, needs, pathOf, pickOption, sleep, typeInto, waitFor, walkWizard } from '../onboarding.mjs';
+import { clickMatch, clickVisible, gated, Needs, needs, pathOf, pickDate, pickOption, readIdentity, sleep, typeInto, waitFor, walkWizard } from '../onboarding.mjs';
 
 export const START = 'https://www.upwork.com/nx/create-profile/';
 const BASE = '/nx/create-profile/';
@@ -171,6 +171,8 @@ export const LANGUAGE_LEVELS = ['Basic', 'Conversational', 'Fluent', 'Native or 
 
 export const OVERVIEW_MIN = 100;
 
+const FIELDS = ['photo', 'dateOfBirth', 'street', 'unit', 'city', 'region', 'postalCode', 'phone'];
+
 // "$27.00" or "27" as a number of dollars; an empty field is null.
 export const parseUsd = (text) => {
   const n = Number.parseFloat(String(text ?? '').replace(/[^\d.]/g, ''));
@@ -234,37 +236,62 @@ const radioStep = (key, values) => ({
 
 export const HANDLERS = {
   // Mapped 2026-10-25: "Upload photo" opens a dialog with a file input, a crop view and "Attach photo",
-  // which saves at once; the saved portrait shows as an img from /profile-portraits/. Date of birth,
-  // street, city, ZIP and phone are the operator's own (payout identity) and stay with the operator.
+  // which saves at once; the saved portrait shows as an img from /profile-portraits/. Mapped 2026-10-26:
+  // date of birth (a date picker, pickDate), street, Apt/Suite, city (a typeahead), state, ZIP and a phone
+  // number after a preset country code. Those come from the identity file config.onboarding.identity
+  // names (src/platforms/onboarding.mjs, readIdentity) and are never shown in a step report.
   location: {
     saves: true,
-    read: (s) => s.evaluate(() => [...document.querySelectorAll('img')].some((i) => i.getBoundingClientRect().width > 0 && /\/profile-portraits\//.test(i.src))),
+    read: (s) =>
+      s.evaluate(() => {
+        const v = (sel) => document.querySelector(sel)?.value ?? '';
+        return {
+          photo: [...document.querySelectorAll('img')].some((i) => i.getBoundingClientRect().width > 0 && /\/profile-portraits\//.test(i.src)),
+          dateOfBirth: v('input[aria-labelledby=date-of-birth-label]'),
+          street: v('input[aria-labelledby=street-label]'),
+          unit: v('input[placeholder^="Apt/Suite"]'),
+          city: v('input[aria-labelledby=city-label]'),
+          region: v('input[aria-labelledby=state-label]'),
+          postalCode: v('input[aria-labelledby=postal-code-label]'),
+          phone: v('input[type=tel]').replace(/\D/g, ''),
+        };
+      }),
     want: (ctx) => {
       const photo = ctx.instance.config?.onboarding?.photo;
-      return photo && existsSync(photo) ? true : needs('upload a profile photo of yourself, or set config onboarding.photo to a public photo of you');
+      if (!photo || !existsSync(photo)) return needs('upload a profile photo of yourself, or set config onboarding.photo to a public photo of you');
+      const id = readIdentity(ctx);
+      if (id instanceof Needs) return id;
+      const a = id.address;
+      return { photo: true, private: 'photo, date of birth, address and phone', dateOfBirth: id.dateOfBirth, street: a.street, unit: a.unit ?? '', city: a.city, region: a.region, postalCode: a.postalCode, phone: id.nationalNumber };
     },
-    same: (cur) => cur === true,
+    same: (cur, want) => FIELDS.every((k) => (k === 'photo' ? cur.photo === true : k === 'phone' ? cur.phone.endsWith(want.phone) : norm(cur[k]) === norm(want[k]))),
+    show: (cur, want) => 'these fields read back different from the identity file: ' + FIELDS.filter((k) => !(k === 'photo' ? cur.photo : k === 'phone' ? cur.phone.endsWith(want.phone) : norm(cur[k]) === norm(want[k]))).join(', '),
     write: async (s, want, cur, ctx) => {
-      // want is true only when the photo file exists; the path is read again for the upload.
-      await clickVisible(s, 'button[data-qa=open-loader]');
-      if (!(await waitFor(s, () => !!document.querySelector('[role=dialog] input[type=file]')))) throw new Error('the photo dialog did not open');
-      await s.setFiles('[role=dialog] input[type=file]', ctx.instance.config.onboarding.photo);
-      if (!(await waitFor(s, () => /Zoom/i.test(document.querySelector('[role=dialog]')?.innerText ?? ''), null, { timeoutMs: 20000 }))) throw new Error('the photo did not load into the crop view');
-      await clickMatch(s, '[role=dialog] button', 'Attach photo');
-      if (!(await waitFor(s, () => !document.querySelector('[role=dialog]'), null, { timeoutMs: 20000 }))) throw new Error('the photo dialog did not close');
-      await sleep(1500);
-    },
-    // What stays with the operator once the photo is in: every required field still empty.
-    pending: async (s) => {
-      const empty = await s.evaluate(() => {
-        const fields = { 'date of birth': 'date-of-birth-label', 'street address': 'street-label', city: 'city-label', 'ZIP code': 'postal-code-label' };
-        const out = Object.entries(fields).filter(([, id]) => !document.querySelector('input[aria-labelledby="' + id + '"]')?.value).map(([name]) => name);
-        if (!document.querySelector('input[type=tel]')?.value) out.push('phone number');
-        return out;
-      });
-      return empty.length ? 'fill ' + empty.join(', ') + ' on the last page (upwork.com/nx/create-profile/location), then press Review your profile and publish it' : null;
+      if (!cur.photo) {
+        await clickVisible(s, 'button[data-qa=open-loader]');
+        if (!(await waitFor(s, () => !!document.querySelector('[role=dialog] input[type=file]')))) throw new Error('the photo dialog did not open');
+        await s.setFiles('[role=dialog] input[type=file]', ctx.instance.config.onboarding.photo);
+        if (!(await waitFor(s, () => /Zoom/i.test(document.querySelector('[role=dialog]')?.innerText ?? ''), null, { timeoutMs: 20000 }))) throw new Error('the photo did not load into the crop view');
+        await clickMatch(s, '[role=dialog] button', 'Attach photo');
+        if (!(await waitFor(s, () => !document.querySelector('[role=dialog]'), null, { timeoutMs: 20000 }))) throw new Error('the photo dialog did not close');
+        await sleep(1500);
+      }
+      if (norm(cur.dateOfBirth) !== norm(want.dateOfBirth)) await pickDate(s, '#date-of-birth-label-trigger', want.dateOfBirth);
+      const text = { street: 'input[aria-labelledby=street-label]', unit: 'input[placeholder^="Apt/Suite"]', region: 'input[aria-labelledby=state-label]', postalCode: 'input[aria-labelledby=postal-code-label]', phone: 'input[type=tel]' };
+      for (const [k, sel] of Object.entries(text)) {
+        if (k === 'phone' ? cur.phone.endsWith(want.phone) : norm(cur[k]) === norm(want[k])) continue;
+        if (!want[k]) continue;
+        await typeInto(s, sel, want[k]);
+      }
+      if (norm(cur.city) !== norm(want.city)) {
+        await typeInto(s, 'input[aria-labelledby=city-label]', want.city);
+        // The city typeahead lists matches; the first one that starts with the city name is taken.
+        const picked = await waitFor(s, (c) => [...document.querySelectorAll('[role=option]')].some((o) => o.getBoundingClientRect().width > 0 && o.innerText.trim().toLowerCase().startsWith(c.toLowerCase())), want.city, { timeoutMs: 8000 });
+        if (picked) await clickMatch(s, '[role=option]', new RegExp('^' + want.city.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
+      }
     },
   },
+
   // Mapped 2026-10-25: three currency inputs (hourly rate, service fee, what you get); only the first
   // is typed, and it reformats on every key, so it is typed key by key.
   rate: {
@@ -485,6 +512,7 @@ export const HANDLERS = {
 
 const describe = (want) => {
   if (want === true) return 'profile photo in place';
+  if (want?.private) return want.private + ' (values withheld)';
   const one = (w) => (typeof w !== 'object' ? w : w.level ? w.language + ' ' + w.level : w.school ? [w.school, w.degree, w.field, w.from && w.from + '-' + w.to].filter(Boolean).join(', ') : w.title + ' at ' + w.company + ', ' + w.dates);
   if (Array.isArray(want)) return want.map(one).join('; ') + (want.skipped?.length ? '; left out without a start month or over the title limit: ' + want.skipped.join(', ') : '');
   return typeof want === 'object' ? JSON.stringify(want.specialties ?? want) : String(want);

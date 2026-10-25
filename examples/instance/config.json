@@ -121,5 +121,12 @@
     "domain": null,
     "vercelTeam": null,
     "project": null
+  },
+  "onboarding": {
+    "photo": null,
+    "wishket": {
+      "certificate": null,
+      "directSkills": null
+    }
   }
 }

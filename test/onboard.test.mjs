@@ -108,18 +108,22 @@ test('a sign-in page stops the walk as the operator\'s to fix, never as a finish
   assert.match(out[0].detail, /sign in to freelancer/);
 });
 
-test('freelancer types a skill again when its search list stays empty, and clicks a result with no job count', async () => {
+test('freelancer retypes the last key of a skill when its search list stays empty, and clicks a result with no job count', async () => {
   const typed = [];
+  const pressed = [];
   const clicked = [];
   const session = {
-    // waitFor asks with the skill name, and the list renders only after the second typing.
-    evaluate: async (fn, arg) => (typeof arg === 'string' ? typed.length >= 2 : arg?.selector === '.SkillsContent-text' ? new RegExp(arg.spec.re, arg.spec.flags).test('Kubernetes') : true),
+    // waitFor asks with the skill name, and the list renders only once the last key is pressed again;
+    // typing the whole term a second time leaves it empty, as on the live page.
+    evaluate: async (fn, arg) => (typeof arg === 'string' ? pressed.join(',') === 'Backspace,s' : arg?.selector === '.SkillsContent-text' ? new RegExp(arg.spec.re, arg.spec.flags).test('Kubernetes') : true),
     click: async (sel) => { clicked.push(sel); },
     typeKeys: async (_sel, text) => { typed.push(text); },
+    press: async (key) => { pressed.push(key); },
   };
   assert.equal(await addSkill(session, 'Kubernetes', { timeoutMs: 30, pauseMs: 0 }), true);
-  assert.deepEqual(typed, ['Kubernetes', 'Kubernetes']);
-  assert.equal(clicked.length, 3);
+  assert.deepEqual(typed, ['Kubernetes']);
+  assert.deepEqual(pressed, ['Backspace', 's']);
+  assert.equal(clicked.length, 2);
   assert.ok(resultPattern('Node.js').test('Node.js (1,203 jobs)'));
   assert.ok(!resultPattern('Kubernetes').test('Kubernetes Engine (4 jobs)'));
 });

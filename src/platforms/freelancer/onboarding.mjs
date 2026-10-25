@@ -36,15 +36,21 @@ const SEARCH = 'input[placeholder="Search a skill"]';
 // A search result reads "Name (N jobs)", or the bare name when the skill has no open jobs.
 export const resultPattern = (skill) => new RegExp('^' + skill.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:\\s*\\(|$)', 'i');
 
-// Types one skill into the search and clicks its result. The list sometimes stays empty after the first
-// typing (on 2026-10-26, for 3 of 12 skills the jobs API lists), so an empty list is typed once more after
-// a pause before the skill counts as missing.
+// Types one skill into the search and clicks its result. The list sometimes stays empty after the
+// typing (on 2026-10-26, for 3 of 12 skills the jobs API lists). Typing the same term again does not
+// refresh it, since the search drops a term equal to the last one it took (the apply run at 05:36 failed
+// twice on one skill that way); deleting the last character and pressing it again after a pause sends
+// two new terms, and that brought the list back in a live probe.
 export async function addSkill(s, skill, { timeoutMs = 10000, pauseMs = 3000 } = {}) {
+  const listed = (name) => [...document.querySelectorAll('.SkillsContent-text')].some((e) => e.getBoundingClientRect().width > 0 && e.innerText.replace(/\s*\(\d[\d,]*\s+jobs?\)\s*$/i, '').trim().toLowerCase() === name.toLowerCase());
+  const last = skill.slice(-1);
   for (let attempt = 0; attempt < 2; attempt++) {
-    if (attempt) await sleep(pauseMs);
-    await typeInto(s, SEARCH, skill);
-    const listed = await waitFor(s, (name) => [...document.querySelectorAll('.SkillsContent-text')].some((e) => e.getBoundingClientRect().width > 0 && e.innerText.replace(/\s*\(\d[\d,]*\s+jobs?\)\s*$/i, '').trim().toLowerCase() === name.toLowerCase()), skill, { timeoutMs });
-    if (listed) return clickMatch(s, '.SkillsContent-text', resultPattern(skill));
+    if (attempt) {
+      await s.press('Backspace', { target: SEARCH });
+      await sleep(pauseMs);
+      await s.press(last === ' ' ? 'Space' : last, { target: SEARCH });
+    } else await typeInto(s, SEARCH, skill);
+    if (await waitFor(s, listed, skill, { timeoutMs })) return clickMatch(s, '.SkillsContent-text', resultPattern(skill));
   }
   return false;
 }

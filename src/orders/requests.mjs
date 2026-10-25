@@ -33,7 +33,7 @@ export function nextPart(job, payments, config, descriptor, { rest = false } = {
 export const pendingOrderItem = (instance, jobId, kind) =>
   listApprovals(instance).find((a) => a.orderItem && a.jobId === jobId && a.kind === kind && (a.status === 'open' || (a.status === 'approved' && !a.closedAt))) ?? null;
 
-export async function queuePayRequest({ instance, ledger, descriptor, job, why, rest = false }) {
+export async function queuePayRequest({ instance, ledger, descriptor, job, why, rest = false, title = null }) {
   if (job.meta?.manual) return { queued: false, reason: job.meta.manual };
   const part = nextPart(job, ledger.jobPayments(job.id), instance.config, descriptor, { rest });
   if (!part) return { queued: false, reason: job.priceKRW > 0 ? 'nothing is due or the platform has no split request' : 'the job has no agreed total price' };
@@ -45,7 +45,7 @@ export async function queuePayRequest({ instance, ledger, descriptor, job, why, 
     amountKRW: part.amountKRW, rest, paidBeforeKRW, part: part.label + (part.of ? ' (' + (part.index + 1) + ' of ' + part.of + ')' : ''),
     reason: why + ': request ' + part.label + ' of ' + part.amountKRW + ' KRW through ' + descriptor.name + ' for job ' + job.id + ' (total ' + job.priceKRW + ' KRW)',
     draft: descriptor.name + ' payment request: ' + part.amountKRW + ' KRW, ' + part.label,
-    title: job.platform + ' payment request ' + part.amountKRW + ' KRW for job ' + job.id,
+    title: title ?? job.platform + ' payment request ' + part.amountKRW + ' KRW for job ' + job.id,
   });
   ledger.addEvent({ kind: 'order.pay_request_queued', platform: job.platform, ref: job.id, payload: { approvalId: approval.id, amountKRW: part.amountKRW, part: part.label } });
   return { queued: true, approval };

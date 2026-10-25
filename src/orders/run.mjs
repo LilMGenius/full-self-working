@@ -2,16 +2,20 @@
 // config jobs.maxParallel at once across the machine. A job starts once the ledger's payment rows meet
 // its recipe's beforeStart level (a recorded deposit, or the whole order held in escrow) and it has an
 // agreed scope; runJob re-checks both in the child.
+// An operator-delivered job (src/economics/catalog.mjs) never spawns a runner: handOver gives it to the
+// operator once its deposit is recorded.
 import { spawn } from 'node:child_process';
 import { mkdirSync, openSync, closeSync } from 'node:fs';
 import { join } from 'node:path';
 import { repoRoot } from '../core/instance.mjs';
 import { notifyOperator } from '../core/notify.mjs';
+import { closeApproval } from '../brain/approvals.mjs';
 import { operatorDelivered } from '../economics/catalog.mjs';
-import { agreedScope, jobPaths, pidAlive, runningJobs, startAllowed } from '../jobs/run.mjs';
+import { agreedScope, jobPaths, paymentLevelMet, pidAlive, runningJobs, startAllowed } from '../jobs/run.mjs';
 import { loadRecipe } from '../jobs/recipe.mjs';
 import { loadDescriptor } from '../platforms/registry.mjs';
 import { closeSettledJobs, queueDeliveries } from './delivery.mjs';
+import { pendingOrderItem, queuePayRequest } from './requests.mjs';
 import { startRevisions } from './revision.mjs';
 
 // Starts fsw job run <id> detached, its output in jobs/<id>/qa/runner.log. Returns the child pid.
@@ -44,13 +48,39 @@ export function startBlocker(job, ledger) {
   return null;
 }
 
+// The payment an operator-delivered job waits for before the operator starts.
+export const OPERATOR_START_LEVEL = 'deposit';
+
+// An operator-delivered job (a lesson) runs no recipe. Once its deposit is recorded it moves to
+// in_progress and the operator is told to schedule the sessions. On a split platform that notice is the
+// balance request item, approved with fsw approve when the sessions are done, so the balance and the
+// close follow the usual flow; elsewhere it is a plain notice. Returns {ok, reason?, approvalId?}.
+export async function handOver({ instance, ledger, job, notify = notifyOperator }) {
+  const descriptor = loadDescriptor(job.platform);
+  const pay = paymentLevelMet(OPERATOR_START_LEVEL, job, ledger.jobPayments(job.id), descriptor);
+  if (!pay.ok) return { ok: false, reason: pay.reason };
+  const at = new Date().toISOString();
+  ledger.upsertJob({ id: job.id, status: 'in_progress', startedAt: job.startedAt ?? at, meta: { ...job.meta, operator: { handedOverAt: at } } });
+  // A deposit request still open although the client paid on their own is no longer due.
+  const stale = pendingOrderItem(instance, job.id, 'pay_request');
+  if (stale && stale.paidBeforeKRW !== pay.paidKRW) closeApproval(instance, stale.id, { status: 'stale', detail: 'paid ' + pay.paidKRW + ' KRW since it was queued' });
+  const title = job.platform + ' job ' + job.id + ': schedule the sessions';
+  const why = 'deposit received for ' + job.service + ' job ' + job.id + '. Schedule the sessions with the client in the ' + descriptor.name + ' chat and teach them; approve this item when they are done';
+  const balance = await queuePayRequest({ instance, ledger, descriptor, job: ledger.getJob(job.id), why, rest: true, title });
+  if (!balance.queued) {
+    await notify(instance, { kind: 'job', title, body: 'Deposit received for ' + job.service + ' job ' + job.id + '. Schedule the sessions with the client in the ' + descriptor.name + ' chat and teach them. No balance request was queued: ' + balance.reason, dedupeKey: 'handover:' + job.id });
+  }
+  ledger.addEvent({ kind: 'job.operator_handover', platform: job.platform, ref: job.id, payload: { approvalId: balance.approval?.id ?? null, reason: balance.queued ? null : balance.reason } });
+  return { ok: true, approvalId: balance.approval?.id ?? null };
+}
+
 // One pass over ordered jobs. A job is spawned once: its runner pid is kept in meta.runner, and a runner
 // that exited with the job still ordered is reported to the operator instead of being started again.
 // Gap: there is no command to clear meta.runner for a retry; the operator edits the job or runs
 // fsw job run <id> by hand.
 export async function startJobs({ instance, ledger, spawnJob = spawnJobRun, notify = notifyOperator, alive = pidAlive }) {
   const max = instance.config.jobs?.maxParallel ?? 1;
-  const out = { started: [], waiting: [], blocked: [], failedRunners: [] };
+  const out = { started: [], operator: [], waiting: [], blocked: [], failedRunners: [] };
   let running = runningJobs(instance).length;
   for (const job of ledger.listJobs({ status: 'ordered' })) {
     const runner = job.meta?.runner;
@@ -66,6 +96,12 @@ export async function startJobs({ instance, ledger, spawnJob = spawnJobRun, noti
         await notify(instance, { kind: 'job', title: 'job ' + job.id + ' did not start', body: 'Its runner exited with the job still ordered. See ' + runner.log, dedupeKey: 'runner-exited:' + job.id + ':' + runner.pid });
       }
       out.failedRunners.push(job.id);
+      continue;
+    }
+    if (!job.meta?.manual && operatorDelivered(job.service)) {
+      const r = await handOver({ instance, ledger, job, notify });
+      if (r.ok) out.operator.push(job.id);
+      else out.blocked.push({ id: job.id, reason: r.reason });
       continue;
     }
     const why = startBlocker(job, ledger);

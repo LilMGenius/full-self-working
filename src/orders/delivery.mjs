@@ -163,20 +163,24 @@ export function runPublish(instance) {
   return { ok: r.status === 0, exitCode: r.status, detail: (String(r.stdout) + String(r.stderr)).trim().split('\n').slice(-3).join('\n') };
 }
 
-// Closes settled delivered jobs. A review is recorded when the platform showed one; no adapter reads
-// review ratings yet, so that part is a named gap. publish deploys only when the content hash changed.
+// Closes settled delivered jobs, and settled jobs the operator delivers (handed over by
+// src/orders/run.mjs), whose full payment and the platform's confirmation are the evidence the sessions
+// took place. A review is recorded when the platform showed one; no adapter reads review ratings yet, so
+// that part is a named gap. publish deploys only when the content hash changed.
 export async function closeSettledJobs({ instance, ledger, publish = runPublish, forceMode = null }) {
   const closed = [];
-  for (const job of ledger.listJobs({ status: 'delivered' })) {
+  const operatorJobs = ledger.listJobs({ status: 'in_progress' }).filter((j) => j.meta?.operator);
+  for (const job of [...ledger.listJobs({ status: 'delivered' }), ...operatorJobs]) {
     const descriptor = loadDescriptor(job.platform);
     if (!settled(job, ledger, descriptor)) continue;
     const at = new Date().toISOString();
-    ledger.upsertJob({ id: job.id, status: 'closed', closedAt: at });
+    ledger.upsertJob({ id: job.id, status: 'closed', closedAt: at, ...(job.deliveredAt ? {} : { deliveredAt: at }) });
+    const deliveredAt = job.deliveredAt ?? at;
     const payments = ledger.jobPayments(job.id);
     const thread = job.threadId ? ledger.getThread(job.threadId) : null;
     recordOutcome(instance, ledger, {
       kind: 'job_closed', platform: job.platform, service: job.service, threadRef: thread?.externalId ?? null, jobId: job.id,
-      text: 'job ' + job.id + ' (' + job.service + ') closed: ' + payments.reduce((s, p) => s + p.amountKRW, 0) + ' KRW in ' + payments.length + ' payment(s), delivered ' + job.deliveredAt + ', ' + Math.round(job.agentMinutes ?? 0) + ' agent minutes',
+      text: 'job ' + job.id + ' (' + job.service + ') closed: ' + payments.reduce((s, p) => s + p.amountKRW, 0) + ' KRW in ' + payments.length + ' payment(s), delivered ' + deliveredAt + ', ' + Math.round(job.agentMinutes ?? 0) + ' agent minutes',
       note: 'portfolio permission ' + (job.meta?.portfolio?.permission ?? 'pending'),
     });
     ledger.addEvent({ kind: 'job.closed', platform: job.platform, ref: job.id, payload: { payments: payments.length } });

@@ -51,7 +51,7 @@ export function countedPayments(payments, descriptor) {
 // orders, so a phase order is a job row of its own); an unknown split mechanism is treated the same way.
 const wholeOrderEscrow = (descriptor) => descriptor.escrow === true && ['reorder', 'none', 'unknown'].includes(descriptor.milestones);
 
-function paymentLevelMet(level, job, payments, descriptor) {
+export function paymentLevelMet(level, job, payments, descriptor) {
   const counted = countedPayments(payments, descriptor);
   const paidKRW = counted.reduce((s, p) => s + p.amountKRW, 0);
   const base = { level, paidKRW, priceKRW: job.priceKRW ?? null, payments: counted.map((p) => p.id) };

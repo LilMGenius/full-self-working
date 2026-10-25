@@ -197,6 +197,59 @@ export async function openRenderer({ chrome = process.env.FSW_CHROME ?? DEFAULT_
     rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 
+  // Which font drew the text of every element that holds text, summed per face: CDP
+  // CSS.getPlatformFontsForNode, the renderer's own record, so a fallback cannot hide behind a stack.
+  async function platformFonts(sessionId) {
+    await cdp.send('DOM.enable', {}, sessionId);
+    await cdp.send('CSS.enable', {}, sessionId);
+    const { root } = await cdp.send('DOM.getDocument', { depth: -1 }, sessionId);
+    const holders = [];
+    const walk = (node) => {
+      if (node.nodeType === 1 && (node.children ?? []).some((c) => c.nodeType === 3 && c.nodeValue.trim())) holders.push(node.nodeId);
+      for (const c of node.children ?? []) walk(c);
+    };
+    walk(root);
+    const faces = new Map();
+    for (const nodeId of holders) {
+      const { fonts } = await cdp.send('CSS.getPlatformFontsForNode', { nodeId }, sessionId);
+      for (const f of fonts) {
+        const key = f.familyName + '|' + f.isCustomFont;
+        const prev = faces.get(key) ?? { familyName: f.familyName, isCustomFont: f.isCustomFont, glyphCount: 0 };
+        prev.glyphCount += f.glyphCount;
+        faces.set(key, prev);
+      }
+    }
+    return [...faces.values()];
+  }
+
+  // An HTML page printed to PDF through Page.printToPDF, the call puppeteer's page.pdf issues. The page's
+  // own @page rule sets size and margins (preferCSSPageSize) and backgrounds print. It waits for fonts and
+  // images the way render does and returns the per-face font report; callers also read the embedded fonts
+  // back from the file (src/render/fonts.mjs).
+  async function pdf({ html, out }) {
+    if (!html || !out) throw new RenderError('FSW_RENDER_ARGS', 'pdf needs html and out');
+    const file = join(profile, 'page-' + Date.now() + '-' + Math.random().toString(36).slice(2) + '.html');
+    writeFileSync(file, html);
+    const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
+    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+    try {
+      await cdp.send('Page.enable', {}, sessionId);
+      const loaded = cdp.waitFor('Page.loadEventFired', sessionId, timeoutMs);
+      const nav = await cdp.send('Page.navigate', { url: pathToFileURL(file).href }, sessionId);
+      if (nav.errorText) throw new RenderError('FSW_RENDER_NAVIGATE', 'navigation to ' + file + ' failed: ' + nav.errorText);
+      await loaded;
+      const settled = await cdp.send('Runtime.evaluate', { expression: SETTLE, awaitPromise: true, returnByValue: true }, sessionId);
+      const faces = await platformFonts(sessionId);
+      const { data } = await cdp.send('Page.printToPDF', { printBackground: true, preferCSSPageSize: true, displayHeaderFooter: false }, sessionId);
+      const bytes = Buffer.from(data, 'base64');
+      mkdirSync(dirname(resolve(out)), { recursive: true });
+      writeFileSync(out, bytes);
+      return { out: resolve(out), bytes: bytes.length, fonts: settled.result?.value?.fonts ?? null, platformFonts: faces };
+    } finally {
+      await cdp.send('Target.closeTarget', { targetId }).catch(() => {});
+    }
+  }
+
   // A tab that stays open across navigations, for reading public pages with this owned browser
   // (market sampling) so no read rides on the operator's signed-in session. It offers the two calls the
   // samplers use on a driver session: navigate(url, {settle}) and evaluate(fn, arg).
@@ -222,7 +275,7 @@ export async function openRenderer({ chrome = process.env.FSW_CHROME ?? DEFAULT_
     };
   }
 
-  return { render, page, close, profile };
+  return { render, page, pdf, close, profile };
 }
 
 // One-shot render: opens a renderer, captures, closes. Use openRenderer for several captures.

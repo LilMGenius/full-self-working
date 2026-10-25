@@ -1,21 +1,24 @@
-// fsw profile build <file-or-dir-or-url>... [--author NAME] [--lang ko|en] [--model M] | fsw profile accept
+// fsw profile build <file-or-dir-or-url>... [--author NAME] [--lang ko|en] [--model M] | fsw profile accept |
+// fsw profile resume [--lang ko|en] [--out FILE] [--platform ID]
 // build drafts profile.draft.json and profile.review.md beside profile.json and never touches profile.json;
-// accept promotes the draft after the operator read it.
+// accept promotes the draft after the operator read it; resume prints a resume PDF from profile.json
+// (src/profile/resume.mjs) into the instance, gated for the platform it is uploaded to.
 import { copyFileSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { exampleDir, instanceDir, readJson } from '../core/instance.mjs';
+import { exampleDir, instanceDir, loadInstance, readJson } from '../core/instance.mjs';
 import { draftProfile } from '../profile/draft.mjs';
+import { buildResume } from '../profile/resume.mjs';
 import { buildReview } from '../profile/review.mjs';
 import { loadSources } from '../profile/sources.mjs';
 import { placeholderFields, validateProfile } from '../profile/validate.mjs';
 
-const USAGE = 'usage: fsw profile build <file-or-folder-or-url>... [--author "<your git name>"] [--lang ko|en] [--model M] | fsw profile accept [--force]';
+const USAGE = 'usage: fsw profile build <file-or-folder-or-url>... [--author "<your git name>"] [--lang ko|en] [--model M] | fsw profile accept [--force] | fsw profile resume [--lang ko|en] [--out <file.pdf>] [--platform kmong]';
 
 function parse(argv) {
   const out = { inputs: [], flags: {} };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (['--author', '--lang', '--model'].includes(a)) {
+    if (['--author', '--lang', '--model', '--out', '--platform'].includes(a)) {
       if (i + 1 >= argv.length) throw new Error(a + ' needs a value');
       out.flags[a.slice(2)] = argv[++i];
     } else if (a === '--force') out.flags.force = true;
@@ -93,6 +96,15 @@ function accept(flags, ctx) {
   return 0;
 }
 
+async function resume(flags, ctx) {
+  const log = ctx.log ?? console.log;
+  const instance = ctx.instance ?? loadInstance({ dir: ctx.instanceDir, allowExampleConfig: true });
+  const r = await buildResume({ instance, lang: flags.lang ?? 'ko', platform: flags.platform ?? 'kmong', out: flags.out ?? null, openRenderer: ctx.openRenderer });
+  log((r.unchanged ? 'unchanged ' : 'wrote ') + r.out + ' (' + r.pages + ' page' + (r.pages === 1 ? '' : 's') + '), printed from ' + r.html);
+  for (const w of r.warnings ?? []) log('warning ' + w.rule + ': ' + w.detail);
+  return 0;
+}
+
 export async function run(argv, ctx = {}) {
   const error = ctx.error ?? console.error;
   const [action, ...rest] = argv;
@@ -104,6 +116,15 @@ export async function run(argv, ctx = {}) {
     return 1;
   }
   if (action === 'accept') return accept(parsed.flags, ctx);
+  if (action === 'resume') {
+    try {
+      return await resume(parsed.flags, ctx);
+    } catch (err) {
+      if (!err.code?.startsWith('FSW_')) throw err;
+      error(`fsw profile resume: ${err.code}: ${err.message}`);
+      return 1;
+    }
+  }
   if (action === 'build') {
     try {
       return await build(parsed.inputs, parsed.flags, ctx);

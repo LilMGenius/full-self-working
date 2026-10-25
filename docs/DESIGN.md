@@ -54,7 +54,8 @@ Before anything is opened, an item is parked from its list row alone when the pl
 | `src/economics/yield.mjs` | `armStats(ledger)` | net KRW per weighted hour per (platform, service) |
 | `src/economics/allocate.mjs` | `allocate(arms, {rng})` | Thompson sampling with an exploration floor |
 | `src/portfolio/rank.mjs` | `rankPortfolio(items)` | the only ordering of portfolio items |
-| `src/render/html2png.mjs` | `renderHtml({html, width, height, fullPage, out, format})` | owned headless browser, fonts inlined |
+| `src/render/html2png.mjs` | `renderHtml({html, width, height, fullPage, out, format})`, `openRenderer().pdf({html, out})` | owned headless browser, fonts inlined; `pdf` prints through `Page.printToPDF` and returns which face drew each text node (CDP `CSS.getPlatformFontsForNode`) |
+| `src/render/fonts.mjs` | `pretendardFontFace()`, `pdfFonts(bytes)`, `fontProblems`, `platformFontProblems` | Chrome prints a variable face as unnamed Type3 glyphs, so the renderer's per-node report proves the face and the PDF scan catches a named fallback |
 | `src/listings/*.mjs` | per-platform listing builders | content from profile, price table, playbook |
 | `src/jobs/run.mjs` | `runJob(jobId, ctx)` | executes a recipe in jobs/<id>/work |
 | `src/learning/*.mjs` | `recordOutcome`, `writeLessons`, `refreshPlaybook` | re0-memo then re0 over the playbook |
@@ -62,6 +63,7 @@ Before anything is opened, an item is parked from its list row alone when the pl
 | `src/platforms/kmong/projects.mjs`, `src/projects/*.mjs` | `openProjectReader()`, `openProjectSeller()`, `scoreProject`, `draftProposal`, `sendDecision`, `projectsJob(ctx)` | 크몽 엔터프라이즈 projects: public reads in the owned browser, quota and 제안하기 on the session; each page version judged once as a ledger thread of kind project; a phased Korean proposal gated, critic-checked on a second model and sent only within `platforms.kmong.proposals` (maxPerDay under the page quota, minFit, autoMaxKRW), otherwise an approval |
 | `src/cli/init.mjs` | `initInstance(dir)`, `run(argv)` | copies `examples/instance` into a new directory, never overwrites, fails with `FSW_INSTANCE_EXISTS` |
 | `src/profile/*.mjs` | `loadSources(inputs)`, `draftProfile(sources)`, `verifyDraft(raw, sources)`, `buildReview(...)`, `validateProfile(p)` | `fsw profile build` drafts `profile.draft.json` through `runCodex`; a claim survives only when its quote is found at its cited source line and its words and numbers are inside the quote; `fsw profile accept` promotes the draft |
+| `src/profile/resume.mjs` | `buildResume({instance, lang, platform, out})` | `fsw profile resume` prints `documents/resume-<lang>.pdf` from profile.json: Korean renderings (`*_ko` beside each English field) where an entry has them, no link, handle or contact, the platform gate as a profile item before printing, and the font and two-page checks before the file replaces the last one |
 | `src/cli/doctor.mjs` | `runChecks(ctx)`, `run(argv)` | one line per requirement, exit 1 when a required check fails; every probe is injectable |
 | `bin/fsw.mjs` | CLI | tick, run, status, probe, market, price, publish, learn, approve, schedule |
 

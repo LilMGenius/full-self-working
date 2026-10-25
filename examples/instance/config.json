@@ -142,6 +142,7 @@
       ],
       "contractToHire": false,
       "title": "Web developer for landing pages and web apps",
+      "overview": null,
       "skills": [
         "Web Development",
         "JavaScript"
@@ -153,6 +154,12 @@
         }
       ],
       "hourlyRateUSD": null
+    },
+    "freelancer": {
+      "skills": [
+        "Web Development",
+        "JavaScript"
+      ]
     }
   }
 }

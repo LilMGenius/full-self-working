@@ -161,28 +161,33 @@ async function pageFillForm(spec) {
     await sleep(250);
     return control.innerText.trim() === text;
   };
-  // Rich editors (tiptap): replace the whole document, one paragraph per line.
-  const editors = [...document.querySelectorAll('section#detailed .tiptap.ProseMirror')];
-  const texts = [spec.description, spec.process, spec.preparation];
-  const counters = [];
-  for (const [i, ed] of editors.slice(0, 3).entries()) {
+  // Rich editors (tiptap): replace the whole document, one paragraph per line. Which of the three a
+  // form has depends on the category (사진 보정 forms carry only 서비스 설명), so each is found by its
+  // field wrapper and a missing wrapper is reported, not filled.
+  const counters = {};
+  const absent = [];
+  for (const [id, text] of [['DESCRIPTION', spec.description], ['DESCRIPTION_PROGRESS', spec.process], ['DESCRIPTION_PREPARATION', spec.preparation]]) {
+    const wrap = document.getElementById(id);
+    if (!wrap) {
+      absent.push(id);
+      continue;
+    }
+    const ed = wrap.querySelector('.tiptap.ProseMirror');
+    if (!ed) {
+      errors.push(id + ' has no rich editor');
+      continue;
+    }
     ed.focus();
     document.execCommand('selectAll');
     document.execCommand('delete');
-    texts[i].split('\n').forEach((line, j) => {
+    text.split('\n').forEach((line, j) => {
       if (j) document.execCommand('insertParagraph');
       if (line) document.execCommand('insertText', false, line);
     });
     await sleep(200);
-    let n = ed;
-    let counter = null;
-    for (let k = 0; k < 8 && n && !counter; k++) {
-      n = n.parentElement;
-      counter = [...n.querySelectorAll('p')].map((p) => p.innerText.trim()).find((t) => /^[\d,]+\s*\/\s*20000$/.test(t)) ?? null;
-    }
-    counters.push(counter);
+    counters[id] = [...wrap.querySelectorAll('p')].map((p) => p.innerText.trim()).find((t) => /^[\d,]+\s*\/\s*20000$/.test(t)) ?? null;
   }
-  if (editors.length < 3) errors.push('expected 3 rich editors, found ' + editors.length);
+  if (!document.getElementById('DESCRIPTION')) errors.push('the 서비스 설명 field is missing');
 
   for (const input of document.querySelectorAll('section#detailed input[id^="react-select-gig-metadata-"]')) {
     const label = labelOf(input);
@@ -235,9 +240,10 @@ async function pageFillForm(spec) {
   }
   // 수정 및 재진행 안내 renders only once package mode is on.
   const revision = document.querySelector('textarea[name="REVISION.valueData.revision"]');
-  if (!revision) errors.push('the 수정 및 재진행 안내 field is missing');
-  else setValue(revision, spec.revision);
-  return { errors, counters, editors: editors.length };
+  if (revision) setValue(revision, spec.revision);
+  else if (document.getElementById('REVISION')) errors.push('the 수정 및 재진행 안내 field has no text box');
+  else absent.push('REVISION');
+  return { errors, counters, absent };
 }
 
 async function pageFillCore(faqs) {
@@ -290,7 +296,8 @@ function pageFormState() {
   return {
     url: location.href,
     title: [...document.querySelectorAll('button')].find((b) => b.innerText.trim() === '편집')?.parentElement?.innerText.replace(/편집\s*$/, '').trim() ?? null,
-    counters: [...document.querySelectorAll('section#detailed p')].map((p) => p.innerText.trim()).filter((x) => /^[\d,]+\s*\/\s*20000$/.test(x)),
+    // Counters of the rich editors the form has, by field wrapper id; a field the category lacks is absent.
+    counters: Object.fromEntries(['DESCRIPTION', 'DESCRIPTION_PROGRESS', 'DESCRIPTION_PREPARATION'].filter((id) => document.getElementById(id)).map((id) => [id, [...document.getElementById(id).querySelectorAll('p')].map((p) => p.innerText.trim()).find((x) => /^[\d,]+\s*\/\s*20000$/.test(x)) ?? null])),
     mainImages: count('메인 이미지'),
     detailImages: count('상세 이미지'),
     packageMode: document.getElementById('package-type-switch')?.checked ?? null,
@@ -300,6 +307,7 @@ function pageFormState() {
     keywordText: kwStart >= 0 ? sec.innerText.slice(kwStart, kwStart + 200) : null,
     faqs: [...document.querySelectorAll('textarea[name^="FAQ.valueData.faqs."]')].map((a) => a.value.length),
     revision: document.querySelector('textarea[name="REVISION.valueData.revision"]')?.value ?? null,
+    revisionField: !!document.getElementById('REVISION') || !!document.querySelector('textarea[name="REVISION.valueData.revision"]'),
     submit: !![...document.querySelectorAll('button')].find((b) => b.innerText.trim() === '제출하기'),
   };
 }
@@ -462,11 +470,11 @@ async function pageRenameGig(title) {
 // Differences between the read-back form and the listing that was written into it.
 export function formProblems(state, listing) {
   const out = [];
-  const counters = state.counters ?? [];
-  ['description', 'process', 'preparation'].forEach((f, i) => {
-    const n = toInt(counters[i]?.split('/')[0]);
-    if (!n) out.push(f + ' is empty');
-  });
+  const counters = state.counters ?? {};
+  if (!('DESCRIPTION' in counters)) out.push('description field is missing');
+  for (const [id, f] of [['DESCRIPTION', 'description'], ['DESCRIPTION_PROGRESS', 'process'], ['DESCRIPTION_PREPARATION', 'preparation']]) {
+    if (id in counters && !toInt(counters[id]?.split('/')[0])) out.push(f + ' is empty');
+  }
   if (state.packageMode !== true) out.push('package mode is off');
   listing.packages.forEach((p, i) => {
     if (state.packages?.[i]?.title !== p.title) out.push('package ' + i + ' title differs');
@@ -477,7 +485,7 @@ export function formProblems(state, listing) {
   if (!(state.detailImages?.[0] >= Math.min(1, listing.images.detail.length))) out.push('no detail image');
   if (state.keywords?.[0] !== listing.keywords.length) out.push('keywords read ' + (state.keywords?.[0] ?? 'none') + ' of ' + listing.keywords.length);
   if ((state.faqs ?? []).length !== listing.faqs.length || state.faqs.some((n) => !n)) out.push('faqs read ' + (state.faqs ?? []).length + ' of ' + listing.faqs.length);
-  if (state.revision !== listing.revision) out.push('revision text differs');
+  if (state.revisionField !== false && state.revision !== listing.revision) out.push('revision text differs');
   return out;
 }
 
@@ -682,7 +690,7 @@ export async function openKmong({ session } = {}) {
         packageSelects: { ...form.packageSelects, '작업 기간': listing.packages.map((p) => p.days + '일'), '수정 횟수': listing.packages.map((p) => p.revisions + '회') },
         packageChecks: form.packageChecks,
       }, { timeoutMs: 90_000 });
-      steps.push({ step: 'fields', errors: filled.errors, counters: filled.counters });
+      steps.push({ step: 'fields', errors: filled.errors, counters: filled.counters, absent: filled.absent });
       if (filled.errors.length) return fail('form fields: ' + filled.errors.join('; '));
       for (const [i, p] of listing.packages.entries()) await s.typeKeys('[data-fsw=price-' + i + ']', String(p.priceKRW));
 

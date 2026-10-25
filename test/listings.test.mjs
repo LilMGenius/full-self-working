@@ -209,14 +209,14 @@ test('image slot rules are read from the written files', async () => {
 test('the form read-back names every field that did not land', () => {
   const l = { ...listingOf(), images: { main: 'm.png', detail: ['d1.jpg'] } };
   const good = {
-    counters: ['500/20000', '120/20000', '80/20000'], packageMode: true,
+    counters: { DESCRIPTION: '500/20000', DESCRIPTION_PROGRESS: '120/20000', DESCRIPTION_PREPARATION: '80/20000' }, packageMode: true,
     packages: l.packages.map((p) => ({ title: p.title, description: p.description })),
     prices: ['200,000', '440,000', '800,000'], mainImages: [1, 1], detailImages: [1, 9],
     keywords: [5, 5], faqs: [10, 10, 10],
     revision: l.revision,
   };
   assert.deepEqual(formProblems(good, l), []);
-  const bad = { ...good, counters: ['0/20000', '120/20000', '80/20000'], prices: ['200,000', '44,000', '800,000'], mainImages: [0, 1], keywords: [4, 5], faqs: [10, 0, 10], revision: '' };
+  const bad = { ...good, counters: { ...good.counters, DESCRIPTION: '0/20000' }, prices: ['200,000', '44,000', '800,000'], mainImages: [0, 1], keywords: [4, 5], faqs: [10, 0, 10], revision: '' };
   const p = formProblems(bad, l);
   assert.ok(p.includes('description is empty'));
   assert.ok(p.some((x) => x.startsWith('package 1 price')));
@@ -224,6 +224,10 @@ test('the form read-back names every field that did not land', () => {
   assert.ok(p.some((x) => x.startsWith('keywords read 4')));
   assert.ok(p.some((x) => x.startsWith('faqs read')));
   assert.ok(p.includes('revision text differs'));
+  // a category whose form has only 서비스 설명 and no 수정 및 재진행 안내 is read as complete
+  const lean = { ...good, counters: { DESCRIPTION: '500/20000' }, revision: null, revisionField: false };
+  assert.deepEqual(formProblems(lean, l), []);
+  assert.ok(formProblems({ ...lean, counters: {} }, l).includes('description field is missing'));
 });
 
 

@@ -109,13 +109,21 @@ export async function publish({ instance: instanceDir, force = false, dryRun = f
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const args = process.argv.slice(2);
-  const opts = { force: false, dryRun: false };
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--instance') opts.instance = args[++i];
-    else if (args[i] === '--force') opts.force = true;
-    else if (args[i] === '--dry-run') opts.dryRun = true;
-    else throw new PublishError('FSW_PUBLISH_ARGS', 'unknown argument ' + args[i] + ' (use --instance, --force, --dry-run)');
+  // The supervisor records only the last lines of this output, so a failure ends on one line naming its
+  // code and cause instead of a stack trace.
+  try {
+    const args = process.argv.slice(2);
+    const opts = { force: false, dryRun: false };
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === '--instance') opts.instance = args[++i];
+      else if (args[i] === '--force') opts.force = true;
+      else if (args[i] === '--dry-run') opts.dryRun = true;
+      else throw new PublishError('FSW_PUBLISH_ARGS', 'unknown argument ' + args[i] + ' (use --instance, --force, --dry-run)');
+    }
+    await publish({ ...opts, log: (m) => console.log(m) });
+  } catch (err) {
+    console.error(err.stack ?? err);
+    console.error('publish failed: ' + (err.code ? err.code + ' ' : '') + err.message);
+    process.exitCode = 1;
   }
-  await publish({ ...opts, log: (m) => console.log(m) });
 }

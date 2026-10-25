@@ -260,6 +260,15 @@ async function latestPriceRows(instance) {
   return latestTable(instance.paths.pricing)?.table.rows ?? [];
 }
 
+// One market run over the configured platforms of a cadence (config.market.cadence, src/cli/market.mjs).
+async function marketJob(ctx, cadence) {
+  const { marketPlatforms, run } = await import('../cli/market.mjs');
+  const ids = marketPlatforms(ctx.instance.config, cadence);
+  if (!ids.length) return { status: 'skipped', detail: 'no platform samples on the ' + cadence + ' cadence' };
+  const r = await run(ids, { instance: ctx.instance, log: ctx.log });
+  return { status: r.exitCode === 0 ? 'ok' : 'partial', sampled: ids, written: r.written, entries: r.entries.length, errors: r.errors };
+}
+
 function pollTargets(instance) {
   return Object.entries(instance.config.platforms ?? {}).filter(([, p]) => p.enabled && (p.mode === 'draft' || p.mode === 'auto')).map(([id]) => id);
 }
@@ -302,9 +311,10 @@ export const JOB_HANDLERS = {
     return projectsJob(ctx);
   },
   async market(ctx) {
-    const { run } = await import('../cli/market.mjs');
-    const r = await run([], { instance: ctx.instance, log: ctx.log });
-    return { status: r.exitCode === 0 ? 'ok' : 'partial', written: r.written, entries: r.entries.length, errors: r.errors };
+    return marketJob(ctx, 'day');
+  },
+  async 'market-hour'(ctx) {
+    return marketJob(ctx, 'hour');
   },
   async price(ctx) {
     const { run } = await import('../cli/price.mjs');

@@ -11,6 +11,9 @@ const MILESTONES = ['native', 'reorder', 'multi_pay', 'none', 'unknown'];
 const LIMIT_KINDS = ['message', 'quote', 'listing', 'profile'];
 // Browsers a market sampler can read public pages through (src/cli/market.mjs).
 export const MARKET_ENGINES = ['owned', 'attached', 'archive'];
+// How often the supervisor samples a platform's market: the daily slot, or one hourly slice for a host
+// whose bot wall lets a session read one page (src/supervisor/schedule.mjs).
+export const MARKET_CADENCES = ['day', 'hour'];
 
 function invalid(id, path, detail) {
   const err = new Error(`descriptor ${id} invalid at ${path}: ${detail}`);
@@ -56,6 +59,8 @@ export function validateDescriptor(d, id = d?.id) {
   if (engine !== undefined && !MARKET_ENGINES.includes(engine)) throw invalid(id, 'market.engine', 'unexpected value ' + JSON.stringify(engine));
   const perRun = d.market?.categoriesPerRun;
   if (perRun !== undefined && !(Number.isInteger(perRun) && perRun > 0)) throw invalid(id, 'market.categoriesPerRun', 'unexpected value ' + JSON.stringify(perRun));
+  const cadence = d.market?.cadence;
+  if (cadence !== undefined && !MARKET_CADENCES.includes(cadence)) throw invalid(id, 'market.cadence', 'unexpected value ' + JSON.stringify(cadence));
   // identity "forbidden" makes the gate block the operator's names (src/policy/gate.mjs identityNames).
   const identity = d.contactPolicy.identity;
   if (identity !== undefined && !['allowed', 'forbidden'].includes(identity)) throw invalid(id, 'contactPolicy.identity', 'unexpected value ' + JSON.stringify(identity));

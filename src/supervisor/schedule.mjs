@@ -22,6 +22,9 @@ export const JOBS = [
   // Hourly at minute 0 Seoul: kmong review results (on sale, rejected) of published gigs, since a
   // rejected gig sells nothing until it is fixed and resubmitted.
   { id: 'listings', every: 'hour' },
+  // Hourly at minute 0 Seoul: the market slice of hour-cadence platforms (fiverr), whose bot wall lets a
+  // fresh session read one page, so one category an hour refreshes all of them within the day.
+  { id: 'market-hour', every: 'hour' },
   // Daily at 00:00 Seoul, in this order: the day's market first, then everything priced from it.
   { id: 'market', every: 'day', at: '00:00' },
   { id: 'price', every: 'day', at: '00:00' },

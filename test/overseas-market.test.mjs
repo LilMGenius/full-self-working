@@ -9,7 +9,7 @@ import { filterQuery, listUrl, parseCard as parseWishketCard, sample as sampleWi
 import { parseSearch, sample as sampleFiverr, searchUrl } from '../src/platforms/fiverr/market.mjs';
 import { challengeOf } from '../src/platforms/kit.mjs';
 import { latestSummary } from '../src/economics/market.mjs';
-import { categoriesPerRun, marketEngine, run, stalestFirst, targetsFor } from '../src/cli/market.mjs';
+import { categoriesPerRun, marketCadence, marketEngine, marketPlatforms, run, stalestFirst, targetsFor } from '../src/cli/market.mjs';
 import { archiveSession, archiveUrl, captureOf } from '../src/browser/archive.mjs';
 import { validateDescriptor } from '../src/platforms/registry.mjs';
 
@@ -183,6 +183,21 @@ test('a platform\'s market engine is the operator\'s setting, else its descripto
   assert.throws(() => validateDescriptor({ ...fiverrDescriptor, market: { engine: 'stealth' } }), /market\.engine/);
 });
 
+test('fiverr samples one search an hour by default, and the operator can move any platform between the daily and hourly slots', () => {
+  const platforms = { kmong: { enabled: true }, soomgo: { enabled: true }, upwork: { enabled: false }, fiverr: { enabled: false } };
+  assert.equal(marketCadence('fiverr', {}), 'hour');
+  assert.equal(marketCadence('kmong', {}), 'day');
+  assert.equal(categoriesPerRun('fiverr', {}), 1);
+  assert.deepEqual(marketPlatforms({ platforms }, 'day'), ['kmong', 'soomgo']);
+  assert.deepEqual(marketPlatforms({ platforms }, 'hour'), ['fiverr']);
+  const moved = { platforms, market: { cadence: { fiverr: 'day', soomgo: 'hour' } } };
+  assert.deepEqual(marketPlatforms(moved, 'day'), ['kmong', 'fiverr']);
+  assert.deepEqual(marketPlatforms(moved, 'hour'), ['soomgo']);
+  assert.throws(() => marketCadence('fiverr', { market: { cadence: { fiverr: 'minute' } } }), (err) => err.code === 'FSW_MARKET_CADENCE_UNKNOWN');
+  const fiverrDescriptor = JSON.parse(readFileSync(new URL('../src/platforms/descriptors/fiverr.json', import.meta.url), 'utf8'));
+  assert.throws(() => validateDescriptor({ ...fiverrDescriptor, market: { ...fiverrDescriptor.market, cadence: 'week' } }), /market\.cadence/);
+});
+
 test('the market run opens each platform through its configured engine, and refuses an engine its sampler cannot date', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'fsw-overseas-'));
   const instance = { config: { platforms: { kmong: { enabled: true, mode: 'auto' }, fiverr: { enabled: false, mode: 'observe' } }, market: { engines: { kmong: 'archive', fiverr: 'owned' } } }, paths: { market: join(dir, 'market') } };
@@ -224,7 +239,7 @@ test('an archive snapshot is dated by its capture, keeps its address, and a miss
 
 test('the market run does not retry a category whose archive snapshot is missing', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'fsw-overseas-'));
-  const instance = { config: { platforms: { fiverr: { enabled: false, mode: 'observe' } }, market: { engines: { fiverr: 'archive' } } }, paths: { market: join(dir, 'market') } };
+  const instance = { config: { platforms: { fiverr: { enabled: false, mode: 'observe' } }, market: { engines: { fiverr: 'archive' }, categoriesPerRun: { fiverr: 5 } } }, paths: { market: join(dir, 'market') } };
   const now = () => new Date('2026-10-25T03:00:00Z');
   const loaded = [];
   const page = { navigate: async (u) => { loaded.push(u); }, evaluate: async () => 'https://web.archive.org/web/29991231id_/x' };
@@ -234,7 +249,6 @@ test('the market run does not retry a category whose archive snapshot is missing
 });
 
 test('a run reads at most categoriesPerRun categories, never-read and stalest first, and the operator\'s setting wins', async () => {
-  assert.equal(categoriesPerRun('fiverr', {}), 5);
   assert.equal(categoriesPerRun('fiverr', { market: { categoriesPerRun: { fiverr: 13 } } }), 13);
   assert.equal(categoriesPerRun('kmong', {}), Infinity);
   assert.throws(() => categoriesPerRun('fiverr', { market: { categoriesPerRun: { fiverr: 0 } } }), /positive integer, got 0/);

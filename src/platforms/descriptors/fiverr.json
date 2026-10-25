@@ -44,8 +44,9 @@
   },
   "market": {
     "engine": "attached",
-    "categoriesPerRun": 5,
-    "notes": "The owned headless browser met a PerimeterX challenge on 2026-10-25 and the operator's Chrome read the same search page; Wayback holds search captures from 2016 and 2017 only. Five searches a run keep the operator's Chrome to a handful of page loads a day and refresh all 13 catalog queries within three days."
+    "categoriesPerRun": 1,
+    "cadence": "hour",
+    "notes": "The owned headless browser met a PerimeterX challenge on 2026-10-25 while the operator's Chrome read the same search page, and Wayback holds search captures from 2016 and 2017 only. In the operator's Chrome the first search of a session read 30 to 48 gigs at 11:26 and 12:36 UTC, and a second search 8 s after the first met the challenge, so one search an hour refreshes all 13 catalog queries within the day."
   },
   "limits": {
     "message": {

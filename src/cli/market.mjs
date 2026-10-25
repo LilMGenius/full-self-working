@@ -27,7 +27,7 @@ import { ensureDir, loadInstance } from '../core/instance.mjs';
 import { loadFx } from '../economics/fx.mjs';
 import { summarizeDay } from '../economics/market.mjs';
 import { CATEGORY_FIELD } from '../economics/pricing.mjs';
-import { loadDescriptor, MARKET_ENGINES } from '../platforms/registry.mjs';
+import { loadDescriptor, MARKET_CADENCES, MARKET_ENGINES } from '../platforms/registry.mjs';
 import { openRenderer } from '../render/html2png.mjs';
 import services from '../economics/services.json' with { type: 'json' };
 
@@ -106,6 +106,19 @@ export function categoriesPerRun(platform, config, descriptor = loadDescriptor(p
   }
   return n;
 }
+
+// config.market.cadence.<platform>, else the descriptor's market.cadence, else day: the daily market job
+// samples the day platforms and the hourly slice the hour ones.
+export function marketCadence(platform, config, descriptor = loadDescriptor(platform)) {
+  const cadence = config?.market?.cadence?.[platform] ?? descriptor.market?.cadence ?? 'day';
+  if (!MARKET_CADENCES.includes(cadence)) {
+    throw Object.assign(new Error(`market cadence ${JSON.stringify(cadence)} for ${platform} is not one of ${MARKET_CADENCES.join(', ')}`), { code: 'FSW_MARKET_CADENCE_UNKNOWN' });
+  }
+  return cadence;
+}
+
+// The configured platforms with a sampler whose cadence is the given one, in config order.
+export const marketPlatforms = (config, cadence) => Object.keys(config?.platforms ?? {}).filter((id) => id in SAMPLERS && marketCadence(id, config) === cadence);
 
 // The targets one run reads: the limit stalest by their newest observedAt in known, never-read first,
 // catalog order among equals.

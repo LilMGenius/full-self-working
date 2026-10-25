@@ -99,6 +99,20 @@ test('an unread platform notice is parked once and returns only with a newer mes
   assert.equal(needsWork({ ...ref, at: '2026-10-25T02:00:00Z', preview: '혹시 다음 주에 시작 가능할까요?' }, row, key), true);
 });
 
+// 숨고 queued a decline of a game macro request on 2026-10-26 as a paid quote for the operator to reject.
+test('a buyer request the brain rules unsupported is left unanswered, with no approval and no paid quote', async () => {
+  const s = setup('soomgo', (c) => {
+    c.activeHours = { outbound: ['00:00', '00:00'] };
+    c.platforms.soomgo = { ...c.platforms.soomgo, enabled: true, mode: 'auto', maxQuotesPerDay: 5, maxCashPerDay: 10000 };
+    return c;
+  });
+  const adapter = spyAdapter();
+  const decide = decideWith({ intent: 'unsupported', service: null, needsOperator: true, operatorReason: '게임 플레이 자동화 매크로', reply: '요청하신 작업은 맡기 어렵습니다.' });
+  const r = await processThread({ ...s, threadRef: { id: 'r1', kind: 'request', unread: true, at: '2026-10-25T02:30:00Z' }, adapter, mode: 'auto', decide });
+  assert.equal(r.action, 'operator');
+  assert.deepEqual([adapter.calls.readRequest, adapter.calls.quote, listApprovals(s.instance).length], [1, 0, 0]);
+});
+
 // 숨고 charged three quotes on 2026-10-26 that the adapter reported unobserved, so the ledger held no
 // cost and the daily cash budget let all three through.
 test('a quote the adapter pressed but could not confirm counts against the daily cash budget', async () => {

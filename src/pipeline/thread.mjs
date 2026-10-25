@@ -210,7 +210,16 @@ export async function processThread({ platform, threadRef, adapter, ledger, inst
   };
 
   if (result.action === 'approval') return queue(result.reason);
-  if (d.intent === 'unsupported') return queue('unsupported service: ' + (d.operatorReason ?? 'not in the catalog or profile'));
+  if (d.intent === 'unsupported') {
+    // A buyer request is answered only through a paid quote, so one the catalog or the law rules out is
+    // left unanswered for the operator's own app, as a service outside the catalog is, and the digest
+    // counts it; queueing it would only ask the operator to reject a quote nobody should pay for.
+    if (spendsCash(descriptor, kind)) {
+      event('thread.operator', { reason: 'unsupported: ' + (d.operatorReason ?? 'not in the catalog or profile'), service: d.service ?? null });
+      return { action: 'operator', reason: d.operatorReason ?? null };
+    }
+    return queue('unsupported service: ' + (d.operatorReason ?? 'not in the catalog or profile'));
+  }
   if (allowed && !allowed.includes(d.service)) return queue('the decision names ' + d.service + ' but the platform labels this ' + threadRef.service + ' (' + allowed.join(', ') + ')');
   if (d.needsOperator) return queue('operator needed: ' + (d.operatorReason ?? 'no reason given'));
   if (mode === 'draft') return queue('draft mode');

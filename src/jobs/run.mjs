@@ -81,7 +81,7 @@ export function jobPaths(instance, jobId) {
   return { dir, brief: join(dir, 'brief.md'), work: join(dir, 'work'), inputs: join(dir, 'inputs'), qa: join(dir, 'qa'), runLog: join(dir, 'qa', 'run.json') };
 }
 
-const alive = (pid) => {
+export const pidAlive = (pid) => {
   try {
     process.kill(pid, 0);
     return true;
@@ -90,27 +90,36 @@ const alive = (pid) => {
   }
 };
 
+const runningDir = (instance) => join(instance.paths.jobs, '.running');
+
+// Job ids whose run holds a live lock; locks whose process died are removed on the way.
+export function runningJobs(instance) {
+  const dir = runningDir(instance);
+  mkdirSync(dir, { recursive: true });
+  const live = [];
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.lock'))) {
+    const pid = Number(readFileSync(join(dir, f), 'utf8'));
+    if (pidAlive(pid)) live.push({ jobId: f.slice(0, -5), pid });
+    else rmSync(join(dir, f), { force: true });
+  }
+  return live;
+}
+
 // One lock file per running job under jobs/.running; locks whose process died are removed, and the count of
 // live ones is held under jobs.maxParallel across every fsw process on the machine.
 function acquireSlot(instance, jobId, maxParallel) {
-  const dir = join(instance.paths.jobs, '.running');
-  mkdirSync(dir, { recursive: true });
-  let live = 0;
-  for (const f of readdirSync(dir).filter((x) => x.endsWith('.lock'))) {
-    const pid = Number(readFileSync(join(dir, f), 'utf8'));
-    if (!alive(pid)) rmSync(join(dir, f), { force: true });
-    else if (f === jobId + '.lock') throw new JobError('FSW_JOB_RUNNING', 'job ' + jobId + ' is already running in process ' + pid);
-    else live++;
-  }
-  if (live >= maxParallel) throw new JobError('FSW_JOB_BUSY', live + ' jobs running, jobs.maxParallel is ' + maxParallel);
-  const file = join(dir, jobId + '.lock');
+  const live = runningJobs(instance);
+  const same = live.find((l) => l.jobId === jobId);
+  if (same) throw new JobError('FSW_JOB_RUNNING', 'job ' + jobId + ' is already running in process ' + same.pid);
+  if (live.length >= maxParallel) throw new JobError('FSW_JOB_BUSY', live.length + ' jobs running, jobs.maxParallel is ' + maxParallel);
+  const file = join(runningDir(instance), jobId + '.lock');
   const fd = openSync(file, 'wx');
   writeSync(fd, String(process.pid));
   closeSync(fd);
   return () => rmSync(file, { force: true });
 }
 
-function agreedScope(job, quote) {
+export function agreedScope(job, quote) {
   if (Array.isArray(quote?.scope) && quote.scope.length) return quote.scope;
   if (Array.isArray(job.meta?.scope) && job.meta.scope.length) return job.meta.scope;
   if (typeof job.meta?.scope === 'string' && job.meta.scope.trim()) return [job.meta.scope.trim()];

@@ -285,6 +285,10 @@ export const JOB_HANDLERS = {
     if (!ids.length) return { status: 'skipped', detail: 'no platform in draft or auto mode' };
     return runPlatforms(ids, ctx);
   },
+  async orders(ctx) {
+    const { ordersJob } = await import('../orders/run.mjs');
+    return ordersJob(ctx);
+  },
   async market(ctx) {
     const { run } = await import('../cli/market.mjs');
     const r = await run([], { instance: ctx.instance, log: ctx.log });

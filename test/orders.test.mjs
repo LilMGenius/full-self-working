@@ -14,6 +14,7 @@ import { resolveApproval } from '../src/brain/approvals.mjs';
 import { flushApprovals } from '../src/pipeline/thread.mjs';
 import { parseChats, parseChatThread } from '../src/platforms/soomgo/parse.mjs';
 import { openSoomgo } from '../src/platforms/soomgo/adapter.mjs';
+import { startJobs } from '../src/orders/run.mjs';
 
 function makeInstance(edit = (c) => c) {
   const dir = mkdtempSync(join(tmpdir(), 'fsw-orders-'));
@@ -222,5 +223,40 @@ test('an approved payment request that is no longer due is closed stale, not sen
   await recordMoney({ ...args, notices: [{ text: NOTICE.paid, at: '2026-10-20T11:30:00+09:00' }] });
   const adapter = { async payRequest() { throw new Error('must not request a paid deposit'); } };
   assert.deepEqual(await flushApprovals({ platform: 'soomgo', adapter, ledger, instance, descriptor }), [{ id: item.id, action: 'stale' }]);
+});
+
+// A hired soomgo job of the given price; paid adds the deposit notice.
+async function hiredJob(ledger, instance, ref, { paid = false, scope = ['page'] } = {}) {
+  const descriptor = loadDescriptor('soomgo');
+  const thread = ledger.upsertThread({ platform: 'soomgo', externalId: ref, kind: 'message', service: 'landing_page_web' });
+  ledger.addQuote({ threadId: thread.id, platform: 'soomgo', service: 'landing_page_web', amountKRW: 600000, scope, deliveryDays: 7, costKRW: 0, status: 'sent' });
+  const notices = [{ text: NOTICE.hired, at: '2026-10-20T10:00:00+09:00' }, ...(paid ? [{ text: NOTICE.paid, at: '2026-10-20T11:30:00+09:00' }] : [])];
+  await recordMoney({ ledger, instance, platform: 'soomgo', descriptor, thread, notices, now: NOW, notify: quietNotify });
+  return ledger.listJobs().find((j) => j.threadId === thread.id);
+}
+
+test('a recorded deposit starts the job once in its own process, and only up to jobs.maxParallel', async () => {
+  const instance = makeInstance((c) => ({ ...c, jobs: { maxParallel: 1 } }));
+  const ledger = openLedger(':memory:');
+  const unpaid = await hiredJob(ledger, instance, 'u1');
+  const a = await hiredJob(ledger, instance, 'p1', { paid: true });
+  const b = await hiredJob(ledger, instance, 'p2', { paid: true });
+  const spawned = [];
+  const live = new Set();
+  const spawnJob = (_i, id) => { spawned.push(id); live.add(1000 + spawned.length); return { pid: 1000 + spawned.length, log: 'runner.log' }; };
+  const alive = (pid) => live.has(pid);
+  const first = await startJobs({ instance, ledger, spawnJob, alive, notify: quietNotify });
+  assert.deepEqual(first.started, [a.id]);
+  assert.deepEqual(first.blocked.map((x) => x.id), [unpaid.id]);
+  assert.match(first.blocked[0].reason, /deposit/);
+  assert.deepEqual(first.waiting.map((x) => x.id), [b.id]);
+  // The next tick, with the first runner still up, starts nothing new and never respawns it.
+  const second = await startJobs({ instance, ledger, spawnJob, alive, notify: quietNotify });
+  assert.deepEqual([second.started, spawned], [[], [a.id]]);
+  // The first runner moved its job on and exited: the slot frees for the second job.
+  ledger.upsertJob({ id: a.id, status: 'in_progress' });
+  live.clear();
+  const third = await startJobs({ instance, ledger, spawnJob, alive, notify: quietNotify });
+  assert.deepEqual(third.started, [b.id]);
 });
 

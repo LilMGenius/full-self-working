@@ -14,6 +14,9 @@ export const JOBS = [
   // Every 5 minutes at :00, :05 ... :55 Seoul: inbox, buyer requests and orders on draft and auto
   // platforms, because marketplaces rank sellers by response time.
   { id: 'poll', every: 'slot5' },
+  // Every 5 minutes right after the poll: start paid jobs, queue finished ones for delivery, close paid
+  // ones, from what the poll just recorded.
+  { id: 'orders', every: 'slot5' },
   // Daily at 00:00 Seoul, in this order: the day's market first, then everything priced from it.
   { id: 'market', every: 'day', at: '00:00' },
   { id: 'price', every: 'day', at: '00:00' },

@@ -21,13 +21,13 @@ test('a fresh state runs every job once and the same slot runs nothing again', (
   assert.deepEqual(ids(dueJobs({}, t)), JOBS.map((j) => j.id));
   const last = ran(t);
   assert.deepEqual(dueJobs(last, at('2026-10-24T15:04:59Z')), []);
-  assert.deepEqual(ids(dueJobs(last, at('2026-10-24T15:05:00Z'))), ['poll']);
+  assert.deepEqual(ids(dueJobs(last, at('2026-10-24T15:05:00Z'))), ['poll', 'orders']);
 });
 
 test('the hour mark at minute 0 Seoul opens the hourly period', () => {
   const last = ran(at('2026-10-25T01:58:00Z')); // 10:58 Seoul
   assert.deepEqual(ids(dueJobs(last, at('2026-10-25T01:59:59Z'))), []);
-  assert.deepEqual(ids(dueJobs(last, at('2026-10-25T02:00:00Z'))), ['hourly', 'poll']);
+  assert.deepEqual(ids(dueJobs(last, at('2026-10-25T02:00:00Z'))), ['hourly', 'poll', 'orders']);
 });
 
 test('a missed mark runs once on catch-up and never twice', () => {
@@ -37,7 +37,7 @@ test('a missed mark runs once on catch-up and never twice', () => {
   assert.equal(due.filter((d) => d.id === 'digest').length, 1);
   assert.equal(due.find((d) => d.id === 'digest').period, '20261026');
   const after = { ...last, ...Object.fromEntries(due.map((d) => [d.id, d.period])) };
-  assert.deepEqual(ids(dueJobs(after, at('2026-10-26T01:35:00Z'))), ['poll']);
+  assert.deepEqual(ids(dueJobs(after, at('2026-10-26T01:35:00Z'))), ['poll', 'orders']);
 });
 
 test('daily 00:00 and 09:00 Seoul marks fall on 15:00 and 00:00 UTC', () => {

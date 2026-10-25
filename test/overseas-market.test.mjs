@@ -5,6 +5,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { jobsUrl, parseJobs, parseProjects, projectsUrl, sample as sampleFreelancer } from '../src/platforms/freelancer/market.mjs';
+import { filterQuery, listUrl, parseCard as parseWishketCard, sample as sampleWishket } from '../src/platforms/wishket/market.mjs';
 import { latestSummary } from '../src/economics/market.mjs';
 import { run, targetsFor } from '../src/cli/market.mjs';
 
@@ -84,4 +85,40 @@ test('without exchange rates the overseas categories fail by name, load no page,
   assert.equal(fxErrors.length, targetsFor('freelancer').length);
   assert.ok(fxErrors.every((e) => e.message === 'fx unavailable: no exchange rates'));
   assert.ok(latestSummary(instance).entries.every((e) => e.platform === 'kmong'));
+});
+
+const wishketCard = (id, over = {}) => ({ href: '/project/' + id + '/', title: '랜딩페이지 ' + id, status: '모집 중', budget: '예상 금액 2,500,000원', term: '예상 기간21일', field: '랜딩ㆍ소개 페이지 외 1개', type: '외주', posted: '· 등록일자 2026.10.21.', applicants: '12명', ...over });
+
+test('a wishket card is a sample at its stated budget, and negotiable, monthly or term-based ones are skipped by name', () => {
+  assert.deepEqual(parseWishketCard(wishketCard(1)), { project: { url: 'https://www.wishket.com/project/1/', title: '랜딩페이지 1', priceKRW: 2500000, status: '모집 중', days: 21, applicants: 12, postedOn: '2026-10-21', field: '랜딩ㆍ소개 페이지 외 1개' } });
+  assert.equal(parseWishketCard(wishketCard(2, { applicants: '비공개' })).project.applicants, null);
+  assert.deepEqual(parseWishketCard(wishketCard(3, { budget: '예상 금액 협의 후 결정' })), { skip: 'budget negotiable' });
+  assert.deepEqual(parseWishketCard(wishketCard(4, { budget: '월 금액 5,000,000원 /월' })), { skip: 'monthly amount' });
+  assert.deepEqual(parseWishketCard(wishketCard(5, { type: '기간제' })), { skip: 'term based' });
+  assert.deepEqual(parseWishketCard(wishketCard(6, { href: null })), { skip: 'no project link' });
+});
+
+test('the wishket sampler encodes each field filter in the page, reads a second page only when there is one, and fails a field by name', async () => {
+  const lists = new Map([
+    [listUrl('ENC:' + filterQuery(45, 1)), { total: '12', cards: [wishketCard(1), wishketCard(2, { budget: '예상 금액 협의 후 결정' })] }],
+    [listUrl('ENC:' + filterQuery(45, 2)), { total: '12', cards: [wishketCard(1), wishketCard(3, { budget: '예상 금액 8,000,000원' })] }],
+    [listUrl('ENC:' + filterQuery(29, 1)), { total: '3', cards: [wishketCard(4, { budget: '예상 금액 협의 후 결정' })] }],
+  ]);
+  const loaded = [];
+  let url;
+  const session = {
+    navigate: async (u) => { loaded.push(u); url = u; },
+    evaluate: async (fn, arg) => {
+      if (typeof arg === 'string') return 'ENC:' + arg;
+      if (url === 'https://www.wishket.com/project/') return [['랜딩ㆍ소개 페이지', '45'], ['ChatGPTㆍ챗봇', '29']];
+      return lists.get(url);
+    },
+  };
+  const targets = [{ category: '랜딩ㆍ소개 페이지' }, { category: 'ChatGPTㆍ챗봇' }, { category: '없는 분야' }];
+  const { rows, errors, skipped } = await sampleWishket(session, targets, { now: () => new Date('2026-10-25T03:00:00Z') });
+  assert.deepEqual(rows.map((r) => [r.platform, r.category, r.rank, r.priceKRW, r.listingTotal]), [['wishket', '랜딩ㆍ소개 페이지', 1, 2500000, 12], ['wishket', '랜딩ㆍ소개 페이지', 2, 8000000, 12]]);
+  assert.deepEqual(loaded, ['https://www.wishket.com/project/', listUrl('ENC:' + filterQuery(45, 1)), listUrl('ENC:' + filterQuery(45, 2)), listUrl('ENC:' + filterQuery(29, 1))]);
+  assert.deepEqual(skipped, [{ category: '랜딩ㆍ소개 페이지', reason: 'budget negotiable', count: 1 }, { category: 'ChatGPTㆍ챗봇', reason: 'budget negotiable', count: 1 }]);
+  assert.deepEqual(errors.map((e) => e.category), ['ChatGPTㆍ챗봇', '없는 분야']);
+  assert.match(errors[1].message, /no project field named 없는 분야/);
 });

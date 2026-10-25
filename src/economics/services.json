@@ -17,7 +17,8 @@
     "blog_writing": "One researched post of about 2,000 Korean characters with sources and the slop gate.",
     "kmongGig": "Category labels the kmong /my-gigs/new form shows for a listed service: root (1st level) and sub (2nd level), plus third when the form asks for a 3rd level.",
     "kmongForm": "Values for the kmong gig edit form of that category, read from the live form 2026-10-25: meta is the 주요 특징 selects by label, packageSelects and packageChecks are package rows by label with one value per STANDARD, DELUXE, PREMIUM column (작업 기간 and 수정 횟수 come from the listing), scope is what each package covers and is handed to the copy writer so the package text and the form agree.",
-    "freelancerJob": "The Freelancer.com job (skill) whose active fixed-price projects are the service's market, matched by its exact name through the public jobs API; a service without one has no job there that sells the same deliverable."
+    "freelancerJob": "The Freelancer.com job (skill) whose active fixed-price projects are the service's market, matched by its exact name through the public jobs API; a service without one has no job there that sells the same deliverable.",
+    "wishketField": "The 위시켓 project field (the pf filter label on /project/) whose 외주 projects are the service's market; only fields that sell the service's deliverable are mapped, so broad buckets such as 그래픽ㆍ영상 등 and 기획서ㆍ제안서 등 stay out."
   },
   "landing_page_web": {
     "ko": "랜딩페이지 제작",
@@ -32,6 +33,7 @@
     },
     "soomgoGuide": "웹 디자인",
     "freelancerJob": "Landing Pages",
+    "wishketField": "랜딩ㆍ소개 페이지",
     "agentHours": {
       "standard": 6,
       "deluxe": 14,
@@ -60,6 +62,7 @@
     },
     "soomgoGuide": "웹 개발",
     "freelancerJob": "Web Development",
+    "wishketField": "기타(IT 서비스 구축)",
     "agentHours": {
       "standard": 30,
       "deluxe": 70,
@@ -87,6 +90,7 @@
     },
     "soomgoGuide": "챗봇 개발",
     "freelancerJob": "AI Chatbot Development",
+    "wishketField": "ChatGPTㆍ챗봇",
     "agentHours": {
       "standard": 12,
       "deluxe": 30,
@@ -114,6 +118,7 @@
     },
     "soomgoGuide": "데이터 크롤링",
     "freelancerJob": "Web Scraping",
+    "wishketField": "스크래핑ㆍAPI",
     "agentHours": {
       "standard": 4,
       "deluxe": 10,
@@ -141,6 +146,7 @@
     },
     "soomgoGuide": "매크로/VBA 개발",
     "freelancerJob": "Excel VBA",
+    "wishketField": "엑셀 VBAㆍ매크로",
     "agentHours": {
       "standard": 3,
       "deluxe": 8,

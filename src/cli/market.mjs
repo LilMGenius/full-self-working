@@ -25,6 +25,7 @@ const SAMPLERS = {
   kmong: '../platforms/kmong/market.mjs',
   soomgo: '../platforms/soomgo/market.mjs',
   freelancer: '../platforms/freelancer/market.mjs',
+  wishket: '../platforms/wishket/market.mjs',
 };
 
 // One target per distinct category label, since several services can share one.

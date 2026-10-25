@@ -59,7 +59,7 @@ function marketFor(entries, platform, category) {
 }
 
 // The services.json field that names each platform's market category, read by pricing and sampling.
-export const CATEGORY_FIELD = { kmong: 'kmongCategory', soomgo: 'soomgoGuide', freelancer: 'freelancerJob' };
+export const CATEGORY_FIELD = { kmong: 'kmongCategory', soomgo: 'soomgoGuide', freelancer: 'freelancerJob', wishket: 'wishketField' };
 
 export function buildPriceTable({ summary, services, profile, sellerStats, config, descriptors }) {
   const entries = summary?.entries;

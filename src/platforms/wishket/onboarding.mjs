@@ -485,33 +485,41 @@ function readItemsFile(instance) {
   return Array.isArray(j) ? j : j.items ?? [];
 }
 
-// Fills the add form as the page's own controls do (jQuery change events wake its validation and
-// progress bar), attaches the image through the page's hidden file input, then presses 등록, which
-// posts the form and follows the redirect it answers with.
+// Fills the add form, attaches the image through the page's hidden file input, then presses 등록, which
+// posts the form and follows the redirect it answers with. The choices are set as checked boxes with
+// their chips marked selected: on 2026-10-26 a change event on a category box ran a page handler that
+// threw (it reads a click event the trigger does not carry), and the category handler also swaps the
+// description for a template, so the description is typed after the boxes. Each remaining page event
+// runs on its own, and one that throws is listed in the step report.
 async function addPortfolio(session, user, pick) {
   await go(session, BASE + user + 'portfolio/update/add/');
   const f = pick.form;
   await session.fill('#portfolio-form input[name=title]', f.title);
-  await session.evaluate((f) => {
+  const thrown = await session.evaluate((f) => {
     const $ = window.jQuery;
-    for (const name of ['category', 'subcategory', 'field_subcategory']) for (const v of f[name]) $('#portfolio-form input[name="' + name + '"][value="' + v + '"]').prop('checked', true).trigger('change');
-    $('#portfolio-form .field-chip').each((_, chip) => { if ($(chip).find('input:checked').length) $(chip).addClass('selected'); });
-    $('#portfolio-form input[name="skills"]').val(f.skills).trigger('change');
+    const errors = [];
+    const quietly = (what, fn) => { try { fn(); } catch (err) { errors.push(what + ': ' + err.message); } };
+    for (const name of ['category', 'subcategory', 'field_subcategory']) for (const v of f[name]) $('#portfolio-form input[name="' + name + '"][value="' + v + '"]').prop('checked', true).closest('.field-chip').addClass('selected');
+    quietly('field_subcategory', () => $('#portfolio-form input[name="field_subcategory"]:checked').first().trigger('change'));
+    $('#portfolio-form input[name="skills"]').val(f.skills);
+    quietly('skills', () => $('#portfolio-form input[name="skills"]').trigger('change'));
+    return errors;
   }, f);
   for (const name of ['date_started', 'date_ended', 'participation_rate', 'role']) if (f[name]) await session.fill('#portfolio-form input[name=' + name + ']', f[name]);
   await session.fill('#portfolio-form textarea[name=description]', f.description);
   const box = await session.evaluate(() => {
     window.jQuery('.portfolio-img-add').first().trigger('click');
     const boxes = document.querySelectorAll('#portfolio-img-box-list .portfolio-img-content-box');
-    const target = boxes[boxes.length - 1]?.getAttribute('data-target');
-    const input = document.querySelector('.temporary-image');
-    if (!target || !input) return null;
-    input.setAttribute('data-target', target);
-    input.removeAttribute('hidden');
+    const last = boxes[boxes.length - 1];
+    const target = last?.getAttribute('data-target');
+    if (!target || !last.querySelector('.img-box')) return null;
+    last.querySelector('.img-box').setAttribute('data-fsw', 'portfolio-image');
     return target;
   });
   if (!box) return 'the form added no image box';
-  await session.setFiles('.temporary-image', pick.image);
+  // The upload tool presses the image box, whose click opens the page's file chooser (the hidden
+  // input refuses files set on it directly: file_input_not_activated), and answers it with the file.
+  await session.setFiles('[data-fsw=portfolio-image]', pick.image);
   await sleep(2500);
   const attached = await session.evaluate((t) => !!document.querySelector('#portfolio-img-box-list .portfolio-img-content-box[data-target="' + t + '"] input.image_file')?.files?.length, box);
   if (!attached) return 'the page did not take the image';
@@ -525,7 +533,7 @@ async function addPortfolio(session, user, pick) {
     if (now !== before) return null;
   }
   const errors = await session.evaluate(() => [...document.querySelectorAll('#portfolio-form .error')].map((e) => e.getAttribute('name') ?? e.querySelector('[name]')?.getAttribute('name') ?? e.className).slice(0, 8));
-  return '등록 did not leave the form; marked fields: ' + (errors.join(', ') || 'none');
+  return '등록 did not leave the form; marked fields: ' + (errors.join(', ') || 'none') + (thrown.length ? '; page handlers threw: ' + thrown.join('; ') : '');
 }
 
 async function portfolioStep(session, ctx, user) {

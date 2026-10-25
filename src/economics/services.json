@@ -47,7 +47,15 @@
   "web_app_dev": {
     "ko": "웹 앱 개발",
     "en": "Web app development",
-    "kmongCategory": null,
+    "kmongCategory": "풀스택 웹 개발",
+    "kmongCategoryId": 654,
+    "kmongGig": { "root": "IT·프로그래밍", "sub": "풀스택" },
+    "kmongForm": {
+      "meta": { "기술 수준": "중급:설계 / 코딩", "개발 언어": "JavaScript", "팀 규모": "1인", "상주 여부": "상주 불가능" },
+      "packageSelects": {},
+      "packageChecks": {},
+      "scope": ["화면 5개 이내, 로그인과 데이터 저장이 있는 웹 앱, 테스트와 설치 안내", "화면 10개 이내, 권한 구분과 관리자 화면, 테스트와 배포 안내", "화면 20개 이내, 외부 서비스 연동 1개, 테스트와 운영 안내"]
+    },
     "soomgoGuide": "웹 개발",
     "agentHours": {
       "standard": 30,
@@ -144,6 +152,13 @@
     "ko": "상세페이지 디자인",
     "en": "Product detail page design",
     "kmongCategory": "상세페이지 디자인",
+    "kmongGig": { "root": "디자인", "sub": "상세페이지", "third": "상세페이지 디자인" },
+    "kmongForm": {
+      "meta": { "주말 작업 가능여부": "주말 상담가능", "작업유형": "상세페이지", "전문분야": "식품", "추가옵션": "원본파일제공" },
+      "packageSelects": { "시안개수": ["1개", "1개", "1개"] },
+      "packageChecks": { "원본파일 제공": [true, true, true], "보정작업": [false, true, true], "상업적 이용 가능": [true, true, true] },
+      "scope": ["보내 주신 문구와 사진으로 상세페이지 1종, 섹션 5개 이내", "상세페이지 1종, 섹션 8개 이내, 사진 밝기와 배경 보정 포함", "상세페이지 1종, 섹션 12개 이내, 사진 보정과 구성 제안 포함"]
+    },
     "kmongCategoryId": 113,
     "soomgoGuide": "상세페이지 제작",
     "agentHours": {
@@ -163,6 +178,13 @@
     "ko": "로고 및 브랜드 디자인",
     "en": "Logo and brand design",
     "kmongCategory": "로고 디자인",
+    "kmongGig": { "root": "디자인", "sub": "로고 디자인" },
+    "kmongForm": {
+      "meta": { "주말 작업 가능여부": "주말 상담가능", "로고타입": "심볼+워드마크형", "분위기유형": "심플한", "작업유형": "CI/BI" },
+      "packageSelects": { "시안개수": ["2개", "3개", "5개"] },
+      "packageChecks": { "원본파일 제공": [true, true, true], "고해상도 파일 제공": [true, true, true], "응용 디자인": [false, false, true], "상업적 이용 가능": [true, true, true] },
+      "scope": ["로고 시안 2종, SVG와 PNG 파일", "로고 시안 3종, 색상과 서체 안내 1장", "로고 시안 5종, 색상과 서체 안내, 명함이나 SNS 응용 예시"]
+    },
     "kmongCategoryId": 101,
     "soomgoGuide": "로고 디자인",
     "agentHours": {
@@ -182,6 +204,13 @@
     "ko": "썸네일 및 배너 디자인",
     "en": "Thumbnail and banner design",
     "kmongCategory": "썸네일 배너 디자인",
+    "kmongGig": { "root": "디자인", "sub": "SNS·광고소재·썸네일", "third": "유튜브 썸네일" },
+    "kmongForm": {
+      "meta": { "주말 작업 가능여부": "주말 상담가능", "매체": "유튜브" },
+      "packageSelects": { "시안개수": ["1개", "1개", "2개"], "이미지 장 수": ["1장", "2장", "4장"] },
+      "packageChecks": { "원본파일 제공": [true, true, true], "고해상도 파일 제공": [true, true, true], "상업적 이용 가능": [true, true, true] },
+      "scope": ["썸네일이나 배너 1장", "규격 2종 각 1장, 예: 유튜브 썸네일과 인스타그램 피드", "규격 4장까지, 시안 2종 중 선택"]
+    },
     "kmongCategoryId": 142,
     "soomgoGuide": "썸네일 제작",
     "agentHours": {
@@ -201,6 +230,13 @@
     "ko": "사진 보정 및 누끼",
     "en": "Photo editing and background removal",
     "kmongCategory": "사진 보정 누끼 배경제거",
+    "kmongGig": { "root": "영상·사진·음향", "sub": "AI 이미지", "third": "AI 이미지 제작·누끼·보정" },
+    "kmongForm": {
+      "meta": { "주말 작업 가능여부": "주말 상담가능" },
+      "packageSelects": { "제공 개수": ["3개", "10개", "20개"] },
+      "packageChecks": {},
+      "scope": ["사진 3장까지 배경 제거 또는 밝기와 색 보정", "사진 10장까지 배경 제거와 보정, 흰 배경 정사각 파일", "사진 20장까지 배경 제거와 보정, 그림자와 규격 맞춤"]
+    },
     "kmongCategoryId": 104,
     "soomgoGuide": "사진 편집 및 보정",
     "agentHours": {
@@ -219,6 +255,13 @@
     "ko": "PPT 및 카드뉴스 디자인",
     "en": "Presentation and card news design",
     "kmongCategory": "PPT 디자인",
+    "kmongGig": { "root": "디자인", "sub": "PPT·인포그래픽", "third": "PPT" },
+    "kmongForm": {
+      "meta": { "주말 작업 가능여부": "주말 상담가능", "작업유형": "발표자료", "작업스타일": "프레젠테이션", "추가옵션": "원본파일제공" },
+      "packageSelects": { "시안개수": ["1개", "1개", "1개"] },
+      "packageChecks": { "원본파일 제공": [true, true, true], "상업적 이용 가능": [true, true, true], "리서치": [false, false, false] },
+      "scope": ["보내 주신 내용으로 PPT 8장 또는 카드뉴스 6장 이내", "PPT 15장 또는 카드뉴스 10장 이내", "PPT 25장 또는 카드뉴스 16장 이내, 도표와 아이콘 구성 포함"]
+    },
     "kmongCategoryId": 106,
     "soomgoGuide": "프레젠테이션 디자인",
     "agentHours": {
@@ -238,6 +281,13 @@
     "ko": "영상 편집",
     "en": "Video editing",
     "kmongCategory": "영상 편집",
+    "kmongGig": { "root": "영상·사진·음향", "sub": "AI 영상", "third": "AI 영상 편집·보정·자막" },
+    "kmongForm": {
+      "meta": { "주말 작업 가능여부": "주말 상담가능" },
+      "packageSelects": { "제공 개수": ["1개", "1개", "2개"] },
+      "packageChecks": {},
+      "scope": ["보내 주신 사진이나 영상으로 30초 이내 세로 숏폼 1편과 자막 파일", "보내 주신 영상으로 60초 이내 1편, 컷 편집과 자막, 화면 문구", "60초 이내 2편 또는 3분 이내 1편, 컷 편집과 자막, 화면 문구"]
+    },
     "soomgoGuide": "영상 편집",
     "agentHours": {
       "standard": 4,
@@ -291,6 +341,13 @@
     "ko": "블로그 원고 작성",
     "en": "Blog writing",
     "kmongCategory": "블로그 원고",
+    "kmongGig": { "root": "문서·글쓰기", "sub": "AI 콘텐츠 생산" },
+    "kmongForm": {
+      "meta": { "전문 작업 분야": "블로그" },
+      "packageSelects": { "시안개수": ["1개", "1개", "3개"] },
+      "packageChecks": { "프롬프트 제공": [false, false, false] },
+      "scope": ["정보성 원고 1편, 2,000자 안팎, 출처 목록", "원고 1편, 3,500자 안팎, 소제목 구성과 출처 목록", "원고 3편, 편당 2,000자 안팎, 출처 목록"]
+    },
     "soomgoGuide": null,
     "agentHours": {
       "standard": 1.5,

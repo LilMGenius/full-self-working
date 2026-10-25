@@ -33,7 +33,7 @@
   "automation": {
     "officialAutoReply": "unknown",
     "forbidden": [],
-    "notes": "Prohibited Services and Community Standards not fully read (unknown)."
+    "notes": "Prohibited Services and Community Standards not fully read (unknown). Seller onboarding (src/platforms/fiverr/onboarding.mjs, mapped 2026-10-26): about an hour into filling the profile in the operator's Chrome, the onboarding page answered with the PerimeterX human check (PXCR error code), which only the operator passes."
   },
   "aiPolicy": "AI is allowed when used responsibly, refined and customized; honor a client request for no AI and disclose the workflow; deepfakes, unauthorized likeness and fraud are banned.",
   "taxInvoice": "unknown",

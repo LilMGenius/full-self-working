@@ -126,7 +126,9 @@
     "photo": null,
     "wishket": {
       "certificate": null,
-      "directSkills": null
+      "directSkills": null,
+      "writeGapMs": null,
+      "writesPerRun": null
     },
     "fiverr": {
       "title": null,

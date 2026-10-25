@@ -199,6 +199,23 @@ export function gateTexts(texts, ctx) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const result = (step, state, detail) => ({ step, state, detail });
 
+// A page that shows the login (auth.wishket.com, /accounts/login/, or a header with 로그인 and no 로그아웃 or
+// 마이위시켓) means the session was signed out. On 2026-10-26 the site signed the operator out about an hour
+// after a skills cleanup ran at the hourly budget, so a run stops at the first sign of it and never retries.
+export function isSignedOut({ url = '', text = '' } = {}) {
+  if (/auth\.wishket\.com|\/accounts\/login/.test(url)) return true;
+  const head = String(text).slice(0, 1500);
+  return /로그인/.test(head) && !/로그아웃|마이위시켓|내 프로필/.test(head);
+}
+
+const signedOutError = (where) => Object.assign(new Error('위시켓 shows the login at ' + where + '; the operator signs in again before the next run'), { code: 'FSW_WISHKET_SIGNED_OUT' });
+
+async function go(session, url) {
+  await session.navigate(url);
+  const page = await session.evaluate(() => ({ url: location.href, text: document.body.innerText }));
+  if (isSignedOut(page)) throw signedOutError(new URL(page.url).pathname);
+}
+
 async function userPath(session) {
   const path = await session.evaluate(() => [...document.querySelectorAll('a[href^="/partners/p/"]')].map((a) => a.getAttribute('href')).find((h) => /^\/partners\/p\/[^/]+\/$/.test(h)) ?? null);
   if (!path) throw Object.assign(new Error('no /partners/p/<user>/ link; is the session signed in to 위시켓?'), { code: 'FSW_WISHKET_SIGNED_OUT' });
@@ -223,7 +240,7 @@ function pendingIdentity(ledger, now) {
 
 async function identityStep(session, ctx) {
   const { instance, apply, ledger } = ctx;
-  await session.navigate(IDENTITY_URL);
+  await go(session, IDENTITY_URL);
   const id = await readIdentity(session);
   const business = instance.business ?? {};
   const want = String(business.bizRegNo ?? '').replace(/\D/g, '');
@@ -260,12 +277,12 @@ async function readIntro(session) {
 // The editor opens from the view's edit icon (a[href=edit]), as the page does; a direct load of the
 // edit URL sometimes shows the view instead.
 async function openIntroEditor(session, user) {
-  await session.navigate(BASE + user + 'introduction/update/');
+  await go(session, BASE + user + 'introduction/update/');
   for (let i = 0; i < 2; i++) {
     if ((await readIntro(session)).description !== null) return true;
     const link = await session.evaluate(() => !!document.querySelector('.edit-box-view a[href="edit"]'));
     if (link) await session.click('.edit-box-view a[href="edit"]');
-    else await session.navigate(BASE + user + 'introduction/update/edit/');
+    else await go(session, BASE + user + 'introduction/update/edit/');
     for (let t = 0; t < 8 && (await readIntro(session)).description === null; t++) await sleep(1000);
   }
   return (await readIntro(session)).description !== null;
@@ -331,10 +348,18 @@ async function stackVocabulary(session, candidates) {
   return [...new Set(pages.flatMap(parseStackResult))];
 }
 
+// Writes go slower than the descriptor allows: onboarding.wishket.writeGapMs between two writes (30 s by
+// default) and at most onboarding.wishket.writesPerRun per run (10 by default); a rerun continues.
+export function writePace(instance) {
+  const set = instance?.config?.onboarding?.wishket ?? {};
+  const num = (v, d) => (Number.isFinite(v) && v >= 0 ? v : d);
+  return { gapMs: num(set.writeGapMs, 30_000), perRun: Math.max(1, num(set.writesPerRun, 10)) };
+}
+
 // One list menu: plan, then (with apply) delete what the profile does not hold and add what is missing,
 // within the descriptor's hourly action budget; a rerun continues where the budget stopped.
 async function listStep(session, ctx, { id, menu, url, desired, keyOfPage }) {
-  await session.navigate(url);
+  await go(session, url);
   const items = await readItems(session, menu);
   const plan = planList(items.map((i) => ({ ...i, key: keyOfPage(i) })), desired);
   const summary = 'keep ' + plan.keep.length + ', add ' + plan.add.length + ', delete ' + plan.remove.length;
@@ -342,16 +367,20 @@ async function listStep(session, ctx, { id, menu, url, desired, keyOfPage }) {
   if (!ctx.apply) return result(id, 'filled', 'dry run: ' + summary + (plan.remove.length ? ' (' + plan.remove.map((r) => r.key).join(', ') + ')' : ''));
   const failures = [];
   let done = 0;
+  const { gapMs, perRun } = writePace(ctx.instance);
+  const writes = [...plan.remove.map((r) => ['delete', r]), ...plan.add.map((d) => ['add', d])];
   try {
-    for (const r of plan.remove) {
-      const status = await remove(session, menu, r.pk);
-      if (status === 200) done += 1;
-      else failures.push('delete ' + r.key + ' answered ' + status);
-    }
-    for (const d of plan.add) {
-      const r = await post(session, d.fields);
+    for (const [kind, item] of writes) {
+      if (done >= perRun) {
+        failures.push('stopped at onboarding.wishket.writesPerRun (' + perRun + '); rerun to continue');
+        break;
+      }
+      if (done) await sleep(gapMs);
+      const r = kind === 'delete' ? { status: await remove(session, menu, item.pk), body: '' } : await post(session, item.fields);
+      // A login page or a refusal means the session is gone: stop, never retry.
+      if (r.status === 401 || r.status === 403 || /로그인|accounts\/login/.test(r.body)) throw signedOutError(kind + ' ' + item.key);
       if (r.status === 200) done += 1;
-      else failures.push('add ' + d.key + ' answered ' + r.status + ' ' + r.body.replace(/\s+/g, ' ').slice(0, 120));
+      else failures.push(kind + ' ' + item.key + ' answered ' + r.status + ' ' + r.body.replace(/\s+/g, ' ').slice(0, 120));
     }
   } catch (err) {
     if (err.code !== 'FSW_PACING_LIMIT') throw err;
@@ -359,22 +388,22 @@ async function listStep(session, ctx, { id, menu, url, desired, keyOfPage }) {
   }
   if (done) ctx.ledger?.addEvent({ kind: 'platform.profile_edit', platform: 'wishket', ref: id, payload: { changes: done } });
   // The read back is a page load too, so a spent budget leaves it to the next run.
-  if (failures.some((f) => /budget/.test(f))) return result(id, 'filled', done + ' of ' + (plan.add.length + plan.remove.length) + ' changes written, then ' + failures.join('; '));
-  await session.navigate(url);
+  if (failures.some((f) => /budget|writesPerRun/.test(f))) return result(id, 'filled', done + ' of ' + (plan.add.length + plan.remove.length) + ' changes written, then ' + failures.join('; '));
+  await go(session, url);
   const after = planList((await readItems(session, menu)).map((i) => ({ ...i, key: keyOfPage(i) })), desired);
   if (!after.add.length && !after.remove.length) return result(id, 'done', summary + ', read back');
   return result(id, 'needs-operator', 'after writing: add ' + after.add.length + ', delete ' + after.remove.length + ' remain; ' + failures.join('; '));
 }
 
 async function educationStep(session, user) {
-  await session.navigate(BASE + user + 'info/update/');
+  await go(session, BASE + user + 'info/update/');
   const text = await session.evaluate(() => document.body.innerText);
   if (/학력[\s\S]{0,80}사용 불가/.test(text)) return result('education', 'done', 'education and certificates are not offered to an individual business partner; the introduction lists them');
   return result('education', 'unmapped', 'education is offered for this partner type and its form is not mapped yet');
 }
 
 async function portfolioStep(session, user) {
-  await session.navigate(BASE + user);
+  await go(session, BASE + user);
   const text = await session.evaluate(() => document.body.innerText);
   const count = Number(text.match(/포트폴리오\s*\n\s*(\d+)/)?.[1] ?? NaN);
   if (count > 0) return result('portfolio', 'done', count + ' portfolio item(s) listed');
@@ -382,7 +411,7 @@ async function portfolioStep(session, user) {
 }
 
 async function availabilityStep(session, user) {
-  await session.navigate(BASE + user);
+  await go(session, BASE + user);
   const header = await session.evaluate(() => (document.querySelector('.profile-box')?.innerText ?? '').replace(/\s+/g, ' '));
   const state = header.match(/활동 가능|협의 필요|활동 불가/)?.[0] ?? null;
   if (state === '활동 가능') return result('availability', 'done', 'shows 활동 가능; region and start date come from the account settings the operator keeps');
@@ -397,14 +426,14 @@ export async function onboard(session, ctx) {
   let user = null;
   const userOf = async () => {
     if (user) return user;
-    if (!/wishket\.com/.test(await session.evaluate(() => location.href).catch(() => ''))) await session.navigate(IDENTITY_URL);
+    if (!/wishket\.com/.test(await session.evaluate(() => location.href).catch(() => ''))) await go(session, IDENTITY_URL);
     return (user = await userPath(session));
   };
   let stopped = false;
   const run = async (id, fn) => {
     if (!want(id)) return;
     if (stopped) {
-      out.push(result(id, 'filled', 'not read: the hourly action budget was spent by an earlier step'));
+      out.push(stopped === 'signed out' ? result(id, 'needs-operator', 'not read: 위시켓 signed the session out at an earlier step') : result(id, 'filled', 'not read: the hourly action budget was spent by an earlier step'));
       return;
     }
     try {
@@ -418,6 +447,12 @@ export async function onboard(session, ctx) {
         stopped = true;
         return;
       }
+      if (err.code === 'FSW_WISHKET_SIGNED_OUT') {
+        out.push(result(id, 'needs-operator', err.message));
+        log(id + ': needs-operator ' + err.message);
+        stopped = 'signed out';
+        return;
+      }
       throw err;
     }
   };
@@ -425,7 +460,7 @@ export async function onboard(session, ctx) {
   await run('introduction', async () => introStep(session, ctx, await userOf()));
   await run('employment', async () => {
     const u = await userOf();
-    await session.navigate(BASE + u + 'skill/update/');
+    await go(session, BASE + u + 'skill/update/');
     const skills = desiredSkills(ctx.instance.profile, await stackVocabulary(session, skillCandidates(ctx.instance.profile)), ctx.instance.config?.onboarding?.wishket?.directSkills);
     const entries = careerEntries(ctx.instance, skills);
     const bad = gateTexts(entries.flatMap((e) => [e.fields.company_name, e.fields.position, e.fields.description]), ctx);
@@ -442,7 +477,7 @@ export async function onboard(session, ctx) {
   });
   await run('skills', async () => {
     const u = await userOf();
-    await session.navigate(BASE + u + 'skill/update/');
+    await go(session, BASE + u + 'skill/update/');
     const vocab = await stackVocabulary(session, skillCandidates(ctx.instance.profile));
     const names = desiredSkills(ctx.instance.profile, vocab, ctx.instance.config?.onboarding?.wishket?.directSkills);
     if (!names.length) return result('skills', 'needs-operator', 'no profile skill matched 위시켓\'s stack vocabulary');

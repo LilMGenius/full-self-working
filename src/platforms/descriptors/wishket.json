@@ -48,7 +48,7 @@
       "contacting another member directly to propose a direct deal or to advertise (terms 제10조)",
       "macro programs that infringe or may infringe others' rights (terms 제10조 (7))"
     ],
-    "notes": "No rule on automated reading or on AI-written applications was found in the terms; reads stay at descriptor pacing, and nothing is sent while the apply form is unmapped."
+    "notes": "No rule on automated reading or on AI-written applications was found in the terms; reads stay at descriptor pacing, and nothing is sent while the apply form is unmapped. Profile onboarding (src/platforms/wishket/onboarding.mjs, mapped 2026-10-26): about an hour after a skills cleanup wrote at the 30 actions an hour pacing, the site signed the operator out, as it did upwork and freelancer.com driven the same hour; profile writes now go at most 10 a run, 30 s apart, and a run stops at the first login page."
   },
   "aiPolicy": "The terms say nothing about AI. 위시켓 itself offers PRIME and PRO partners application content that its AI writes from their profile (official partner grade page), so an AI-assisted proposal is a service the platform provides; no disclosure rule was found.",
   "taxInvoice": "A business partner issues a tax invoice for the amount it receives; an individual partner has 3.3% withheld and 위시켓 files the tax for them (official price page). The terms count a tax invoice issued at will, late or not at all as obstruction of business (제10조 (5)).",

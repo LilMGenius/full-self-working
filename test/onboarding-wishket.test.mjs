@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
 import {
-  STEPS, careerEntries, desiredSkills, gateTexts, introCopy, parseStackResult, periodOf, planList, prizeEntries, sameCompany, skillCandidates,
+  STEPS, careerEntries, desiredSkills, gateTexts, introCopy, isSignedOut, parseStackResult, periodOf, planList, prizeEntries, sameCompany, skillCandidates, writePace,
 } from '../src/platforms/wishket/onboarding.mjs';
 
 const instance = {
@@ -92,6 +92,24 @@ test('awards need an awarding body', () => {
 });
 
 test('planList adds what is missing, deletes what the profile lacks and keeps matches ignoring case and spaces', () => {
+  const plan0 = planList([], []);
+  assert.deepEqual(plan0, { add: [], remove: [], keep: [] });
+});
+
+test('a login page or a header offering only 로그인 reads as signed out', () => {
+  assert.equal(isSignedOut({ url: 'https://auth.wishket.com/login/?next=/', text: '' }), true);
+  assert.equal(isSignedOut({ url: 'https://www.wishket.com/', text: '위시켓 | 프로젝트 찾기 | 로그인 | 회원가입' }), true);
+  assert.equal(isSignedOut({ url: 'https://www.wishket.com/partners/p/x/', text: '위시켓 | 내 프로필 | 내 프로젝트 관리 | 로그아웃' }), false);
+  assert.equal(isSignedOut({ url: 'https://www.wishket.com/partners/p/x/', text: '위시켓 | 내 프로필 | 파트너 소개' }), false);
+});
+
+test('writes default to 30 s apart and 10 per run, and settings override them', () => {
+  assert.deepEqual(writePace({ config: {} }), { gapMs: 30_000, perRun: 10 });
+  assert.deepEqual(writePace({ config: { onboarding: { wishket: { writeGapMs: 60_000, writesPerRun: 5 } } } }), { gapMs: 60_000, perRun: 5 });
+  assert.deepEqual(writePace({ config: { onboarding: { wishket: { writeGapMs: -1, writesPerRun: 0 } } } }), { gapMs: 30_000, perRun: 1 });
+});
+
+test('planList on a populated page', () => {
   const plan = planList([{ key: 'Node.js', pk: '1' }, { key: 'Solidity', pk: '2' }], [{ key: 'node.js' }, { key: 'RAG' }]);
   assert.deepEqual(plan.add.map((x) => x.key), ['RAG']);
   assert.deepEqual(plan.remove.map((x) => x.pk), ['2']);

@@ -17,7 +17,15 @@
     "kmong": {
       "enabled": true,
       "mode": "auto",
-      "profileEdits": "auto"
+      "profileEdits": "auto",
+      "proposals": {
+        "maxPerDay": 5,
+        "minFit": "strong",
+        "autoMaxKRW": 0,
+        "criticModel": "cpa/claude-opus-5-5",
+        "minCriticScore": 0.75,
+        "pages": 3
+      }
     },
     "soomgo": {
       "enabled": true,

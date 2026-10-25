@@ -7,7 +7,7 @@ import { dayKey } from '../core/clock.mjs';
 import { ensureDir } from '../core/instance.mjs';
 import { logEvent } from '../core/log.mjs';
 
-export const CASE_KINDS = ['job_closed', 'lead_lost', 'review', 'revision_request', 'operator_correction', 'approval_rejected'];
+export const CASE_KINDS = ['job_closed', 'lead_lost', 'review', 'revision_request', 'operator_correction', 'approval_rejected', 'proposal_result'];
 
 export const casesFile = (instance) => join(instance.paths.lessons, 'cases.jsonl');
 

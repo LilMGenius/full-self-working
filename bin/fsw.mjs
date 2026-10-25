@@ -24,11 +24,12 @@ const VERBS = {
   schedule: 'schedule install|status|uninstall: the logon and hourly task that keeps the supervisor running',
   listings: 'listings build|render|check|publish <service>: write a kmong gig spec and images for review, or submit it',
   order: 'order list|permission|review: record what the client said on the platform (portfolio permission, review)',
+  projects: 'projects list|show|draft|propose|run|status: kmong enterprise projects, judged and proposed within the daily quota',
   services: 'services soomgo [--apply] [--only <service>]: set the items each offered soomgo service matches requests on; a dry run unless --apply',
   help: 'show this help',
 };
 
-const HANDLERS = { init: 'init', profile: 'profile', doctor: 'doctor', tick: 'tick', run: 'run', schedule: 'schedule', market: 'market', price: 'price', approve: 'approvals', learn: 'learn', decide: 'decide', job: 'job', listings: 'listings', order: 'order', services: 'services' };
+const HANDLERS = { init: 'init', profile: 'profile', doctor: 'doctor', tick: 'tick', run: 'run', schedule: 'schedule', market: 'market', price: 'price', approve: 'approvals', learn: 'learn', decide: 'decide', job: 'job', listings: 'listings', order: 'order', services: 'services', projects: 'projects' };
 
 function help() {
   console.log('usage: fsw <verb> [args]\n');

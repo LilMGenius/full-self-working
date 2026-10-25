@@ -27,7 +27,7 @@ test('a fresh state runs every job once and the same slot runs nothing again', (
 test('the hour mark at minute 0 Seoul opens the hourly period', () => {
   const last = ran(at('2026-10-25T01:58:00Z')); // 10:58 Seoul
   assert.deepEqual(ids(dueJobs(last, at('2026-10-25T01:59:59Z'))), []);
-  assert.deepEqual(ids(dueJobs(last, at('2026-10-25T02:00:00Z'))), ['hourly', 'poll', 'orders']);
+  assert.deepEqual(ids(dueJobs(last, at('2026-10-25T02:00:00Z'))), ['hourly', 'poll', 'orders', 'projects']);
 });
 
 test('a missed mark runs once on catch-up and never twice', () => {

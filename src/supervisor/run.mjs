@@ -292,6 +292,10 @@ export const JOB_HANDLERS = {
     const { ordersJob } = await import('../orders/run.mjs');
     return ordersJob(ctx);
   },
+  async projects(ctx) {
+    const { projectsJob } = await import('../projects/job.mjs');
+    return projectsJob(ctx);
+  },
   async market(ctx) {
     const { run } = await import('../cli/market.mjs');
     const r = await run([], { instance: ctx.instance, log: ctx.log });

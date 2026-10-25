@@ -17,6 +17,8 @@ export const JOBS = [
   // Every 5 minutes right after the poll: start paid jobs, queue finished ones for delivery, close paid
   // ones, from what the poll just recorded.
   { id: 'orders', every: 'slot5' },
+  // Hourly at minute 0 Seoul: kmong enterprise projects (read, judge, propose within the daily quota).
+  { id: 'projects', every: 'hour' },
   // Daily at 00:00 Seoul, in this order: the day's market first, then everything priced from it.
   { id: 'market', every: 'day', at: '00:00' },
   { id: 'price', every: 'day', at: '00:00' },

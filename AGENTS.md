@@ -23,6 +23,7 @@ The repository is generic and publishable. Everything about one operator lives i
 - Platform rules are data in each descriptor and are enforced by `src/policy/gate.mjs`; a rule a script can decide is a gate, never prose in a prompt.
 - Money moves only through the channel the platform allows. Contact details and payout accounts are released only where the descriptor permits.
 - A channel that brings no leads is first checked at the platform's own matching settings, since an unset one reads as missing demand; `fsw doctor` warns for each offered soomgo catalog service without request items.
+- A platform timestamp without a zone is read in the zone the page's own relative time confirms, checked live before its parser ships; soomgo request times are Seoul time although nothing in them says so.
 - A portfolio item is public only after its payment is recorded and the client allowed portfolio use.
 - Customer-facing copy passes the slop gate: no em dashes, no middle-dot enumerations, no invented metrics, no claims the instance profile cannot back.
 - Schedules start on round Seoul marks; each cron carries its Seoul time and reason.

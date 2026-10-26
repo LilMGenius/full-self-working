@@ -2,7 +2,8 @@
 // Read-only takeover check (003 "Verifier and recovery scripts"; 050 2.1, 2.5 and 2.7). Exit 0 only when:
 // local main, the deploy HEAD and --expect are one commit; the lock names a live node process and the
 // scheduled task is Running; the ledger is at --version and, with --takeovers, holds exactly that many
-// takeover events, the newest naming --expect; no gap between supervisor.tick events since --since, the
+// takeover events, the newest naming --expect (the lock holder must also be the supervisor: a node whose
+// command line runs bin/fsw.mjs run, or runs from the deploy worktree); no gap between supervisor.tick events since --since, the
 // newest tick before --since and the trailing gap to now included (so the gap a handover opens right at
 // --since counts), exceeds --gap-min; the newest tick ran --expect (its code field, or for a
 // 2c77326 tick, which has none, the newest handover or the deploy HEAD); and supervisor.log since --since
@@ -83,6 +84,7 @@ export function evaluate(s, o) {
   if (s.main !== s.expect) f.push('local main at ' + short(s.main) + ', expected ' + short(s.expect));
   if (s.deploy !== s.expect) f.push('deploy worktree at ' + short(s.deploy) + ', expected ' + short(s.expect));
   if (!s.lockAlive) f.push('the lock names pid ' + s.lockPid + ', which is not a live node process');
+  else if (s.lockCommand != null && !isSupervisor(s.lockCommand, s.code)) f.push('the lock names pid ' + s.lockPid + ', a node process that is not the supervisor: ' + s.lockCommand);
   if (s.taskState !== 'Running') f.push('task ' + o.task + ' is ' + (s.taskState || 'missing') + ', expected Running');
   if (s.version !== o.version) f.push('ledger user_version ' + s.version + ', expected ' + o.version);
   if (!newest) f.push('no supervisor.tick event since ' + o.since);
@@ -107,8 +109,26 @@ const taskStateOf = (task) => {
   }
 };
 
+// Pure: whether a command line is the supervisor: node running bin/fsw.mjs run, or anything started from
+// the deploy worktree (scripts/task.ps1 runs node "<code>\bin\fsw.mjs" run). Paths compare case-insensitively.
+export function isSupervisor(commandLine, codeDir) {
+  const c = String(commandLine ?? '').toLowerCase().replace(/\//g, '\\');
+  if (/bin\\fsw\.mjs"?\s+run(\s|$)/.test(c)) return true;
+  return Boolean(codeDir) && c.includes(String(codeDir).toLowerCase().replace(/\//g, '\\').replace(/\\+$/, '') + '\\');
+}
+
+// The command line of a live pid (Win32_Process), or null when it cannot be read.
+export const commandLineOf = (pid) => {
+  if (!Number.isInteger(pid)) return null;
+  try {
+    return execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', '(Get-CimInstance Win32_Process -Filter "ProcessId=' + pid + '").CommandLine'], { encoding: 'utf8', windowsHide: true }).trim() || null;
+  } catch {
+    return null;
+  }
+};
+
 // Everything the check reads: the refs, the lock, the task, the ledger and supervisor.log since --since.
-export function read(a, now = Date.now()) {
+export function read(a, now = Date.now(), { commandLine = commandLineOf } = {}) {
   const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', windowsHide: true }).trim();
   const since = Date.parse(a.since);
   const lockFile = join(a.instance, 'run', 'supervisor.pid');
@@ -135,6 +155,8 @@ export function read(a, now = Date.now()) {
     deploy: git(a.code, 'rev-parse', 'HEAD'),
     lockPid,
     lockAlive: pidAlive(lockPid),
+    lockCommand: pidAlive(lockPid) ? commandLine(lockPid) : null,
+    code: a.code,
     taskState: taskStateOf(a.task),
     version,
     takeovers,

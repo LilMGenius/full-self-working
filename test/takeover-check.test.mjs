@@ -2,11 +2,11 @@
 // a8ae31c and v0, on scratch ledgers and on a scratch git repository; no live instance is read.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { openLedger } from '../src/core/ledger.mjs';
-import { evaluate, FORMATS, gaps, parseLog, timeOf } from '../scripts/takeover-check.mjs';
+import { evaluate, FORMATS, gaps, isSupervisor, parseLog, timeOf } from '../scripts/takeover-check.mjs';
 import { measure } from '../scripts/tick-gaps.mjs';
 import { tempDir } from './tmp.mjs';
 
@@ -127,9 +127,31 @@ test('--takeovers counts takeover events and the newest must name --expect; with
   assert.deepEqual(failuresOf({ takeovers: [] }, { takeovers: null }), []);
 });
 
+test('the lock holder must be the supervisor: bin/fsw.mjs run or a process started from the deploy worktree', () => {
+  const code = 'C:\\Users\\x\\AppData\\Local\\fsw\\code';
+  assert.equal(isSupervisor('"C:\\Program Files\\nodejs\\node.exe"  "C:\\Users\\x\\AppData\\Local\\fsw\\code\\bin\\fsw.mjs" run ', code), true);
+  assert.equal(isSupervisor('node bin/fsw.mjs run', null), true);
+  assert.equal(isSupervisor('node C:\\users\\X\\appdata\\local\\fsw\\code\\scripts\\x.mjs', code), true);
+  assert.equal(isSupervisor('node --test test/a.test.mjs', code), false);
+  assert.equal(isSupervisor('node bin/fsw.mjs runner', code), false);
+  assert.deepEqual(failuresOf({ lockCommand: 'node --test test/a.test.mjs', code }), ['the lock names pid 4242, a node process that is not the supervisor: node --test test/a.test.mjs']);
+  assert.deepEqual(failuresOf({ lockCommand: null, code }), []);
+});
+
+// A node process started from a scratch deploy worktree stands in for the supervisor holding the lock.
+const holders = [];
+process.on('exit', () => holders.forEach((h) => h.kill()));
+function holderIn(code) {
+  writeFileSync(join(code, 'hold.mjs'), 'setInterval(() => {}, 1e6);\n');
+  const h = spawn(process.execPath, [join(code, 'hold.mjs')], { stdio: 'ignore', windowsHide: true });
+  h.unref();
+  holders.push(h);
+  return h.pid;
+}
+
 // A scratch repository with commits A and B, main at B, a detached deploy worktree, and an instance
 // whose ledger and supervisor.log hold one handover from A to B.
-function scratch({ lockPid = process.pid, prior = -22 } = {}) {
+function scratch({ lockPid = null, prior = -22 } = {}) {
   const root = tempDir('fsw-takeover-');
   const repo = join(root, 'repo');
   mkdirSync(repo);
@@ -144,6 +166,7 @@ function scratch({ lockPid = process.pid, prior = -22 } = {}) {
   const b = git('rev-parse', 'HEAD');
   const code = join(root, 'code');
   git('worktree', 'add', '-q', '--detach', code, b);
+  lockPid ??= holderIn(code);
   const instance = join(root, 'instance');
   mkdirSync(join(instance, 'run'), { recursive: true });
   mkdirSync(join(instance, 'logs'));
@@ -181,6 +204,11 @@ test('the CLI reads refs, lock, ledger and the log since --since, and names only
 test('the CLI fails a lock whose pid is no live node process', () => {
   const r = cli(scratch({ lockPid: 999999 }));
   assert.deepEqual(r.out.failures, ['the lock names pid 999999, which is not a live node process', 'task fsw-test-no-such-task is missing, expected Running']);
+});
+
+test('the CLI fails a lock held by a live node process that is not the supervisor', () => {
+  const r = cli(scratch({ lockPid: process.pid }));
+  assert.equal(r.out.failures[0].startsWith('the lock names pid ' + process.pid + ', a node process that is not the supervisor: '), true, r.out.failures.join('; '));
 });
 
 test('the CLI reads the newest tick before --since from the ledger', () => {

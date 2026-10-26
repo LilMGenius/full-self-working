@@ -337,8 +337,14 @@ test('the oldest deferred quote the day cannot pay holds every newer cash quote,
 });
 
 test('a deferred quote whose service the instance stopped answering is left for the operator', async () => {
-  const s = setup('soomgo', (c) => ({ ...c, platforms: { ...c.platforms, soomgo: { ...c.platforms.soomgo, services: ['web_app_dev'] } } }));
+  const s = setup('soomgo');
+  // The day's cash is spent, so the quote is deferred while its service is still answered.
+  s.ledger.addQuote({ threadId: s.thread('old', 'request').id, platform: 'soomgo', service: 'landing_page_web', amountKRW: 300000, costKRW: 900, status: 'sent', at: NOON.toISOString() });
   const row = plan(s.ledger, { platform: 'soomgo', threadId: s.thread('r1', 'request').id, kind: 'quote', payload: quotePayload() });
+  const first = await s.run(scriptedSurface());
+  assert.deepEqual([first[0].action, s.ledger.getOutbox(row.id).status, s.notes.length], ['held', 'planned', 0]);
+  // The operator turns the service off; on the next day's budget the deferred quote goes to the operator.
+  s.instance.config.platforms.soomgo.services = ['web_app_dev'];
   const surface = scriptedSurface();
   const out = await s.run(surface, { now: new Date('2026-10-21T09:00:00+09:00') });
   assert.equal(out[0].action, 'awaiting_operator');

@@ -11,7 +11,7 @@ const VERBS = {
   schedule: 'schedule install|status|uninstall: the logon and hourly task that keeps the supervisor running',
   approve: 'approve [list] | approve <id> [--text "..."] | approve <id> --reject [--reason "..."] | approve <id> --sent [--cost <KRW>] | approve show <id>: answer an outbound item waiting for you, or settle a send the surface could not observe',
   deal: 'deal list | deal <jobId> permission granted|denied | deal <jobId> review --rating <1-5>: record what the client said on the platform',
-  job: 'job run|check <id>: run a paid job through its recipe, or re-run its acceptance checks',
+  job: 'job run|check <id>: run a paid job through its recipe, or re-run its acceptance checks; job handoff <id> <step> [file ...]: record an operator step with its files',
   probe: 'probe <platform> <op>: one read operation of a platform surface (login, sense, read, orders, supply)',
   market: 'market [platform...]: refresh market samples',
   price: 'rebuild the price table',

@@ -69,7 +69,8 @@ function catalogLines(catalog, profile) {
       const evidence = fit?.evidence ?? [];
       const cite = evidence.length ? '; past work to cite: ' + evidence.join(', ') : '; no past work to cite';
       const delivers = catalog[id].deliverables?.length ? '; delivers ' + catalog[id].deliverables.join(', ') : '';
-      return '- ' + id + ': ' + catalog[id].ko + ' / ' + catalog[id].en + ' (fit: ' + (fit?.strength ?? 'none') + cite + ')' + delivers;
+      const mine = catalog[id].operatorSteps?.length ? '; operator steps I do myself after the build passes its checks: ' + catalog[id].operatorSteps.join(', ') : '';
+      return '- ' + id + ': ' + catalog[id].ko + ' / ' + catalog[id].en + ' (fit: ' + (fit?.strength ?? 'none') + cite + ')' + delivers + mine;
     })
     .join('\n');
 }
@@ -141,7 +142,7 @@ export function buildDecisionPrompt({ thread, instance, descriptor, priceRows = 
     '   quote.complexity rates the work against a typical job in its service, from 0.6 (much smaller) through 1.0 (typical) to 1.6 (much larger).',
     '   Every package and quote includes one revision round, which the catalog hours assume; offer further rounds as extra paid work, never as included.',
     '4. Offer the platform split mechanism above for larger amounts (deposit and balance, or phase orders on 크몽), never an off-platform transfer.',
-    '5. Never promise what my profile cannot back: no invented numbers, clients, reviews, guarantees or timelines you cannot keep. Cite a project as past work only for the service whose catalog line names it, and scope only what that line delivers. List every profile claim you used in claimsUsed.',
+    '5. Never promise what my profile cannot back: no invented numbers, clients, reviews, guarantees or timelines you cannot keep. Cite a project as past work only for the service whose catalog line names it, and scope only what that line delivers. The operator steps of a line are mine to do after the build passes its checks: name them as my steps in the scope, and promise one that a line marks as conditional only when its condition holds. List every profile claim you used in claimsUsed.',
     '6. If the service is not in the catalog, or the work would break a law or another service\'s terms (a game bot or cheat, fake reviews, account farming), set intent "unsupported", needsOperator true and say why in operatorReason; you may still write a polite holding reply that promises nothing. A fit of "none" only means there is no past work to cite: offer the service from the price rows and claim no experience in it.',
     '7. Set needsOperator only for a decision the profile, the price rows and the reply cannot make: a price outside the allowed range, a legal, refund or dispute question, a call or visit asked for before any order, or a commitment the profile does not back. Scope, volume, schedule, location and materials the customer has not given yet are not such a decision: price the typical job from the rows, state the assumption in the scope, and ask for the missing facts in the reply. Set reply null for spam or when no reply is due.',
     '8. Plain text only: no markdown, no em dash, no middle-dot lists, no hype words, no emoji bullets.',

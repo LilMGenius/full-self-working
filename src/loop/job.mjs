@@ -1,11 +1,13 @@
 // runJobWithDeal(jobId, ctx): the job child (fsw job run <id>). It supplies the work runner's executors
 // (codex and jwc, the executor seam of architect D10), the deal's payment check, and a report door that
 // applies each run signal to the deal and carries out its effects, so the child never writes jobs.status.
+import { copyFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
+import { basename, join, resolve } from 'node:path';
 import { runCodex } from '../brain/codex.mjs';
 import { DEFAULT_JWC_MODEL, runJwc } from '../brain/jwc.mjs';
 import { loadDescriptor } from '../platforms/registry.mjs';
 import { advance, deliveryAllowed, startAllowed } from '../deal/index.mjs';
-import { checkJob, loadRecipe, runJob } from '../work/index.mjs';
+import { checkJob, jobPaths, loadRecipe, runJob } from '../work/index.mjs';
 import { applyEffects } from './effects.mjs';
 
 function seam(jobId, { instance, ledger, executors = {}, recipeDir, notify, spawnJob }) {
@@ -32,3 +34,26 @@ function seam(jobId, { instance, ledger, executors = {}, recipeDir, notify, spaw
 
 export const runJobWithDeal = (jobId, ctx) => runJob(jobId, seam(jobId, ctx));
 export const checkJobWithDeal = (jobId, ctx) => checkJob(jobId, seam(jobId, ctx));
+
+// fsw job handoff <id> <step> [file ...]: the operator finished one user-handoff step of the job's last
+// run. Its files are copied into jobs/<id>/handoff/<step>/, so the delivery carries them wherever they
+// were made, and the deal plans the delivery once every step of the run is recorded.
+export async function recordHandoff(jobId, step, files, ctx) {
+  const { instance } = ctx;
+  const s = seam(jobId, ctx);
+  const job = ctx.ledger.getJob(jobId);
+  const missing = files.filter((f) => !existsSync(f) || !statSync(f).isFile());
+  if (missing.length) throw Object.assign(new Error('not a file: ' + missing.join(', ')), { code: 'FSW_HANDOFF_FILE' });
+  const dir = join(jobPaths(instance, jobId).dir, 'handoff', String(step).replace(/[^A-Za-z0-9_-]/g, '_'));
+  if (files.length) mkdirSync(dir, { recursive: true });
+  const copies = files.map((f) => {
+    const to = join(dir, basename(f));
+    if (resolve(f) !== resolve(to)) copyFileSync(f, to);
+    return to;
+  });
+  const r = await s.report({ type: 'handoff_done', platform: job.platform, jobId, evidence: { step, files: copies } });
+  const after = ctx.ledger.getJob(jobId);
+  const recorded = after.meta?.handoffs?.[step]?.runAt === after.meta?.lastRun?.at && after.meta?.handoffs?.[step]?.files?.length === copies.length;
+  const steps = (after.meta?.lastRun?.handoffs ?? []).map((h) => h.id);
+  return { recorded, step, files: copies, pending: steps.filter((id) => after.meta?.handoffs?.[id]?.runAt !== after.meta.lastRun.at), delivery: r.effects.some((e) => e.item?.kind === 'delivery') };
+}

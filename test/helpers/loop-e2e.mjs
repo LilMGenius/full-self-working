@@ -12,6 +12,7 @@ import { loadDescriptor } from '../../src/platforms/registry.mjs';
 import { resolve } from '../../src/outbox/index.mjs';
 import { advance } from '../../src/deal/index.mjs';
 import { applyEffects, runJobWithDeal, step } from '../../src/loop/index.mjs';
+import { recordHandoff } from '../../src/loop/job.mjs';
 import { loadRecipe } from '../../src/work/index.mjs';
 import { rankPortfolio } from '../../src/portfolio/rank.mjs';
 import { loadItems } from '../../src/portfolio/store.mjs';
@@ -87,7 +88,11 @@ export async function driveLoop({ open }) {
   const load = (service) => loadRecipe(service, { dir: recipes });
   const pending = [];
   const spawnJob = (_instance, id) => {
-    pending.push(() => runJobWithDeal(id, { instance, ledger, executors: { runCodex: jobCodex }, recipeDir: recipes }));
+    // The operator records each step the recipe leaves him once the run passes, as fsw job handoff does.
+    pending.push(async () => {
+      await runJobWithDeal(id, { instance, ledger, executors: { runCodex: jobCodex }, recipeDir: recipes });
+      for (const h of ledger.getJob(id).meta?.lastRun?.handoffs ?? []) await recordHandoff(id, h.id, [], { instance, ledger, recipeDir: recipes });
+    });
     return { pid: process.pid, log: 'runner.log' };
   };
   const ticks = [];

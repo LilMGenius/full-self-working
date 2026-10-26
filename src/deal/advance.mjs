@@ -12,7 +12,7 @@ import { nextPart, paymentKind, paymentLevelMet, settled } from './levels.mjs';
 import { MONEY_LOOKBACK_DAYS, fresh, jobIdFor, minuteKey } from './signals.mjs';
 
 // 003 Deal signal types, amended 2026-10-25 15:40.
-export const SIGNAL_TYPES = ['quote_observed', 'ordered', 'order_cancelled', 'hired', 'hire_cancelled', 'pay_requested', 'paid', 'confirmed', 'remitted', 'pay_cancelled', 'run_started', 'run_accepted', 'run_failed', 'delivery_observed', 'revision_requested', 'permission_granted', 'permission_refused', 'review', 'expired'];
+export const SIGNAL_TYPES = ['quote_observed', 'ordered', 'order_cancelled', 'hired', 'hire_cancelled', 'pay_requested', 'paid', 'confirmed', 'remitted', 'pay_cancelled', 'run_started', 'run_accepted', 'run_failed', 'handoff_done', 'delivery_observed', 'revision_requested', 'permission_granted', 'permission_refused', 'review', 'expired'];
 // Signals read from platform notices or list rows: each is recorded once in money_events under its key.
 export const MONEY_TYPES = ['ordered', 'order_cancelled', 'hired', 'hire_cancelled', 'pay_requested', 'paid', 'confirmed', 'remitted', 'pay_cancelled', 'review'];
 // Each package includes one revision round (src/orders/revision.mjs:11).
@@ -82,12 +82,25 @@ export function payRequestEffect({ job, thread, part, descriptor, paidBeforeKRW,
   };
 }
 
+// The operator steps of the last run (its recipe's user-handoff steps) with what the operator recorded
+// for each; a step recorded for an earlier run is not done for this one.
+function handoffState(job) {
+  const run = job.meta?.lastRun;
+  const done = job.meta?.handoffs ?? {};
+  return (run?.handoffs ?? []).map((h) => ({ ...h, done: done[h.id]?.runAt === run.at ? done[h.id] : null }));
+}
+
 // The delivery item and, on a split platform, the balance request (src/orders/delivery.mjs:57-84, split
-// into two operator items: the files wait in readiness until the balance is recorded).
+// into two operator items: the files wait in readiness until the balance is recorded). Nothing is planned
+// while an operator step of the run is unrecorded, and the delivery carries the files each step recorded.
 export function deliveryEffects(ledger, { job, descriptor, config }) {
   const run = job.meta?.lastRun;
   const thread = job.threadId ? ledger.getThread(job.threadId) : null;
   if (!run?.ok || !thread || !Array.isArray(run.files)) return [];
+  const steps = handoffState(job);
+  if (steps.some((h) => !h.done)) return [];
+  const files = [...run.files, ...steps.flatMap((h) => h.done.files ?? [])];
+  const stepNote = steps.length ? '; operator steps recorded: ' + steps.map((h) => h.id + ' (' + (h.done.files ?? []).length + ' files)').join(', ') : '';
   const msgs = ledger.threadMessages(thread.id);
   const language = thread.language ?? job.meta?.language ?? 'ko';
   const effects = [{
@@ -95,9 +108,10 @@ export function deliveryEffects(ledger, { job, descriptor, config }) {
     item: {
       platform: job.platform, threadId: thread.id, jobId: job.id, kind: 'delivery',
       payload: {
-        text: deliveryText({ language, files: run.files.map(baseName) }), files: run.files, captures: run.captures ?? [], runAt: run.at, service: job.service,
+        text: deliveryText({ language, files: files.map(baseName) }), files, captures: run.captures ?? [], runAt: run.at, service: job.service,
+        handoffs: steps.map((h) => ({ id: h.id, output: h.output, at: h.done.at, files: h.done.files ?? [] })),
         thread: { kind: thread.kind, stage: 'post_order', lastInboundText: msgs.filter((m) => m.direction === 'in').at(-1)?.body ?? '', language: thread.language ?? null, recentOutbound: msgs.filter((m) => m.direction === 'out').slice(-10).map((m) => m.body ?? '') },
-        reason: 'acceptance passed for job ' + job.id + '; review the ' + run.files.length + ' deliverables and ' + (run.captures ?? []).length + ' QA captures before approving',
+        reason: 'acceptance passed for job ' + job.id + stepNote + '; review the ' + files.length + ' deliverables and ' + (run.captures ?? []).length + ' QA captures before approving',
       },
     },
   }];
@@ -349,7 +363,17 @@ const RULES = {
   run_accepted(ledger, out, s, { job, instance, descriptor }) {
     if (!job || job.status !== 'in_progress') return refuse(ledger, out, s, job, 'a run result needs an in_progress job');
     const ev = s.evidence ?? {};
-    const next = ledger.upsertJob({ id: job.id, agentMinutes: (job.agentMinutes ?? 0) + (ev.minutes ?? 0), meta: { ...(job.meta ?? {}), lastRun: { ...ev.lastRun, files: ev.files ?? [], captures: ev.captures ?? [] } } });
+    const next = ledger.upsertJob({ id: job.id, agentMinutes: (job.agentMinutes ?? 0) + (ev.minutes ?? 0), meta: { ...(job.meta ?? {}), lastRun: { ...ev.lastRun, files: ev.files ?? [], captures: ev.captures ?? [], handoffs: ev.handoffs ?? [] } } });
+    out.effects.push(...deliveryEffects(ledger, { job: next, descriptor, config: instance.config }));
+  },
+  // fsw job handoff: the operator finished one step of the last run, with the files it made.
+  handoff_done(ledger, out, s, { job, instance, descriptor }) {
+    const run = job?.meta?.lastRun;
+    if (!job || job.status !== 'in_progress' || !run?.ok) return refuse(ledger, out, s, job, 'an operator step is recorded only on an in_progress job whose run passed acceptance');
+    const step = s.evidence?.step;
+    if (!(run.handoffs ?? []).some((h) => h.id === step)) return refuse(ledger, out, s, job, 'step ' + step + ' is not an operator step of the last run');
+    const handoffs = { ...(job.meta.handoffs ?? {}), [step]: { at: s.at, runAt: run.at, files: s.evidence.files ?? [] } };
+    const next = ledger.upsertJob({ id: job.id, meta: { ...job.meta, handoffs } });
     out.effects.push(...deliveryEffects(ledger, { job: next, descriptor, config: instance.config }));
   },
   run_failed(ledger, out, s, { job }) {

@@ -73,7 +73,7 @@
       "type": "user-handoff",
       "input": "app/, notes/handover.md",
       "output": "iOS build",
-      "ask": "When the brief includes iOS, the operator lends his Mac for this step: he builds app/ in Xcode, checks it on a simulator or an iPhone and uploads it to TestFlight under the customer's Apple developer account. Without a Mac the iOS build waits, and the customer is told the new date before the old one passes."
+      "ask": "When the brief includes iOS, the operator lends his Mac for this step: he builds app/ in Xcode, checks it on a simulator or an iPhone and uploads it to TestFlight under the customer's Apple developer account. Without a Mac the iOS build waits, and the customer is told the new date before the old one passes. When the brief has no iOS app, the step is recorded without files."
     },
     {
       "id": "review",

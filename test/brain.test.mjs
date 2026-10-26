@@ -180,7 +180,7 @@ test('each catalog line names only the past work the profile ties to it and what
   await decide(t, ctx(makeInstance(), 'soomgo', codex));
   const prompt = codex.calls[0].prompt;
   const line = (id) => prompt.split('\n').find((l) => l.startsWith('- ' + id + ': '));
-  assert.match(line('mobile_app_dev'), /\(fit: none; no past work to cite\); delivers .*iOS build/);
+  assert.match(line('mobile_app_dev'), /\(fit: none; no past work to cite\); delivers .*iOS build on TestFlight, when the brief includes iOS.*; operator steps I do myself after the build passes its checks: builds and signs the Android release/);
   assert.match(line('erp_dev'), /\(fit: none; no past work to cite\); delivers .*admin guide/);
   assert.match(line('landing_page_web'), /\(fit: strong; past work to cite: 예시 프로젝트\)/);
   assert.match(prompt, /Cite a project as past work only for the service whose catalog line names it/);

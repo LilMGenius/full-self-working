@@ -20,6 +20,8 @@ export const STEPS = [
   { id: 'profile-details/photo-and-name', detect: { path: BASE + 'profile-details/photo-and-name', heading: /what is your name/i } },
   { id: 'profile-details/headline-and-summary', detect: { path: BASE + 'profile-details/headline-and-summary', heading: /tell us a bit about yourself/i } },
   { id: 'profile-details/languages-and-birthdate', detect: { path: BASE + 'profile-details/languages-and-birthdate', heading: /what languages do you speak/i } },
+  { id: 'phone-verification', detect: { path: BASE + 'phone-verification', heading: /verify payment method/i } },
+  { id: 'payment-verification', detect: { path: BASE + 'payment-verification', heading: /verify payment method/i } },
 ];
 
 // A step is the wizard path after /new-freelancer/, since profile-details holds several pages.
@@ -206,6 +208,19 @@ export const HANDLERS = {
     },
   },
 };
+
+// Mapped 2026-10-26: /new-freelancer/phone-verification opens /new-freelancer/payment-verification,
+// "Verify payment method" with Back and Skip. Verifying adds a card, so it is money and stays with
+// the operator; config onboarding.freelancer.skipPaymentVerification true leaves the step by Skip so
+// the wizard can finish, and false stops the walk here.
+const paymentVerification = {
+  read: async () => 'not verified',
+  want: (ctx) => (settings(ctx).skipPaymentVerification ? 'not verified' : needs('verifying a payment method adds a card: press Verify payment method on /new-freelancer/payment-verification yourself, or set config onboarding.freelancer.skipPaymentVerification to true')),
+  same: (cur, want) => cur === want,
+  next: (s) => clickMatch(s, 'button, a, [role=button], fl-button', /^Skip$/),
+};
+HANDLERS['phone-verification'] = paymentVerification;
+HANDLERS['payment-verification'] = paymentVerification;
 
 const LANGUAGE_CODES = { en: 'English', ko: 'Korean', ja: 'Japanese', zh: 'Chinese', es: 'Spanish', fr: 'French', de: 'German' };
 // profile.languages holds codes ("ko") or names with a note ("Korean (native)"); the page lists names.

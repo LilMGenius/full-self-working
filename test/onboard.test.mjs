@@ -136,6 +136,19 @@ test('freelancer skill results and the selected panel read as plain skill names'
   assert.deepEqual(parseSelectedSkills('0 skills selected\nSelect at least one skill to help us recommend customized jobs for you.'), []);
 });
 
+test('freelancer payment verification is the operator\'s unless the setting skips it, and Skip is the only control pressed', async () => {
+  const h = FREELANCER['payment-verification'];
+  assert.equal(FREELANCER['phone-verification'], h);
+  assert.match(h.want({ instance: { config: { onboarding: { freelancer: {} } } } }).message, /adds a card/);
+  const want = h.want({ instance: { config: { onboarding: { freelancer: { skipPaymentVerification: true } } } } });
+  assert.ok(h.same(await h.read(), want));
+  let spec;
+  const session = { evaluate: async (_fn, arg) => ((spec = arg.spec), true), click: async () => {} };
+  await h.next(session);
+  const re = new RegExp(spec.re, spec.flags);
+  assert.ok(re.test('Skip') && !re.test('Verify payment method'));
+});
+
 test('freelancer linked-accounts links nothing and leaves by Skip', async () => {
   const h = FREELANCER['linked-accounts'];
   assert.ok(FREELANCER_STEPS.some((s) => s.id === 'linked-accounts'));

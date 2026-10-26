@@ -160,6 +160,7 @@
     "freelancer": {
       "headline": "Web developer for landing pages and web apps",
       "summary": null,
+      "skipPaymentVerification": false,
       "skills": [
         "Web Development",
         "JavaScript"

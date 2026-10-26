@@ -61,9 +61,12 @@
     {"commit":"0107457aab7bec6d3cb366deebd3cc8cb4d7a9bd","subject":"fix(freelancer): a language the list never shows stopped the wizard","owner":["080"],"paths":["src/platforms/freelancer/onboarding.mjs","test/onboard.test.mjs"],"ownerCommit":null},
     {"commit":"b223ed7cb2c75a0e10cfb15051c4fb51ad94ebed","subject":"fix(pipeline): soomgo kept reading requests after the day cash was spent","owner":["030"],"paths":["docs/DESIGN.md","src/brain/approvals.mjs","src/pipeline/thread.mjs","src/supervisor/run.mjs","test/budget-defer.test.mjs","test/pipeline.test.mjs","test/triage.test.mjs"],"ownerCommit":null},
     {"commit":"b340a42ef84fdd810ac4e5b2263d9e9c0be19680","subject":"feat(freelancer): the wizard stopped at the payment verification step","owner":["010","080"],"paths":["examples/instance/config.json","src/platforms/freelancer/onboarding.mjs","test/onboard.test.mjs"],"ownerCommit":null},
-    {"commit":"59cb38181010a2cf42c29dd77e6b4472e3abdbba","subject":"fix(supervisor): a wake just short of its mark ran every job a mark late","owner":["040"],"paths":["src/supervisor/run.mjs","test/handover.test.mjs"],"ownerCommit":null}
+    {"commit":"59cb38181010a2cf42c29dd77e6b4472e3abdbba","subject":"fix(supervisor): a wake just short of its mark ran every job a mark late","owner":["040"],"paths":["src/supervisor/run.mjs","test/handover.test.mjs"],"ownerCommit":null},
+    {"commit":"9b23f5fcd47677041816afa584037317eb5c5f2d","subject":"fix(pipeline): a deferred quote went out for a service turned off","owner":["030"],"paths":["src/pipeline/thread.mjs","test/budget-defer.test.mjs"],"ownerCommit":null},
+    {"commit":"36400c466e9d2adbcfe797fec174de183409eb24","subject":"feat(kmong): a signed-out kmong waited for the operator to sign in","owner":["010","020","040"],"paths":["README.md","docs/DESIGN.md","examples/instance/config.json","src/platforms/kmong/adapter.mjs","src/supervisor/run.mjs","test/adapters.test.mjs","test/supervisor.test.mjs"],"ownerCommit":null}
   ],
   "pathMap": [
+    {"old":"src/platforms/kmong/adapter.mjs","v0":null,"reason":"020 splits it into src/platforms/kmong/page.mjs, listing-page.mjs, conversation.mjs and listing.mjs (2.2); 36400c4 lands in page.mjs and conversation.mjs"},
     {"old":"src/jobs/recipe.mjs","v0":"src/work/recipe.mjs","reason":"030 moves the recipe module (3.24)"},
     {"old":"src/jobs/run.mjs","v0":"src/work/run.mjs","reason":"030 moves the runner and drops its status writes (3.23)"},
     {"old":"src/orders/delivery.mjs","v0":null,"reason":"030 splits it: the delivery text into src/deal/delivery-text.mjs and the rules into src/deal/advance.mjs (3.17, 3.19)"},

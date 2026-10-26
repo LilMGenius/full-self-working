@@ -17,14 +17,20 @@ export const newestTakeover = (db) => db.prepare("SELECT at FROM events WHERE ki
 // A row counts only when its receipt says the surface read the item back on the page: a receipt the
 // operator confirmed with fsw approve --sent (confirmedBy operator) proves a send, not a read-back.
 const readBack = (receipt) => receipt?.observed === true && receipt.confirmedBy == null;
+// A send read back after an interrupted drain keeps the page text as receipt.text, not snippet
+// (src/outbox/drain.mjs reconcile), so the length falls back to it.
+const readBackText = (receipt) => String(receipt.snippet ?? receipt.text ?? '');
+// The outbound message may carry a page time rounded down to the minute, earlier than the row's own
+// created_at, so the lookup starts at that minute.
+const minuteFloor = (iso) => new Date(Math.floor(Date.parse(iso) / 60_000) * 60_000).toISOString();
 
 export function firstOutbound(db, since) {
   const rows = db.prepare("SELECT * FROM outbox WHERE status = 'observed' AND platform IN ('kmong','soomgo') AND kind IN ('message','quote') AND updated_at >= ? ORDER BY updated_at, id").all(since);
   for (const row of rows) {
     const receipt = JSON.parse(row.receipt ?? 'null');
     if (!readBack(receipt)) continue;
-    const message = row.thread_id ? db.prepare("SELECT id, external_id, at FROM messages WHERE thread_id = ? AND direction = 'out' AND at >= ? ORDER BY at, id LIMIT 1").get(row.thread_id, row.created_at) ?? null : null;
-    return { outboxId: row.id, key: row.key, platform: row.platform, kind: row.kind, status: row.status, observedAt: row.updated_at, receipt: { observed: true, externalId: receipt.externalId ?? null, snippetLength: String(receipt.snippet ?? '').length }, message: message ? { ...message } : null };
+    const message = row.thread_id ? db.prepare("SELECT id, external_id, at FROM messages WHERE thread_id = ? AND direction = 'out' AND at >= ? ORDER BY at, id LIMIT 1").get(row.thread_id, minuteFloor(row.created_at)) ?? null : null;
+    return { outboxId: row.id, key: row.key, platform: row.platform, kind: row.kind, status: row.status, observedAt: row.updated_at, receipt: { observed: true, externalId: receipt.externalId ?? null, snippetLength: readBackText(receipt).length }, message: message ? { ...message } : null };
   }
   return null;
 }

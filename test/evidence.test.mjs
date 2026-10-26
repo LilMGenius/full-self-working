@@ -73,6 +73,23 @@ test('a row marked observed whose receipt was not read back is passed over: tamp
   assert.equal(JSON.parse(readFileSync(join(s.liveDir, readdirSync(s.liveDir)[0]), 'utf8')).outboxId, real.id);
 });
 
+const firstFile = (s) => JSON.parse(readFileSync(join(s.liveDir, readdirSync(s.liveDir)[0]), 'utf8'));
+
+test('a send read back after an interrupted drain counts the text its receipt keeps', async (t) => {
+  const s = setup(t);
+  s.sent({ receipt: { observed: true, externalId: 'x1', text: TEXT, reconciled: true }, at: '2026-10-26T23:01:40.000Z' });
+  assert.equal(await s.call(['first-outbound', '--since', '2026-10-26T15:00:00.000Z']), 0);
+  assert.equal(firstFile(s).receipt.snippetLength, TEXT.length);
+});
+
+test('an outbound message stamped at the minute before the row was created is still its message', async (t) => {
+  const s = setup(t);
+  const row = s.sent({ receipt: { observed: true, snippet: TEXT }, at: '2026-10-26T23:01:40.000Z' });
+  s.ledger.db.prepare("UPDATE messages SET at = '2026-10-26T23:01:00.000Z' WHERE external_id = ?").run('m' + row.id);
+  assert.equal(await s.call(['first-outbound', '--since', '2026-10-26T15:00:00.000Z']), 0);
+  assert.equal(firstFile(s).message?.external_id, 'm' + row.id);
+});
+
 test('the start defaults to the newest takeover; with none and no --since, or a bad --since, the exit is 2', async (t) => {
   const s = setup(t);
   assert.equal(await s.call(['first-outbound']), 2);

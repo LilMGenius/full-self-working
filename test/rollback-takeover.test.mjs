@@ -24,7 +24,7 @@ test('the nine steps put the write-back before the compare-and-swap, the two swi
   const back = at(/switch --quiet main/);
   assert.deepEqual([at(/^Stop-ScheduledTask -TaskName fsw-supervisor \(first checks that the task exists and is not Disabled/), wb, detach, cas, back], [0, 2, 3, 4, 5]);
   assert.match(s[4][1], /skipped when refs\/heads\/main already is a{40}/);
-  assert.match(s[6][1], /git -C C checkout --detach --quiet a{40} \(always: finally after step 1; b{40} instead when steps 2 or 3 failed/);
+  assert.match(s[6][1], /git -C C checkout --detach --quiet a{40} \(always: finally after step 1; b{40} instead when steps 2, 3 or 5 failed/);
   assert.match(s[7][1], /Start-ScheduledTask -TaskName fsw-supervisor \(always: finally after step 1; retried once, exit 2 with the failure when both fail\)/);
 });
 
@@ -194,13 +194,16 @@ test('a lock holder that cannot be stopped also keeps v0: no write-back, no old 
   assert.ok(after(r.calls, 'git -C C checkout --detach --quiet ' + B, 'ps Start-ScheduledTask -TaskName fsw-supervisor'));
 });
 
-test('an update-ref that throws switches the checkout back to main, then checks out the old line and starts the task', async () => {
+test('an update-ref that throws (main moved) switches the checkout back to main, keeps v0 on --from, starts the task and exits 2', async () => {
   const r = recording({ updateRefThrows: true });
-  assert.equal(await runRollback(args(), r.io), 1);
+  const said = [];
+  assert.equal(await runRollback(args(), { ...r.io, log: (m) => said.push(m) }), 2);
   const cas = r.calls.findIndex((c) => c.startsWith('git -C R update-ref'));
   assert.deepEqual(r.calls.slice(cas - 1, cas + 2), ['git -C R switch --detach --quiet', 'git -C R update-ref -m rollback: main to the archive tip refs/heads/main ' + A + ' ' + B, 'git -C R switch --quiet main']);
-  assert.ok(after(r.calls, 'git -C R switch --quiet main', 'git -C C checkout --detach --quiet ' + A));
-  assert.ok(after(r.calls, 'git -C C checkout --detach --quiet ' + A, 'ps Start-ScheduledTask -TaskName fsw-supervisor'));
+  assert.ok(!r.calls.includes('git -C C checkout --detach --quiet ' + A));
+  assert.ok(after(r.calls, 'git -C R switch --quiet main', 'git -C C checkout --detach --quiet ' + B));
+  assert.ok(after(r.calls, 'git -C C checkout --detach --quiet ' + B, 'ps Start-ScheduledTask -TaskName fsw-supervisor'));
+  assert.match(said.at(-1), /not rolled back: main moved: the compare-and-swap from bbbbbbb to aaaaaaa failed: cannot lock ref/);
 });
 
 test('a checkout that is not on main is moved without switches, and a main already at --old records no update-ref and repeats the same commands', async () => {

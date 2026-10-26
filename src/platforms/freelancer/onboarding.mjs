@@ -11,12 +11,15 @@ export const MAX_SKILLS = 20;
 export const SUMMARY_MAX = 3000;
 const HEADLINE = 'input[placeholder="e.g. Data Scientist"]';
 const SUMMARY = 'main textarea';
+const LANGUAGE = 'input[placeholder="Please select the languages you speak"]';
+const BIRTHDATE = '#inputBirthdate';
 
 export const STEPS = [
   { id: 'skills', detect: { path: BASE + 'skills', heading: /tell us your top skills/i } },
   { id: 'linked-accounts', detect: { path: BASE + 'linked-accounts', heading: /link your accounts/i } },
   { id: 'profile-details/photo-and-name', detect: { path: BASE + 'profile-details/photo-and-name', heading: /what is your name/i } },
   { id: 'profile-details/headline-and-summary', detect: { path: BASE + 'profile-details/headline-and-summary', heading: /tell us a bit about yourself/i } },
+  { id: 'profile-details/languages-and-birthdate', detect: { path: BASE + 'profile-details/languages-and-birthdate', heading: /what languages do you speak/i } },
 ];
 
 // A step is the wizard path after /new-freelancer/, since profile-details holds several pages.
@@ -153,6 +156,45 @@ export const HANDLERS = {
       if (norm(cur.summary) !== norm(want.summary)) await s.fill(SUMMARY, want.summary);
     },
   },
+  // Mapped 2026-10-26: an fl-multi-select whose search lists each language as p.DropdownItemText with the
+  // language as its id, and #inputBirthdate, a date field typed as MM/DD/YYYY. Languages come from
+  // profile.languages, the birth date from the identity file; the page keeps it for verification.
+  'profile-details/languages-and-birthdate': {
+    show: (cur, want) => 'read back differs in: ' + [!sameSet(cur.languages, want.languages) && 'languages (read ' + cur.languages.join(', ') + ')', cur.birthdate !== want.birthdate && 'birth date'].filter(Boolean).join(', '),
+    read: (s) => s.evaluate(({ input }) => {
+      const box = document.querySelector('fl-multi-select');
+      const skip = new Set([...(box?.querySelectorAll('.DropdownItemText') ?? [])].map((e) => e.innerText.trim()));
+      const lines = String(box?.innerText ?? '').split(/\n/).map((l) => l.trim()).filter((l) => l && !skip.has(l) && l !== document.querySelector(input)?.placeholder);
+      return { languages: lines, birthdate: document.querySelector('#inputBirthdate')?.value ?? '' };
+    }, { input: LANGUAGE }),
+    want: (ctx) => {
+      const id = readIdentity(ctx);
+      if (id instanceof Needs) return id;
+      const languages = profileLanguages(ctx.instance.profile);
+      const birthdate = usDate(id.dateOfBirth);
+      if (!languages.length) return needs('profile.languages lists no language');
+      return birthdate ? { private: 'languages ' + languages.join(', ') + ' and the birth date', languages, birthdate } : needs('the identity file date_of_birth is not a YYYY-MM-DD date');
+    },
+    same: (cur, want) => sameSet(cur.languages, want.languages) && cur.birthdate === want.birthdate,
+    write: async (s, want, cur) => {
+      for (const lang of want.languages.filter((l) => !cur.languages.some((c) => norm(c) === norm(l)))) {
+        await typeInto(s, LANGUAGE, lang);
+        const listed = await waitFor(s, (name) => [...document.querySelectorAll('.DropdownItemText')].some((e) => e.getBoundingClientRect().width > 0 && e.innerText.trim().toLowerCase() === name.toLowerCase()), lang, { timeoutMs: 10000 });
+        if (!listed || !(await clickMatch(s, '.DropdownItemText', lang))) throw new Error('Freelancer lists no language named ' + lang);
+        await sleep(800);
+      }
+      if (cur.birthdate !== want.birthdate) await typeInto(s, BIRTHDATE, want.birthdate);
+    },
+  },
+};
+
+const LANGUAGE_CODES = { en: 'English', ko: 'Korean', ja: 'Japanese', zh: 'Chinese', es: 'Spanish', fr: 'French', de: 'German' };
+// profile.languages holds codes ("ko") or names with a note ("Korean (native)"); the page lists names.
+export const profileLanguages = (profile) => [...new Set((profile?.languages ?? []).map((l) => LANGUAGE_CODES[String(l).toLowerCase()] ?? String(l).split('(')[0].trim()).filter(Boolean))];
+// YYYY-MM-DD as the page's MM/DD/YYYY.
+export const usDate = (ymd) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd ?? '').trim());
+  return m ? m[2] + '/' + m[3] + '/' + m[1] : null;
 };
 
 export function headlineAndSummary(ctx) {

@@ -6,7 +6,7 @@ import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { parseArgs, run } from '../src/cli/onboard.mjs';
 import { blockOf, dayLabel, humanize, readIdentity, walkWizard } from '../src/platforms/onboarding.mjs';
-import { HANDLERS as FREELANCER, STEPS as FREELANCER_STEPS, addSkill, headlineAndSummary, parseSelectedSkills, resultPattern, skillOfResult, splitLegalName, stepOfUrl as freelancerStep } from '../src/platforms/freelancer/onboarding.mjs';
+import { HANDLERS as FREELANCER, STEPS as FREELANCER_STEPS, addSkill, headlineAndSummary, parseSelectedSkills, profileLanguages, resultPattern, skillOfResult, splitLegalName, stepOfUrl as freelancerStep, usDate } from '../src/platforms/freelancer/onboarding.mjs';
 import { HANDLERS as UPWORK, employmentEntries, onboard, parseEmploymentCard, parsePeriod, splitTitle, stepOfUrl, upworkSpecialties } from '../src/platforms/upwork/onboarding.mjs';
 import { tempDir } from './tmp.mjs';
 
@@ -196,6 +196,34 @@ test('freelancer headline-and-summary takes the configured headline and the prof
   };
   await h.write(session, want, await h.read(session));
   assert.ok(h.same(await h.read(session), want));
+});
+
+test('freelancer languages-and-birthdate picks each profile language from the list and types the birth date as MM/DD/YYYY', async () => {
+  assert.deepEqual(profileLanguages({ languages: ['Korean (native)', 'English (working proficiency)'] }), ['Korean', 'English']);
+  assert.deepEqual(profileLanguages({ languages: ['ko', 'en'] }), ['Korean', 'English']);
+  assert.equal(usDate('2000-01-31'), '01/31/2000');
+  assert.equal(usDate('31.01.2000'), null);
+  const h = FREELANCER['profile-details/languages-and-birthdate'];
+  const dir = tempDir('fsw-fl-lang-');
+  const identity = join(dir, 'identity.json');
+  writeFileSync(identity, JSON.stringify({ person: { legal_name_en: 'GILDONG HONG', date_of_birth: '2000-01-31', phone: '+82 10-0000-0000' }, business: { address_en: { street: 's', city: 'c', postal_code: '1', country: 'KR' } } }));
+  const want = h.want({ instance: { config: { onboarding: { identity } }, profile: { languages: ['ko', 'en'] } } });
+  assert.deepEqual([want.languages, want.birthdate], [['Korean', 'English'], '01/31/2000']);
+  assert.ok(!want.private.includes('2000'));
+  const page = { languages: ['Korean'], birthdate: '', typed: [] };
+  const session = {
+    evaluate: async (fn, arg) => {
+      if (typeof arg === 'string') return true;
+      if (arg?.spec) { if (arg.selector === '.DropdownItemText') page.languages.push(arg.spec.exact); return true; }
+      return arg?.selector ? true : { languages: [...page.languages], birthdate: page.birthdate };
+    },
+    click: async () => {},
+    typeKeys: async (sel, text) => { page.typed.push([sel, text]); if (sel === '#inputBirthdate') page.birthdate = text; },
+  };
+  await h.write(session, want, await h.read(session));
+  assert.deepEqual(page.typed.map(([sel]) => sel), ['input[placeholder="Please select the languages you speak"]', '#inputBirthdate']);
+  assert.ok(h.same(await h.read(session), want));
+  assert.equal(h.show({ languages: ['Korean'], birthdate: '01/31/2000' }, want), 'read back differs in: languages (read Korean)');
 });
 
 test('a run within the cooldown of the last one stops before opening the browser, unless forced', async () => {

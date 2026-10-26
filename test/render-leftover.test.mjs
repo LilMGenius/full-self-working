@@ -34,7 +34,12 @@ test('a locked profile does not fail the render, is reported with its folder, an
   assert.deepEqual(reported.map((x) => x.profile), [renderer.profile]);
   assert.match(reported[0].error, /^EPERM /);
   assert.ok(existsSync(renderer.profile));
+  // Cleanup. The close above ended nothing (its process list is injected empty), so the browser may still
+  // be exiting, which under load outlasts the real release's deadline and cannot be hurried by taskkill;
+  // once it is gone, the real release ends any child left and must leave no folder.
+  await renderer.exited;
   const { releaseProfile } = await import('../src/render/html2png.mjs');
   assert.equal((await releaseProfile(renderer.profile)).removed, true);
+  assert.equal(existsSync(renderer.profile), false);
 });
 

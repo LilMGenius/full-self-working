@@ -285,6 +285,14 @@ export async function openRenderer({ chrome = process.env.FSW_CHROME ?? DEFAULT_
     '--disable-sync', '--force-color-profile=srgb', '--font-render-hinting=none',
     '--user-data-dir=' + profile, '--remote-debugging-port=0', 'about:blank',
   ], { stdio: 'ignore', windowsHide: true });
+  // Resolves once the browser process has exited. Under load a closed browser can stay in Windows' exit
+  // for tens of seconds (43 s after Browser.close, measured 2026-10-27 at 93% memory) while taskkill
+  // refuses a process that is already terminating, so a caller that releases the profile later without
+  // the process handle waits on this first.
+  const browserExit = new Promise((ok) => {
+    proc.once('exit', () => ok());
+    proc.once('error', () => ok());
+  });
   const release = async () => {
     const r = await releaseProfile(profile, { proc, processes, kill, remove });
     if (!r.removed) onLeftover(r);
@@ -450,7 +458,7 @@ export async function openRenderer({ chrome = process.env.FSW_CHROME ?? DEFAULT_
     };
   }
 
-  return { render, page, pdf, close, profile };
+  return { render, page, pdf, close, profile, exited: browserExit };
 }
 
 // One-shot render: opens a renderer, captures, closes. Use openRenderer for several captures.

@@ -9,7 +9,7 @@
 // newest tick before --since and the trailing gap to now included (so the gap a handover opens right at
 // --since counts), exceeds --gap-min; the newest tick ran --expect (its code field, or for a
 // 2c77326 tick, which has none, the newest handover or the deploy HEAD); at least one tick the expected code
-// ran answered its poll in full or in part, and so did one of its newest STUCK_POLLS ticks; and supervisor.log since --since
+// ran answered its poll in full or in part once it ran MIN_POLL_TICKS, and so did one of its newest STUCK_POLLS ticks; and supervisor.log since --since
 // parses into exactly --moves ordered handover transactions, --restarts restarts and --imports approval
 // import lines. Writes nothing. Exit 1 names each failure; 2 is a usage error.
 import { DatabaseSync } from 'node:sqlite';
@@ -110,6 +110,11 @@ export function gaps(tickTimes, now) {
   return all.slice(1).map((t, i) => (t - all[i]) / 60_000);
 }
 
+// The check right after a handover sees one or two ticks of the new code, and the first poll can fail
+// while the extension reconnects to the new daemon; one failed tick alone is a note in the report,
+// never a failure that could start a rollback which would not help.
+export const MIN_POLL_TICKS = 2;
+
 // Pure: the report and the failures for what read() gathered. o holds the options as numbers, with
 // takeovers null when --takeovers was not given.
 export function evaluate(s, o) {
@@ -133,7 +138,9 @@ export function evaluate(s, o) {
   // ticks the expected code ran must include one whose poll answered, in full or in part.
   const ran = s.ticks.filter((t) => t.code && s.expect.startsWith(t.code));
   const pollFailed = (t) => Array.isArray(t.jobs) && t.jobs.includes('poll:failed');
-  if (ran.length && ran.every(pollFailed)) f.push('every tick since the handover failed its poll (' + ran.length + ' of ' + ran.length + ')');
+  const notes = [];
+  if (ran.length >= MIN_POLL_TICKS && ran.every(pollFailed)) f.push('every tick since the handover failed its poll (' + ran.length + ' of ' + ran.length + ' ticks judged)');
+  else if (ran.length && ran.every(pollFailed)) notes.push('the only tick of the expected code failed its poll (' + ran.length + ' tick judged, ' + MIN_POLL_TICKS + ' needed to fail the check)');
   // One early answer does not cover a total failure that starts hours later. The newest STUCK_POLLS
   // ticks all failing is the run the supervisor itself reports as stuck (half an hour of 5 minute
   // ticks), so a short stall the extension recovers from on its own (three ticks on 2026-10-26) passes.
@@ -145,7 +152,7 @@ export function evaluate(s, o) {
   if (parsed.imports !== o.imports) f.push(parsed.imports + ' approval import lines since ' + o.since + ', expected ' + o.imports);
   if (o.takeovers != null && s.takeovers.length !== o.takeovers) f.push(s.takeovers.length + ' takeover events, expected ' + o.takeovers);
   if (o.takeovers != null && o.takeovers > 0 && s.takeovers.length && s.takeovers.at(-1).to !== s.expect) f.push('the newest takeover event names ' + s.takeovers.at(-1).to + ', expected ' + s.expect);
-  const report = { main: short(s.main), deploy: short(s.deploy), expect: short(s.expect), lockPid: s.lockPid, lockAlive: s.lockAlive, taskState: s.taskState, version: s.version, takeovers: s.takeovers, tickBeforeSince: s.before != null ? new Date(s.before).toISOString() : null, ticks: s.ticks.length, newestJobs: newest?.jobs ?? null, worstGapMin: worst, trailingGapMin: tickGaps.at(-1) ?? null, ranBy: short(ranBy), moves: parsed.moves, restarts: parsed.restarts, imports: parsed.imports, logLinesSince: s.lines.slice(-12) };
+  const report = { notes, main: short(s.main), deploy: short(s.deploy), expect: short(s.expect), lockPid: s.lockPid, lockAlive: s.lockAlive, taskState: s.taskState, version: s.version, takeovers: s.takeovers, tickBeforeSince: s.before != null ? new Date(s.before).toISOString() : null, ticks: s.ticks.length, newestJobs: newest?.jobs ?? null, worstGapMin: worst, trailingGapMin: tickGaps.at(-1) ?? null, ranBy: short(ranBy), moves: parsed.moves, restarts: parsed.restarts, imports: parsed.imports, logLinesSince: s.lines.slice(-12) };
   return { report, failures: f };
 }
 

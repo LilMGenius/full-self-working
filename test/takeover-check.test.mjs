@@ -273,7 +273,7 @@ test('a handover whose ticks all failed their poll fails the check, and one poll
   // 2026-10-27: every poll after the move failed on no_browser_connected while the ticks kept coming.
   const failed = { jobs: ['poll:failed', 'orders:ok'] };
   const ticks = [{ at: T0, code: A, jobs: ['poll:ok'] }, { at: T0 + 5 * 60_000, code: B, ...failed }, { at: T0 + 10 * 60_000, code: B, ...failed }];
-  assert.deepEqual(failuresOf({ ticks }), ['every tick since the handover failed its poll (2 of 2)']);
+  assert.deepEqual(failuresOf({ ticks }), ['every tick since the handover failed its poll (2 of 2 ticks judged)']);
   // The tick before the move is the old code's; only ticks the new code ran are counted.
   const answered = [ticks[0], ticks[1], { at: T0 + 10 * 60_000, code: B, jobs: ['poll:partial', 'orders:ok'] }];
   assert.deepEqual(failuresOf({ ticks: answered }), []);
@@ -294,4 +294,16 @@ test('a poll failure that starts after one early answer fails the check once the
   // One answered tick among the newest six passes.
   const recovered = [...early, ...failed(5, 10), tick(35, ['poll:partial'])];
   assert.deepEqual(failuresOf({ ticks: recovered, ...now(recovered) }), []);
+});
+
+test('one failed tick right after a handover is a note, and two failed ticks fail the check', () => {
+  // The check right after a handover (--gap-min 8) sees one or two ticks of the new code; the first poll
+  // can fail while the extension reconnects to the new daemon.
+  const failed = (min) => ({ at: T0 + min * 60_000, code: B, jobs: ['poll:failed', 'orders:ok'] });
+  const one = [{ at: T0, code: A, jobs: ['poll:ok'] }, failed(5)];
+  const r = evaluate({ ...good(), ticks: one, now: T0 + 6 * 60_000 }, opts);
+  assert.deepEqual(r.failures, []);
+  assert.deepEqual(r.report.notes, ['the only tick of the expected code failed its poll (1 tick judged, 2 needed to fail the check)']);
+  const two = [...one, failed(10)];
+  assert.deepEqual(failuresOf({ ticks: two, now: T0 + 11 * 60_000 }), ['every tick since the handover failed its poll (2 of 2 ticks judged)']);
 });

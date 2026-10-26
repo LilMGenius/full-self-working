@@ -173,6 +173,26 @@ test('a thread whose pass threw is passed again on the next ticks, at most THREA
   assert.deepEqual(reads(fourth).map((c) => c.ref), []);
 });
 
+
+// soomgo chat 239686622 on 2026-10-26: one read timed out at 15:21Z, and the observe ticks after it read the
+// unchanged chat again every five minutes, because a read that succeeded left the failure on the thread.
+test('a read that succeeds after a failed one clears the failure, so an unchanged thread is not read again', async () => {
+  const s = setup((c) => ({ ...c, platforms: { ...c.platforms, kmong: { ...c.platforms.kmong, mode: 'observe' } } }));
+  const at = hoursBefore(NOON, 2);
+  const row = inbound('kmong', 'k1', { unread: false, at });
+  let fail = true;
+  const surface = () => scriptedSurface({ sense: [row], threads: (ref) => (fail ? Object.assign(new Error('tool RPC timed out after 20s'), { code: 'timeout' }) : chat('kmong', ref, '문의드립니다', at)) });
+  const first = surface();
+  await s.run('kmong', first);
+  fail = false;
+  const second = surface();
+  await s.run('kmong', second);
+  const third = surface();
+  await s.run('kmong', third);
+  assert.deepEqual([reads(first).length, reads(second).length, reads(third).length], [1, 1, 0]);
+  assert.equal(s.ledger.listThreads({ platform: 'kmong' }).find((t) => t.externalId === 'k1').meta.failed, undefined);
+});
+
 test('a deposit request the client paid before the hand-over goes stale and is never sent', async () => {
   const s = setup((c) => ({ ...c, platforms: { ...c.platforms, soomgo: { ...c.platforms.soomgo, services: ['landing_page_web', 'lesson_tutoring'] } } }));
   const descriptor = loadDescriptor('soomgo');

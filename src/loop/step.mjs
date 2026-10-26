@@ -176,16 +176,22 @@ export async function step(platform, ctx) {
         // time a platform notice moved past the newest stored message is not decided again every tick; a
         // night read holds only for observe ticks.
         const settled = (by) => ({ at: ib.at ?? null, by, key });
+        // A read that went through ends a failure an earlier pass recorded (meta.failed), which would
+        // otherwise send the unchanged thread back through triage every tick until something went out.
+        const readMeta = (extra) => {
+          const { failed, ...meta } = ledger.getThread(row.id).meta ?? {};
+          return { ...meta, ...extra };
+        };
         if (t.action === 'observe') {
           event('thread.observed', ref, { unread: false, messages: (thread.messages ?? []).length });
-          ledger.upsertThread({ platform, externalId: ref, kind: ib.kind ?? 'message', meta: { ...(ledger.getThread(row.id).meta ?? {}), settled: settled('observe') } });
+          ledger.upsertThread({ platform, externalId: ref, kind: ib.kind ?? 'message', meta: readMeta({ settled: settled('observe') }) });
           bump('threads', 'observed');
           continue;
         }
         // The request page can count more quotes than the list row did; a full request parks before the model.
         const full = fullReason({ kind: ib.kind, quoteCount: thread.quoteCount ?? ib.quoteCount }, descriptor);
         if (full) {
-          ledger.upsertThread({ platform, externalId: ref, kind: ib.kind ?? 'message', meta: { ...(ledger.getThread(row.id).meta ?? {}), skipped: { at: ib.at ?? null, reason: full, key } } });
+          ledger.upsertThread({ platform, externalId: ref, kind: ib.kind ?? 'message', meta: readMeta({ skipped: { at: ib.at ?? null, reason: full, key } }) });
           event(parkEvent(full), ref, { reason: full, service: ib.service ?? null });
           bump('threads', 'parked');
           continue;
@@ -194,7 +200,7 @@ export async function step(platform, ctx) {
         const view = { ...thread, platform, ref, kind: ib.kind ?? 'message', stage, serviceLabel: ib.service ?? null, requestId: ib.requestId ?? null, customer: thread.customer ?? ib.customer ?? null, quoteCostKRW: thread.quoteCostKRW ?? ib.quoteCostKRW ?? null };
         const r = await (ctx.decide ?? defaultDecide)(view, { instance, descriptor, priceTable, ...(ctx.runCodex ? { runCodex: ctx.runCodex } : {}) });
         const d = r.decision;
-        ledger.upsertThread({ platform, externalId: ref, kind: view.kind, service: d.service ?? undefined, language: d.language ?? undefined, status: d.intent, meta: { ...(ledger.getThread(row.id).meta ?? {}), stage, settled: settled('decide') } });
+        ledger.upsertThread({ platform, externalId: ref, kind: view.kind, service: d.service ?? undefined, language: d.language ?? undefined, status: d.intent, meta: readMeta({ stage, settled: settled('decide') }) });
         event('brain.decision', ref, { intent: d.intent, service: d.service, confidence: d.confidence, modelCalls: r.modelCalls, needsOperator: d.needsOperator, reply: d.reply !== null });
         // A change request on delivered work reopens its job whatever happens to the reply.
         const delivered = d.intent === 'revision' ? ledger.listJobs({ platform, status: 'delivered' }).find((j) => j.threadId === row.id) : null;

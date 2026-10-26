@@ -364,3 +364,21 @@ test('an approved quote no day can pay does not take the last quote of the day f
   assert.deepEqual([r.threads.budget, codex.calls, reads(surface).length], [undefined, 1, 1]);
 });
 
+
+test('a deal signal that fails on every tick tells the operator once', async () => {
+  const { readFileSync } = await import('node:fs');
+  const s = setup();
+  const t = s.ledger.upsertThread({ platform: 'soomgo', externalId: 'r1', kind: 'request' });
+  const row = plan(s.ledger, { platform: 'soomgo', threadId: t.id, kind: 'quote', payload: { text: REPLY, amountKRW: 300000, costKRW: 990, service: 'landing_page_web', thread: { kind: 'request', stage: 'pre_order' } } });
+  setStatus(s.ledger, row.id, { from: 'planned', to: 'sending' });
+  setStatus(s.ledger, row.id, { from: 'sending', to: 'observed', receipt: { observed: true, cashSpentKRW: 990 } });
+  s.ledger.addQuote = () => {
+    throw new Error('disk I/O error');
+  };
+  await s.run('soomgo', scriptedSurface(), { notify: undefined });
+  await s.run('soomgo', scriptedSurface(), { notify: undefined });
+  const requests = readFileSync(join(s.instance.paths.operator, 'requests.md'), 'utf8');
+  assert.equal(requests.split('- dedupe: deal-signal-failed:' + row.id + '\n').length - 1, 1);
+  assert.equal(s.events('deal.signal_failed').length, 2);
+});
+

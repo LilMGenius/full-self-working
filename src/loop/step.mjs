@@ -72,13 +72,22 @@ export async function step(platform, ctx) {
     effects.push(...r.effects);
     return r;
   };
-  // One signal that throws is recorded against its outbox row and the rest still apply.
+  // One signal that throws is recorded against its outbox row and the rest still apply; the operator is told
+  // once per row (the dedupe key holds while the notice stays open), since the sweep retries it every tick.
+  const failedSignals = [];
   const applySent = (signal, ref) => {
     try {
       applyAdvance(signal);
     } catch (err) {
       result.errors.push({ ref, code: err.code ?? null, message: err.message });
       event('deal.signal_failed', ref, { type: signal.type, outboxId: signal.evidence?.outboxId ?? null, code: err.code ?? null, message: err.message });
+      failedSignals.push({ signal, err });
+    }
+  };
+  const reportFailedSignals = async () => {
+    for (const { signal, err } of failedSignals.splice(0)) {
+      const id = signal.evidence?.outboxId ?? null;
+      await (ctx.notify ?? notifyOperator)(instance, { kind: 'order', title: platform + ' ' + signal.type + ' for outbox item ' + id + ' could not be recorded', body: (err.code ? err.code + ' ' : '') + err.message + '\nThe send went out; the deal is retried on every tick until it records it.', dedupeKey: 'deal-signal-failed:' + id });
     }
   };
   let surface;
@@ -208,6 +217,7 @@ export async function step(platform, ctx) {
         bump('outbox', x.action);
         if (x.signal) applySent(x.signal, 'outbox ' + x.id);
       }
+      await reportFailedSignals();
     }
     if (result.errors.length) result.status = 'partial';
     return result;

@@ -81,10 +81,11 @@ export function parseLog(lines) {
 // The newest handover in supervisor.log lines: the log time of the tick before it, so a window starting
 // there holds the whole handover, and the commits it moved between. null when the log holds none.
 export function newestHandover(lines) {
-  const mi = lines.findLastIndex((l) => FORMATS.moved.test(l));
+  const timed = (re) => (l) => re.test(l) && !Number.isNaN(timeOf(l));
+  const mi = lines.findLastIndex(timed(FORMATS.moved));
   if (mi < 0) return null;
   const [, from, to] = lines[mi].match(FORMATS.moved);
-  const ti = lines.slice(0, mi).findLastIndex((l) => FORMATS.tick.test(l));
+  const ti = lines.slice(0, mi).findLastIndex(timed(FORMATS.tick));
   return { since: ti < 0 ? null : lines[ti].slice(0, lines[ti].indexOf(' ')), from, to };
 }
 

@@ -264,4 +264,6 @@ test('--since handover resolves to the tick before the newest handover and that 
   assert.throws(() => resolveWindow({ since: 'handover' }, [at(1) + ' tick poll:ok failures=0']), /no handover/);
   assert.throws(() => resolveWindow({ since: 'handover' }, [at(1) + ' code moved from aaaaaaa to bbbbbbb; restarting']), /no tick before/);
   assert.throws(() => resolveWindow({ since: 'yesterday' }, lines), /not an ISO time/);
+  // A line shaped like a tick but carrying no time (a wrapped or pasted line) is never the window's start.
+  assert.equal(newestHandover([at(1) + ' tick poll:ok failures=0', 'pasted tick poll:ok failures=0', ...handover(A, B, 3).slice(1)]).since, at(1));
 });

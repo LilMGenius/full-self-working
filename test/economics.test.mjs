@@ -6,6 +6,9 @@ import { join } from 'node:path';
 import { summarize, latestSummary, quantile } from '../src/economics/market.mjs';
 import { sellerNet } from '../src/economics/fees.mjs';
 import { buildPriceTable, costFloor, quoteForRequest, splitPayment } from '../src/economics/pricing.mjs';
+import { armStats } from '../src/economics/yield.mjs';
+import { allocate, beta, mulberry32 } from '../src/economics/allocate.mjs';
+import { openLedger } from '../src/core/ledger.mjs';
 import { tempDir } from './tmp.mjs';
 
 const tiered = {
@@ -196,4 +199,103 @@ test('native milestones split like multi_pay; none is one payment; unknown fails
   assert.equal(splitPayment(2000000, config, native).parts.length, 3);
   assert.equal(splitPayment(200000, config, { ...free, milestones: 'none' }).parts.length, 1);
   assert.throws(() => splitPayment(200000, config, { ...free, milestones: 'unknown' }), { code: 'FSW_SPLIT_UNKNOWN' });
+});
+
+test('armStats sums evidence-backed revenue, fees per payment, quote and tool costs, and weighted hours', () => {
+  const ledger = openLedger(':memory:');
+  const t1 = ledger.upsertThread({ platform: 'tiered', externalId: 'a', kind: 'order', service: 'svc' });
+  ledger.upsertJob({ id: 'j1', threadId: t1.id, platform: 'tiered', service: 'svc', status: 'closed', priceKRW: 500000, agentMinutes: 600, humanMinutes: 60, costKRW: 10000 });
+  ledger.addPayment({ jobId: 'j1', kind: 'full', amountKRW: 500000, evidence: 'order state' });
+  ledger.upsertJob({ id: 'j2', platform: 'tiered', service: 'svc', status: 'lost' });
+  for (const [ext, status] of [['b', 'accepted'], ['c', 'declined'], ['d', 'expired']]) {
+    const t = ledger.upsertThread({ platform: 'free', externalId: ext, kind: 'request', service: 'svc' });
+    ledger.addQuote({ threadId: t.id, platform: 'free', service: 'svc', amountKRW: 100000, costKRW: 1990, status });
+    if (status === 'accepted') {
+      ledger.upsertJob({ id: 'j3', threadId: t.id, platform: 'free', service: 'svc', status: 'delivered', agentMinutes: 120 });
+      ledger.addPayment({ jobId: 'j3', kind: 'deposit', amountKRW: 50000, evidence: 'pay' });
+      ledger.addPayment({ jobId: 'j3', kind: 'balance', amountKRW: 50000, evidence: 'pay' });
+    }
+  }
+  const stats = armStats(ledger, { descriptors: { tiered, free }, services, config: { yield: { humanHourWeight: 4 } } });
+  const t = stats.find((a) => a.platform === 'tiered' && a.service === 'svc');
+  assert.deepEqual([t.leads, t.quotes, t.wins, t.losses, t.revenueKRW], [2, 0, 1, 1, 500000]);
+  assert.equal(t.netKRW, 391650 - 10000);
+  assert.deepEqual([t.agentHours, t.humanHours, t.weightedHours], [10, 1, 14]);
+  assert.equal(t.netPerWeightedHour, 381650 / 14);
+  assert.equal(t.expectedHours, 14);
+  const f = stats.find((a) => a.platform === 'free' && a.service === 'svc');
+  assert.deepEqual([f.leads, f.quotes, f.wins, f.losses, f.revenueKRW, f.netKRW], [3, 3, 1, 2, 100000, 100000 - 3 * 1990]);
+  assert.equal(f.expectedHours, 2); // no closed job yet: 1 agent hour + 15 human minutes x weight 4
+  const idle = stats.find((a) => a.platform === 'free' && a.service === 'slow');
+  assert.deepEqual([idle.leads, idle.netKRW, idle.netPerWeightedHour], [0, 0, null]);
+  ledger.close();
+});
+
+test('Marsaglia-Tsang Beta draws match the Beta mean', () => {
+  const rng = mulberry32(7);
+  let s = 0;
+  const n = 20000;
+  for (let i = 0; i < n; i++) s += beta(9, 3, rng);
+  assert.ok(Math.abs(s / n - 0.75) < 0.01, `mean ${s / n}`);
+  let low = 0;
+  for (let i = 0; i < n; i++) low += beta(0.5, 0.5, rng);
+  assert.ok(Math.abs(low / n - 0.5) < 0.01, `mean ${low / n}`);
+});
+
+const allocConfig = {
+  yield: { explorationFloor: 0.05, explorationShare: 0.3, exploreUntilLeads: 10 },
+  platforms: { p: { enabled: true }, off: { enabled: false } },
+};
+const rowP = (service, baseNetKRW, viable = true) => ({ platform: 'p', service, baseNetKRW, viable, reason: viable ? undefined : 'under cost floor' });
+const allocTable = [rowP('star', 500000), rowP('new', 10000), rowP('dud', 10000), rowP('nv', 900000, false), { platform: 'off', service: 'star', baseNetKRW: 500000, viable: true }];
+const allocArms = [
+  { platform: 'p', service: 'star', leads: 40, wins: 30, losses: 2, expectedHours: 5 },
+  { platform: 'p', service: 'new', leads: 0, wins: 0, losses: 0, expectedHours: 5 },
+  { platform: 'p', service: 'dud', leads: 20, wins: 0, losses: 20, expectedHours: 50 },
+  { platform: 'p', service: 'nv', leads: 0, wins: 0, losses: 0, expectedHours: 1 },
+  { platform: 'p', service: 'unpriced', leads: 0, wins: 0, losses: 0, expectedHours: 1 },
+  { platform: 'off', service: 'star', leads: 0, wins: 0, losses: 0, expectedHours: 1 },
+];
+
+test('allocate is deterministic for a seed and independent of arm order', () => {
+  const a = allocate(allocArms, { priceTable: allocTable, config: allocConfig, rng: mulberry32(42) });
+  const b = allocate([...allocArms].reverse(), { priceTable: allocTable, config: allocConfig, rng: mulberry32(42) });
+  assert.deepEqual(a, b);
+  assert.ok(Math.abs(a.reduce((s, r) => s + r.weight, 0) - 1) < 1e-12);
+  assert.equal(a[0].service, 'star');
+});
+
+test('allocate keeps the exploration floor for young arms and zeroes non-viable, unpriced and disabled arms', () => {
+  const w = Object.fromEntries(allocate(allocArms, { priceTable: allocTable, config: allocConfig, rng: mulberry32(1) }).map((r) => [`${r.platform}/${r.service}`, r]));
+  assert.ok(w['p/new'].weight >= 0.05 - 1e-12);
+  assert.equal(w['p/new'].exploring, true);
+  assert.ok(w['p/dud'].weight < 0.05, 'an arm past its exploration leads may fall under the floor');
+  assert.equal(w['p/nv'].weight, 0);
+  assert.equal(w['p/nv'].reason, 'under cost floor');
+  assert.equal(w['p/unpriced'].weight, 0);
+  assert.equal(w['off/star'].weight, 0);
+  assert.equal(w['off/star'].reason, 'platform not enabled');
+});
+
+test('an arm whose price row has no adapter gets no weight, whatever its value', () => {
+  const table = [rowP('star', 500000), { ...rowP('ghost', 900000), adapter: false }];
+  const arms = ['star', 'ghost'].map((service) => ({ platform: 'p', service, leads: 0, wins: 0, losses: 0, expectedHours: 4 }));
+  const w = Object.fromEntries(allocate(arms, { priceTable: table, config: allocConfig, rng: mulberry32(7) }).map((r) => [r.service, r]));
+  assert.equal(w.ghost.weight, 0);
+  assert.equal(w.ghost.reason, 'no adapter');
+  assert.equal(w.star.weight, 1);
+});
+
+test('with more young arms than the floors can serve, the floors share the exploration mass and value still leads', () => {
+  const services = Array.from({ length: 24 }, (_, i) => 's' + String(i).padStart(2, '0'));
+  const table = services.map((s, i) => rowP(s, (i + 1) * 20000));
+  const arms = services.map((s) => ({ platform: 'p', service: s, leads: 0, wins: 0, losses: 0, expectedHours: 4 }));
+  const runs = 200;
+  const mean = Object.fromEntries(services.map((s) => [s, 0]));
+  const rng = mulberry32(3);
+  for (let k = 0; k < runs; k++) for (const r of allocate(arms, { priceTable: table, config: allocConfig, rng })) mean[r.service] += r.weight / runs;
+  const floor = 0.3 / 24;
+  for (const s of services) assert.ok(mean[s] >= floor - 1e-12, s + ' kept its exploration floor');
+  assert.ok(mean.s23 > 3 * mean.s00, 'the most valuable arm gets several times the least valuable one');
+  assert.ok(mean.s23 > 1 / 24 + 0.02, 'weights are not uniform');
 });

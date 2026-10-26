@@ -312,9 +312,6 @@ export async function openSoomgo({ session, sleep = wait } = {}) {
       // minute, and it prints today's rows with a time where a date was expected. A free quote leaves no
       // charge, so it counts when the request page no longer offers the send button.
       const after = await s.evaluate(pageRequestDetail, String(id));
-      // A request that already holds its quota of quotes shows a notice with a 확인 button in place of
-      // taking the quote: nothing is sent and no cash is charged (observed 2026-10-26).
-      if (after.full) return { sent: false, observed: false, pressed: false, code: REQUEST_FULL, reason: 'soomgo took no quote: ' + after.full };
       let rows = [];
       let charge = null;
       for (let i = 0; i < 4 && detail.quoteCostKRW > 0 && !charge; i++) {
@@ -325,6 +322,11 @@ export async function openSoomgo({ session, sleep = wait } = {}) {
       }
       if (charge) return { sent: true, observed: true, cashSpentKRW: -charge.amountKRW, text, observedSnippet: charge.at + ' ' + charge.customer };
       if (detail.quoteCostKRW === 0 && !after.form.sendLabel) return { sent: true, observed: true, cashSpentKRW: 0, text, observedSnippet: 'send button gone' };
+      // A request that already holds its quota of quotes shows a notice with a 확인 button in place of taking
+      // the quote, with no charge (observed 2026-10-26). The same line can follow a
+      // quote that went out as the tenth, so it counts only when the cash history shows no charge for this
+      // press; otherwise the press stays unobserved and counted on the day.
+      if (after.full) return { sent: false, observed: false, pressed: false, code: REQUEST_FULL, reason: 'soomgo took no quote: ' + after.full + ' and 충전/사용 내역 shows no charge for it' };
       const top = rows[0];
       return { sent: false, observed: false, pressed: true, reason: 'the quote charge was not observed in 충전/사용 내역: ' + (top ? 'newest row ' + [top.what, top.customer, top.at].join(' ') : 'no dated row'), costKRW: detail.quoteCostKRW };
     },

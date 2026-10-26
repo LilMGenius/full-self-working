@@ -426,21 +426,29 @@ test('soomgo spend reads today\'s charges by source and every smart quote campai
 });
 
 
-test('a soomgo request that already has its quota of quotes is refused with no press counted and no cash read', async () => {
+test('a soomgo quote on a request that shows the full notice counts as sent when its charge appears, and as refused only without one', async () => {
   const form = { priceInput: true, priceTypes: ['총 비용', '시간 당'], selectedPriceType: '총 비용', textarea: true, fileInput: true, sendLabel: '2,490 캐시로 견적 보내기', sendDisabled: false, saveTemplateChecked: false, priceValue: '', textValue: '' };
-  let reads = 0;
-  const s = fakeSession({
-    pageRequestDetail: () => {
-      reads += 1;
-      const typed = reads >= 2 ? { priceValue: '50,000', textValue: '견적 드립니다' } : {};
-      return { url: 'u', service: '웹 개발', pairs: [], customerText: '', full: reads >= 3 ? '이미 10개 이상 견적을 받은 요청입니다.' : null, form: { ...form, ...typed } };
-    },
-    pageText: '',
-  });
-  const q = await (await openSoomgo({ session: s, sleep: async () => {} })).quote('req1', quoteArgs);
-  assert.deepEqual(q, { sent: false, observed: false, pressed: false, code: 'FSW_SOOMGO_REQUEST_FULL', reason: 'soomgo took no quote: 이미 10개 이상 견적을 받은 요청입니다.' });
-  assert.equal(s.log.includes('navigate https://soomgo.com/mypage/cash-dashboard'), false);
-  const surface = await openSoomgoSurface({ session: s });
-  reads = 0;
-  await assert.rejects(surface.quote('req1', { amountKRW: 50000, text: '견적 드립니다', authorized: { verdict: 'send' }, allowSpendCash: true }), (err) => err.code === 'FSW_SOOMGO_REQUEST_FULL');
+  const fullPage = (cashText) => {
+    let reads = 0;
+    return fakeSession({
+      pageRequestDetail: () => {
+        reads += 1;
+        const typed = reads % 3 !== 1 ? { priceValue: '50,000', textValue: '견적 드립니다' } : {};
+        return { url: 'u', service: '웹 개발', pairs: [], customerText: '', full: reads % 3 === 0 ? '이미 10개 이상 견적을 받은 요청입니다.' : null, form: { ...form, ...typed } };
+      },
+      pageText: cashText,
+    });
+  };
+  const noWait = { sleep: async () => {} };
+  // fsw's quote went out as the tenth: the notice follows it, and its charge is in the history.
+  const tenth = fullPage(['견적 발송 - 고객A', seoulStamp(), '-2,490캐시'].join('\n'));
+  const sent = await (await openSoomgo({ session: tenth, ...noWait })).quote('req1', quoteArgs);
+  assert.deepEqual([sent.observed, sent.cashSpentKRW, sent.code], [true, 2490, undefined]);
+  // The request was already full: the notice and no charge for this press.
+  const full = fullPage(['스마트견적 발송 - 고객A', seoulStamp(), '-1,990캐시'].join('\n'));
+  const refused = await (await openSoomgo({ session: full, ...noWait })).quote('req1', quoteArgs);
+  assert.deepEqual(refused, { sent: false, observed: false, pressed: false, code: 'FSW_SOOMGO_REQUEST_FULL', reason: 'soomgo took no quote: 이미 10개 이상 견적을 받은 요청입니다. and 충전/사용 내역 shows no charge for it' });
+  assert.ok(full.log.indexOf('navigate https://soomgo.com/mypage/cash-dashboard') > full.log.findIndex((l) => l.startsWith('click [data-fsw=quote-send]')), 'the cash history is read after the press');
+  const surface = await openSoomgoSurface({ session: fullPage(''), ...noWait });
+  await assert.rejects(surface.quote('req1', { amountKRW: 50000, text: '견적 드립니다', authorized: { verdict: 'send' }, allowSpendCash: true, customer: '고객A' }), (err) => err.code === 'FSW_SOOMGO_REQUEST_FULL');
 });

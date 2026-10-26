@@ -28,8 +28,8 @@ export const threadOfRequest = (d) => ({
   notices: [],
 });
 
-export async function openSoomgoSurface({ session } = {}) {
-  const a = await openSoomgo({ session });
+export async function openSoomgoSurface({ session, sleep } = {}) {
+  const a = await openSoomgo({ session, ...(sleep ? { sleep } : {}) });
   return {
     platform: 'soomgo',
     session: a.session,

@@ -59,6 +59,13 @@ test('a review on a delivered job writes one reviews row; a bad rating is a usag
   const rows = s.ledger.db.prepare('SELECT job_id, rating, liked FROM reviews').all();
   assert.deepEqual(rows.map((r) => [r.job_id, r.rating]), [['j3', 5]]);
   await assert.rejects(s.call(['j3', 'review', '--rating', '9']), /usage: fsw deal/);
+  // Entered again a minute later: one row stays; a changed rating corrects it.
+  const later = (argv, minute) => run(argv, { instance: s.instance, ledger: s.ledger, log: (l) => s.lines.push(l), notify: async () => ({ written: false }), now: new Date('2026-10-25T03:0' + minute + ':00Z') });
+  assert.equal(await later(['j3', 'review', '--rating', '5', '--text', '좋아요', '--liked', 'true'], 1), 0);
+  assert.equal(s.lines.at(-1), 'job j3 review already recorded with this rating and text; nothing changed');
+  assert.equal(await later(['j3', 'review', '--rating', '4', '--text', '좋아요', '--liked', 'true'], 2), 0);
+  assert.equal(s.lines.at(-1), 'job j3 review corrected; the job keeps one review, now rating 4');
+  assert.deepEqual(s.ledger.db.prepare('SELECT rating FROM reviews').all().map((r) => r.rating), [4]);
   assert.equal(await s.call(['list']), 0);
   assert.match(s.lines.at(-1), /^j3 {2}kmong {2}logo_brand {2}delivered/);
 });

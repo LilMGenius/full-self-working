@@ -189,7 +189,7 @@ test('revision round 1 reopens with start_run and a case; a duplicate changes no
   assert.deepEqual([extra.transitions, effectTypes(extra)], [[], ['record_case:revision_request', 'notify']]);
 });
 
-test('a parsed review read on two ticks is one review, keyed by its evidence key; an operator entry keeps the minute key', () => {
+test('a parsed review read on two ticks is one review, keyed by its evidence key; an operator entry is keyed by its job', () => {
   const s = setup();
   delivered(s);
   const parsed = (hm) => s.step({ type: 'review', platform: 'soomgo', jobId: 'soomgo-c1', at: at(hm), evidence: { key: 'soomgo:review:r1', rating: 5, text: '좋았어요', liked: null, source: 'review-row' } });
@@ -200,7 +200,36 @@ test('a parsed review read on two ticks is one review, keyed by its evidence key
   assert.deepEqual(s.ledger.listMoneyEvents({ event: 'review' }).map((e) => e.key), ['soomgo:review:r1']);
   s.step({ type: 'review', platform: 'soomgo', jobId: 'soomgo-c1', at: at('14:10'), evidence: { source: 'operator', rating: 4, text: 'operator recorded a 4 star review', liked: null } });
   assert.equal(reviews(), 2);
-  assert.match(s.ledger.listMoneyEvents({ event: 'review' }).at(-1).key, /^soomgo:c1:review:\d{4}-/);
+  assert.equal(s.ledger.listMoneyEvents({ event: 'review' }).at(-1).key, 'soomgo:c1:review:operator:soomgo-c1');
+});
+
+test('the operator entering the same review in two different minutes leaves one row; a changed entry corrects that row', () => {
+  const s = setup();
+  delivered(s);
+  const enter = (hm, rating, text) => s.step({ type: 'review', platform: 'soomgo', jobId: 'soomgo-c1', at: at(hm), evidence: { source: 'operator', rating, text, liked: null } });
+  const rows = () => s.ledger.jobReviews('soomgo-c1').map((r) => [r.rating, r.text]);
+  assert.deepEqual(effectTypes(enter('14:00', 5, '좋았어요')), ['sync_portfolio', 'record_case:review', 'notify']);
+  assert.deepEqual(enter('14:01', 5, '좋았어요').effects, []);
+  assert.deepEqual(rows(), [[5, '좋았어요']]);
+  assert.deepEqual(effectTypes(enter('14:05', 4, '좋았어요. 일정이 조금 늦었어요')), ['sync_portfolio']);
+  assert.deepEqual(rows(), [[4, '좋았어요. 일정이 조금 늦었어요']]);
+  assert.deepEqual(s.events('deal.review_corrected').map((e) => [e.from.rating, e.to.rating]), [[5, 4]]);
+  assert.equal(s.ledger.listMoneyEvents({ event: 'review' }).length, 1);
+});
+
+test('an operator review on a job not delivered yet is refused and still records once the job is delivered', () => {
+  const s = setup();
+  const t = s.thread('c1');
+  s.step(s.quoteSignal(t));
+  s.step(s.notices(t, [{ text: NOTICE.hired, at: at('10:58') }])[0]);
+  s.step({ type: 'review', platform: 'soomgo', jobId: 'soomgo-c1', at: at('11:00'), evidence: { source: 'operator', rating: 5, text: '좋았어요', liked: null } });
+  assert.deepEqual(s.ledger.jobReviews('soomgo-c1'), []);
+  assert.equal(s.ledger.listMoneyEvents({ event: 'review' }).length, 0);
+  s.step(s.notices(t, [{ text: NOTICE.paid('150,000'), at: at('11:58') }])[0]);
+  s.step({ type: 'run_started', platform: 'soomgo', jobId: 'soomgo-c1', at: at('12:00'), evidence: {} });
+  s.step({ type: 'delivery_observed', platform: 'soomgo', jobId: 'soomgo-c1', at: at('13:00'), evidence: {} });
+  s.step({ type: 'review', platform: 'soomgo', jobId: 'soomgo-c1', at: at('14:00'), evidence: { source: 'operator', rating: 5, text: '좋았어요', liked: null } });
+  assert.deepEqual(s.ledger.jobReviews('soomgo-c1').map((r) => r.rating), [5]);
 });
 
 test('permission granted on a delivered job syncs the portfolio; a refusal on a job never delivered is refused', () => {

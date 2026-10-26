@@ -52,6 +52,12 @@ export async function run(argv, ctx = {}) {
     const refused = ledger.db.prepare("SELECT payload FROM events WHERE id > ? AND kind = 'deal.refused' AND ref = ?").get(before, job.id);
     const review = sub === 'review' ? ledger.db.prepare("SELECT payload FROM events WHERE id > ? AND kind = 'money.review'").get(before) : null;
     const reason = refused ? JSON.parse(refused.payload).reason : review && !JSON.parse(review.payload).applied ? JSON.parse(review.payload).note : null;
+    // A job has one review: entering it again corrects that row or, unchanged, records nothing.
+    if (sub === 'review' && !review) {
+      const corrected = ledger.db.prepare("SELECT payload FROM events WHERE id > ? AND kind = 'deal.review_corrected' AND ref = ?").get(before, job.id);
+      log('job ' + job.id + ' review ' + (corrected ? 'corrected; the job keeps one review, now rating ' + JSON.parse(corrected.payload).to.rating : 'already recorded with this rating and text; nothing changed'));
+      return 0;
+    }
     // A grant over a refusal publishes work the client asked to keep private, so the operator sees what he lifted.
     if (!reason && signal.type === 'permission_granted' && prior.permission === 'denied') log('job ' + job.id + ' permission granted lifts the refusal recorded ' + (prior.answeredAt ?? 'earlier') + ' from ' + (prior.source ?? 'unknown') + (prior.quote ? ': "' + prior.quote + '"' : ' (no client sentence kept)'));
     log('job ' + job.id + ' ' + sub + (reason ? ' refused: ' + reason : ' recorded; the portfolio is synced and the next daily publish shows it'));

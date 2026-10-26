@@ -16,14 +16,15 @@ const msgText = (m) => String(m.text ?? m.body ?? '');
 // Words that turn an answer into a no or a condition, in Korean and English. A false match only keeps the
 // work private until the operator records the answer.
 const NEGATION = /않|못|말아|말고|마세요|마시고|마십시오|싫|아니|거절|불가|곤란|어렵|비공개|삼가|자제|내부|(?:^|[\s,.!?])안(?=\s|돼|되|됩)|\b(?:no|not|never|don'?t|rather not|private|confidential)\b|n't\b/iu;
-// A yes with a condition is the operator's to scope. Leaving part of the work out or covering it narrows
-// what may be shown wherever the client says it, so those words hold a grant in any sentence of the quoted
-// message or a later one. Words of time and condition (after, once, 다음에) also close common sign-offs
-// (다음에도 잘 부탁드려요, thanks once again), so they hold a grant only in the quoted sentence or in a
-// sentence that also speaks about posting or showing the work.
-const SCOPE = /빼고|빼서|빼주|빼\s+주|제외|만\s*올려|가려|가리|모자이크|\b(?:except|without|blur|hide)\b/iu;
-const TIMING = /후에|이후|다음에|\b(?:only if|as long as|after|once(?!\s+again))\b/iu;
-const POSTING = /올려|올리|게시|공개|포트폴리오|사용|써|쓰|\b(?:post|portfolio|publish|share|show|use)/iu;
+// A yes with a condition is the operator's to scope, wherever the client states it: in any sentence of the
+// quoted message, of the client message just before it, or of a later one. A held yes costs the operator
+// one notice; a granted conditional yes publishes work against the client's word. Scope words leave part of
+// the work out, cover it or set a condition; timing words put the posting off. Timing words also close a
+// few common sign-offs, and only the shapes named in SIGNOFF are taken out of a sentence before it is read.
+const SCOPE = /빼고|빼서|빼주|빼\s+주|제외|만\s*올려|가려|가리|모자이크|\b(?:except|without|blur|hide|only if|as long as)\b/iu;
+const TIMING = /후에|이후|다음에|나서|까지|기다려|\b(?:after|once|until|wait)/iu;
+const SIGNOFF = /(?:다음에|이후로)도?\s*(?:또\s*|계속\s*)?잘\s*부탁|\bonce\s+again\b|후에\s*연락/giu;
+const conditional = (u) => SCOPE.test(u) || TIMING.test(u.replace(SIGNOFF, ' '));
 // A Korean question often drops its question mark: a sentence ending in 나요, 가요, 까요 or a 지요 after a
 // syllable closed by ㄴ (는지요, 인지요, 한지요) asks rather than answers.
 const endsWithBatchimN = (s) => {
@@ -70,11 +71,11 @@ export function permissionSignal({ thread, jobs, decision, at = new Date().toISO
   const mine = (thread.messages ?? []).filter((m) => m.direction === 'out').flatMap((m) => unitsOf(msgText(m)).map(bare));
   if (mine.includes(quote)) return none('grant quoting a sentence of my own message');
   if (unitsOf(msgText(fresh[i])).some((u) => bare(u) === quote && isQuestion(u))) return none('grant quoted from a question');
-  if (fresh.slice(i).some((m) => NEGATION.test(msgText(m)))) return none('grant quoted from a message that says no, or followed by one');
-  // A quote of one sentence is the answer itself; a quote of a whole message is judged sentence by sentence.
-  const quoted = sentencesOf(decision.permissionQuote);
-  const quotedSentence = quoted.length === 1 ? bare(quoted[0]) : null;
-  const conditional = (u) => SCOPE.test(u) || (TIMING.test(u) && (bare(u) === quotedSentence || POSTING.test(u)));
-  if (fresh.slice(i).some((m) => sentencesOf(msgText(m)).some(conditional))) return none('grant with a condition, for the operator to scope');
+  // The answer is read with the client message just before it, which may set what the yes is about, and
+  // every later one. Each sentence counts, the quoted ones included.
+  const pos = inbound.indexOf(fresh[i]);
+  const around = [...(pos > 0 ? [inbound[pos - 1]] : []), ...fresh.slice(i)];
+  if (around.some((m) => NEGATION.test(msgText(m)))) return none('grant quoted from a message that says no, or followed by one');
+  if (around.some((m) => sentencesOf(msgText(m)).some(conditional))) return none('grant with a condition, for the operator to scope');
   return { signals: [signal('permission_granted', job, { quote: norm(decision.permissionQuote), quoteAt: fresh[i].at })], reason: null, jobId: job.id };
 }

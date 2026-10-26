@@ -126,6 +126,27 @@ test('a sign-off with 다음에, 이후, 후에 or once again is no condition on
   assert.equal(timed.reason, 'grant with a condition, for the operator to scope');
 });
 
+test('a timing or condition word in any sentence around the yes holds it, except the named sign-offs', () => {
+  const t = (h) => '2026-10-20T' + h + ':00+09:00';
+  const held = [
+    [['네 좋아요. 다만 오픈은 다음 달이라 그 이후에 부탁드려요.'], '네 좋아요.'],
+    [['네 좋아요. 런칭 후에 해 주세요.'], '네 좋아요.'],
+    [['Sure, go ahead. But please wait until after the launch.'], 'Sure, go ahead.'],
+    [['Yes. Only if the launch is done.'], 'Yes.'],
+    [['네 좋아요. 다만 오픈 이후에 부탁드려요.'], '네 좋아요. 다만 오픈 이후에 부탁드려요.'],
+    [['네 좋아요.', '다만 오픈 이후에 부탁드려요.'], '네 좋아요.'],
+    [['네 좋아요\n오픈 이후에 부탁드려요'], '네 좋아요'],
+    [['네 좋아요. 오픈하고 나서 부탁드려요'], '네 좋아요.'],
+    [['네 좋아요. 다음 달까지는 기다려 주세요'], '네 좋아요.'],
+    [['Sure. Please wait until we launch'], 'Sure.'],
+    [['오픈 이후에 부탁드려요.', '네 좋아요.'], '네 좋아요.'],
+  ];
+  for (const [texts, quote] of held) {
+    const r = single({ thread: thread(texts.map((x, k) => msg('in', x, t('11:0' + k)))), job, decision: decision('granted', quote) });
+    assert.deepEqual([r.signal, r.reason], [null, 'grant with a condition, for the operator to scope'], texts.join(' | ') + ' / ' + quote);
+  }
+});
+
 test('a refusal needs no quote and becomes permission_refused', () => {
   const r = single({ thread: thread([]), job, decision: decision('refused', null), at: '2026-10-20T12:00:00+09:00' });
   assert.equal(r.signal.type, 'permission_refused');

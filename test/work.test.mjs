@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -13,6 +13,7 @@ import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { codexArgs } from '../src/brain/codex.mjs';
 import { parseJobAnswer, parseJwcStream } from '../src/brain/jwc.mjs';
 import { deliveryAllowed, startAllowed } from '../src/deal/index.mjs';
+import { openRenderer } from '../src/render/html2png.mjs';
 import { tempDir } from './tmp.mjs';
 // A real PNG of the given size (white, 8-bit grey), so the header parser reads what a renderer writes.
 function png(width, height) {
@@ -47,6 +48,18 @@ function workDir(files) {
 const recipe = (deliverables, acceptance) => ({ deliverables, acceptance });
 const page = (body, css = '') => '<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{margin:0;font-family:system-ui,sans-serif}' + css + '</style></head><body>' + body + '</body></html>';
 
+// The viewports tests share one headless Chrome, closed once after the file. A close waits for the
+// browser's real exit, which under two concurrent suites took 18 to 50 s, so a close per acceptance run
+// put three of those waits inside two test budgets; each acceptance run's own close is left to this one.
+let renderer = null;
+const sharedRenderer = async () => {
+  renderer ??= openRenderer();
+  return { ...(await renderer), close: async () => {} };
+};
+after(async () => {
+  if (renderer) await (await renderer).close();
+});
+
 test('the image check fails a PNG of the wrong size and passes the right one', async () => {
   const { work } = workDir({ 'logo/a.png': png(800, 600), 'logo/b.png': png(1024, 1024) });
   const r = await runAcceptance(work, recipe([{ path: 'logo/*.png', format: 'png', constraints: { width: 1024, height: 1024 } }], [{ check: 'files' }, { check: 'image' }]));
@@ -79,7 +92,7 @@ test('sloplint fails a floor phrase in HTML text, including one written as an en
 test('viewports fails a page that overflows at phone width and writes JPEG captures under qa/', { timeout: 120000 }, async () => {
   const wide = page('<main><h1>오늘의 빵</h1><div class="strip">가로로 넘치는 띠</div></main>', '.strip{width:900px;background:#eee}');
   const { job, work } = workDir({ 'site/index.html': wide });
-  const r = await runAcceptance(work, recipe([{ path: 'site/index.html', format: 'html' }], [{ check: 'viewports', widths: [390, 1440] }]));
+  const r = await runAcceptance(work, recipe([{ path: 'site/index.html', format: 'html' }], [{ check: 'viewports', widths: [390, 1440] }]), { openRenderer: sharedRenderer });
   const v = r.results[0];
   assert.equal(v.ok, false, v.detail);
   assert.match(v.detail, /site\/index\.html@390: horizontal overflow 900 > 390 \(div\.strip\)/);
@@ -94,11 +107,11 @@ test('viewports fails a page that overflows at phone width and writes JPEG captu
 test('viewports fails a short label that breaks mid-word in a narrow column', { timeout: 120000 }, async () => {
   const narrow = page('<dl class="row"><dt>영업시간</dt><dd>화요일부터 일요일</dd></dl>', '.row{display:grid;grid-template-columns:40px 1fr;font-size:18px}');
   const { work } = workDir({ 'site/index.html': narrow });
-  const r = await runAcceptance(work, recipe([{ path: 'site/index.html', format: 'html' }], [{ check: 'viewports', widths: [390] }]));
+  const r = await runAcceptance(work, recipe([{ path: 'site/index.html', format: 'html' }], [{ check: 'viewports', widths: [390] }]), { openRenderer: sharedRenderer });
   assert.equal(r.ok, false);
   assert.match(r.results[0].detail, /site\/index\.html@390: words split across lines 영업시간/);
   const wide = workDir({ 'site/index.html': narrow.replace('40px', '120px') });
-  const ok = await runAcceptance(wide.work, recipe([{ path: 'site/index.html', format: 'html' }], [{ check: 'viewports', widths: [390] }]));
+  const ok = await runAcceptance(wide.work, recipe([{ path: 'site/index.html', format: 'html' }], [{ check: 'viewports', widths: [390] }]), { openRenderer: sharedRenderer });
   assert.equal(ok.ok, true, ok.results[0].detail);
 });
 

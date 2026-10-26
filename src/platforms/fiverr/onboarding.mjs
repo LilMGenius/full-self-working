@@ -299,8 +299,11 @@ export async function onboard(session, ctx) {
     try {
       r = await fn(session, ctx);
     } catch (err) {
-      if (err.code !== 'FSW_FIVERR_CHALLENGE') throw err;
-      r = result(id, 'needs-operator', err.message);
+      // A human check is the operator's; a spent hourly action budget (each skill takes several
+      // presses) leaves the rest to the next run, which reads the page and continues.
+      if (err.code === 'FSW_FIVERR_CHALLENGE') r = result(id, 'needs-operator', err.message);
+      else if (err.code === 'FSW_PACING_LIMIT') r = result(id, 'filled', 'stopped at the hourly action budget; rerun after an hour to continue');
+      else throw err;
       out.push(r);
       log(id + ': ' + r.state + ' ' + r.detail);
       break;

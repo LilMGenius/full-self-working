@@ -2,7 +2,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
-import { STEPS, aboutOf, addSkill, displayName, gateTexts, languagesOf, parseProfileText, skillCandidates, skillLevel, titleOf, unsetFields } from '../src/platforms/fiverr/onboarding.mjs';
+import { STEPS, aboutOf, addSkill, displayName, gateTexts, languagesOf, onboard, parseProfileText, skillCandidates, skillLevel, titleOf, unsetFields } from '../src/platforms/fiverr/onboarding.mjs';
+
+test('a spent hourly action budget ends the run with a report instead of a crash', async () => {
+  const session = {
+    guard: { beforeAction() { throw Object.assign(new Error('fiverr: action limit of 60 per hour reached'), { code: 'FSW_PACING_LIMIT' }); } },
+    navigate: async () => 'https://www.fiverr.com/seller_onboarding/overview',
+    evaluate: async () => ({ url: 'https://www.fiverr.com/seller_onboarding/overview', heading: 'Grow your brand.', text: 'Grow your brand.' }),
+  };
+  const out = await onboard(session, { apply: true, instance: { profile: {}, config: {} } });
+  assert.deepEqual(out.map((r) => [r.step, r.state]), [['start', 'filled']]);
+  assert.match(out[0].detail, /hourly action budget/);
+});
 
 test('a skill is typed only after its input renders, and an input that never renders adds nothing', async () => {
   // The input shows on the third look after Add new, as it renders about 2 s late on the live page.

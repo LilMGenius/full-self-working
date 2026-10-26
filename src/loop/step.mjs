@@ -48,7 +48,13 @@ export async function step(platform, ctx) {
   // predicate authorize holds sends with.
   let { mode } = operatingMode(cfg.mode, { forceMode, now, instance });
   result.mode = mode;
-  const descriptor = loadDescriptor(platform);
+  // A platform id no descriptor names fails this platform's step alone; the poll's other steps still run.
+  let descriptor;
+  try {
+    descriptor = loadDescriptor(platform);
+  } catch (err) {
+    return { ...result, status: 'failed', error: err.message, code: err.code ?? null };
+  }
   const load = ctx.loadRecipe ?? ((service) => loadRecipe(service));
   const dealCtx = { instance, descriptor, now, loadRecipe: load };
   const effCtx = { instance, ledger, notify: ctx.notify, spawnJob: ctx.spawnJob, loadRecipe: load };

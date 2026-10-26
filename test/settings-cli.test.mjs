@@ -10,6 +10,7 @@ import { openLedger } from '../src/core/ledger.mjs';
 import { defaultsOf, keyInfo, loadSchema, undocumentedKeys, unmadeChoices, validateConfig } from '../src/core/config.mjs';
 import { generated } from '../scripts/gen-example-config.mjs';
 import { run } from '../src/cli/settings.mjs';
+import { listDescriptors } from '../src/platforms/registry.mjs';
 import { tempDir } from './tmp.mjs';
 
 function instanceDir() {
@@ -42,6 +43,17 @@ test('set of an invalid enum exits 1 and leaves config.json byte-identical', asy
   const r = await call(dir, ['set', 'platforms.soomgo.mode', 'loud']);
   assert.equal(r.code, 1);
   assert.match(r.err[0], /^settings: config\/platforms\/soomgo\/mode must be equal to one of the allowed values: "observe", "draft", "auto"; config.json is unchanged$/);
+  assert.deepEqual(readFileSync(join(dir, 'config.json')), before);
+  assert.deepEqual(r.events, []);
+});
+
+test('set under a platform id no descriptor names exits 1 and leaves config.json byte-identical', async () => {
+  assert.deepEqual(loadSchema().properties.platforms.propertyNames.enum, listDescriptors());
+  const dir = instanceDir();
+  const before = readFileSync(join(dir, 'config.json'));
+  const r = await call(dir, ['set', 'platforms.soomg.enabled', 'true']);
+  assert.equal(r.code, 1);
+  assert.match(r.err[0], /^settings: config\/platforms key "soomg" must be equal to one of the allowed values: "fiverr", .*"wishket"; config.json is unchanged$/);
   assert.deepEqual(readFileSync(join(dir, 'config.json')), before);
   assert.deepEqual(r.events, []);
 });

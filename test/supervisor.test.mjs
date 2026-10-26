@@ -295,6 +295,19 @@ test('a sign-in that throws after the form went out counts against the hour, and
   assert.deepEqual(written.filter((f) => readFileSync(f, 'utf8').includes(password)), []);
 });
 
+test('a poll over a platform id no descriptor names fails that platform alone and records the others', async () => {
+  const instance = makeInstance({ soomg: { enabled: true, mode: 'auto' }, kmong: { enabled: true, mode: 'auto' } });
+  const ledger = openLedger(':memory:');
+  const opened = [];
+  const s = await runTick({ instance, ledger, now: new Date('2026-10-26T01:00:00Z'), state: { lastRuns: {} }, only: ['poll'], openSurface: async (id) => (opened.push(id), loggingSurface([])), notify: quiet, persist: false });
+  const poll = s.jobs[0];
+  assert.deepEqual(poll.platforms.map((r) => [r.platform, r.status, r.code ?? null]), [['soomg', 'failed', 'FSW_DESCRIPTOR_INVALID'], ['kmong', 'ok', null]]);
+  assert.equal(poll.status, 'partial');
+  assert.deepEqual(opened, ['kmong']);
+  const recorded = ledger.db.prepare("SELECT ref, payload FROM events WHERE kind = 'supervisor.platform' ORDER BY id").all().map((e) => [e.ref, JSON.parse(e.payload).status]);
+  assert.deepEqual(recorded, [['soomg', 'failed'], ['kmong', 'ok']]);
+});
+
 // A chat whose list time a platform notice moved past its newest stored message, as 숨고 chat 239668351
 // was on 2026-10-25, when it went through the model on every tick for an hour (e5d20eb).
 function noticeMovedChat() {

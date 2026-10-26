@@ -254,6 +254,9 @@
     "platforms": {
       "type": "object",
       "description": "each marketplace by id",
+      "propertyNames": {
+        "enum": ["fiverr", "freelancer", "kmong", "soomgo", "upwork", "wishket"]
+      },
       "additionalProperties": {
         "$ref": "#/$defs/platform"
       },

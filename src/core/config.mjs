@@ -71,7 +71,8 @@ export async function validateConfig(config, schema = loadSchema()) {
   }
   if (validator(config)) return true;
   const e = validator.errors[0];
-  throw Object.assign(new Error('config' + (e.instancePath || '') + ' ' + e.message + (e.params?.allowedValues ? ': ' + e.params.allowedValues.map((v) => JSON.stringify(v)).join(', ') : '')), { code: 'FSW_CONFIG_INVALID' });
+  // A map key the schema refuses (propertyNames) is named, since the path alone stops at the map.
+  throw Object.assign(new Error('config' + (e.instancePath || '') + (e.propertyName ? ' key ' + JSON.stringify(e.propertyName) : '') + ' ' + e.message + (e.params?.allowedValues ? ': ' + e.params.allowedValues.map((v) => JSON.stringify(v)).join(', ') : '')), { code: 'FSW_CONFIG_INVALID' });
 }
 
 // Every x-choice key the operator's config.json does not hold, map keys expanded per enabled platform; a

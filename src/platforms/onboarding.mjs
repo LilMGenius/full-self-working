@@ -163,7 +163,9 @@ async function advance(session, id, wiz) {
   else await wiz.advance(session, id);
   const moved = await waitFor(session, (u) => location.href !== u && location.href, before, { timeoutMs: 20000 });
   await sleep(1500);
-  return moved;
+  // A wizard may pass through a page that redirects at once (freelancer's profile-completion-choice
+  // opened photo-and-name on 2026-10-26), so the step is the page it settled on.
+  return moved && (await session.evaluate(() => location.href));
 }
 
 // Walks the wizard from wherever it opens: each known step is read, compared and, when it differs,

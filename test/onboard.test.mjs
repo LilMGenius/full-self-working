@@ -347,6 +347,24 @@ test('under --apply a sign-in page signs in once and reopens the wizard', async 
 
 test('a date picker day is found by its full label', () => {
   assert.equal(dayLabel('1990-01-05'), 'January 05, 1990');
+});
+
+test('next lands on the page a passing redirect settles on, never the redirect itself', async () => {
+  // After Next the wizard shows /w/hop for one read, then settles on /w/b.
+  let reads = 0;
+  let pressed = false;
+  const url = () => (!pressed ? 'https://x.test/w/a' : ++reads <= 1 ? 'https://x.test/w/hop' : 'https://x.test/w/b');
+  const session = { navigate: async () => 'https://x.test/w/a', evaluate: async (fn, arg) => (typeof arg === 'string' ? (url() !== arg ? 'moved' : null) : fn.name === 'pageOutline' ? { url: 'outline' } : typeof fn === 'function' && /location\.href/.test(String(fn)) && !/title/.test(String(fn)) ? url() : { url: 'https://x.test/w/a', title: '', text: '' }) };
+  const h = { read: async () => 1, want: () => 1, same: (c, w) => c === w };
+  const last = { ...h, final: true };
+  const wiz = { name: 'x', steps: [{ id: 'a', detect: {} }, { id: 'b', detect: {} }], handlers: { a: h, b: last }, startUrl: 'https://x.test/w/a', stepUrl: null, stepOfUrl: (u) => (u.includes('/w/') ? u.split('/w/')[1] : null), describe: String, advance: async () => { pressed = true; } };
+  const out = await walkWizard(session, { apply: true }, wiz);
+  assert.ok(!out.some((r) => r.step === 'hop'), JSON.stringify(out));
+  assert.ok(out.some((r) => r.step === 'b' && r.state === 'done'), JSON.stringify(out));
+});
+
+test('a date picker day is found by its full label, for any month', () => {
+  assert.equal(dayLabel('1990-01-05'), 'January 05, 1990');
   assert.equal(dayLabel('2001-12-31'), 'December 31, 2001');
 });
 

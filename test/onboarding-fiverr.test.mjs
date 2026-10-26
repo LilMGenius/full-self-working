@@ -2,7 +2,28 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
-import { STEPS, aboutOf, displayName, gateTexts, languagesOf, parseProfileText, skillCandidates, skillLevel, titleOf, unsetFields } from '../src/platforms/fiverr/onboarding.mjs';
+import { STEPS, aboutOf, addSkill, displayName, gateTexts, languagesOf, parseProfileText, skillCandidates, skillLevel, titleOf, unsetFields } from '../src/platforms/fiverr/onboarding.mjs';
+
+test('a skill is typed only after its input renders, and an input that never renders adds nothing', async () => {
+  // The input shows on the third look after Add new, as it renders about 2 s late on the live page.
+  const make = (showsAfter) => {
+    let looks = 0;
+    const filled = [];
+    return {
+      filled,
+      guard: { beforeAction() {} },
+      evaluate: async (fn, arg) => (typeof arg === 'string' && arg.startsWith('input[') ? ++looks > showsAfter : true),
+      fill: async (sel, v) => { filled.push(v); },
+      press: async () => {},
+    };
+  };
+  const late = make(2);
+  assert.equal(await addSkill(late, 'Node.js', 'PRO', { timeoutMs: 5000 }), true);
+  assert.deepEqual(late.filled, ['Node.js']);
+  const never = make(Infinity);
+  assert.equal(await addSkill(never, 'Node.js', 'PRO', { timeoutMs: 50 }), false);
+  assert.deepEqual(never.filled, []);
+});
 
 const about = 'I build web products and AI tools from the first sketch to deployment. I write the code, ship it, and check it on phone widths before handing it over, and I keep my tools public so the work can be checked.';
 const instance = {

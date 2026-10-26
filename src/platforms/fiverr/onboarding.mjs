@@ -22,7 +22,7 @@
 //   "This name violates our Terms of Service."; the full English name was accepted.
 import { gateOutbound } from '../../policy/gate.mjs';
 import { challengeOf, squash } from '../kit.mjs';
-import { result, sleep } from '../onboarding.mjs';
+import { result, sleep, waitFor } from '../onboarding.mjs';
 
 export const OVERVIEW_URL = 'https://www.fiverr.com/seller_onboarding/overview';
 
@@ -173,10 +173,15 @@ async function setLanguages(session, langs) {
   await sleep(800);
 }
 
-async function addSkill(session, name, level) {
+// The skill input renders about 2 s after "Add new" is pressed (mapped 2026-10-26), so it is awaited
+// before typing; a fill sent earlier failed with selector_not_found and ended the run.
+export async function addSkill(session, name, level, { timeoutMs = 10000 } = {}) {
   const sel = 'input[placeholder^="Add skill or expertise"]';
-  const open = await session.evaluate((sel) => !!document.querySelector(sel), sel);
-  if (!open) await press(session, "const b = [...document.querySelectorAll('button')].find((b) => b.offsetWidth && /^(Add skills and expertise|Add new)$/.test(b.innerText.trim()) && b.closest('section,div') && /Skills and expertise/.test(b.closest('section') ? b.closest('section').innerText : b.parentElement.parentElement.innerText)); return b;");
+  const shown = (sel) => !!document.querySelector(sel)?.offsetWidth;
+  if (!(await session.evaluate(shown, sel))) {
+    await press(session, "const b = [...document.querySelectorAll('button')].find((b) => b.offsetWidth && /^(Add skills and expertise|Add new)$/.test(b.innerText.trim()) && b.closest('section,div') && /Skills and expertise/.test(b.closest('section') ? b.closest('section').innerText : b.parentElement.parentElement.innerText)); return b;");
+    if (!(await waitFor(session, shown, sel, { timeoutMs }))) return false;
+  }
   await press(session, 'return document.querySelector(' + JSON.stringify(sel) + ").closest('[role=combobox]')");
   await session.fill(sel, name);
   await sleep(1800);

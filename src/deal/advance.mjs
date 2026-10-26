@@ -340,8 +340,17 @@ function money(ledger, out, signal, thread, { instance, descriptor, now }) {
   if (live) out.effects.push(notifyEffect(signal.platform + ' ' + signal.type + (signal.amountKRW ? ' ' + signal.amountKRW + ' KRW' : '') + ' in thread ' + thread.externalId, [note, job ? 'job ' + job.id + ' (' + (ledger.getJob(job.id)?.status ?? '') + ')' : null, 'evidence: ' + String(ev.text ?? '').slice(0, 160)].filter(Boolean).join('\n'), 'money:' + key));
 }
 
+// Only the operator's word (fsw deal, source operator) grants without a checked quote or lifts a denial; any
+// other grant must carry the client's sentence from after the delivery and after the last recorded answer.
 const permission = (value) => (ledger, out, s, { job }) => {
   if (!job || !['delivered', 'closed'].includes(job.status)) return refuse(ledger, out, s, job, 'portfolio permission needs a delivered or closed job');
+  const prior = job.meta?.portfolio ?? {};
+  if (value === 'granted' && s.evidence?.source !== 'operator') {
+    if (prior.permission === 'denied') return refuse(ledger, out, s, job, 'only the operator lifts a portfolio denial');
+    const quoteAt = Date.parse(s.evidence?.quoteAt ?? '');
+    const floor = Math.max(Date.parse(job.deliveredAt ?? ''), prior.answeredAt ? Date.parse(prior.answeredAt) : -Infinity);
+    if (!s.evidence?.quote || !(quoteAt > floor)) return refuse(ledger, out, s, job, 'a grant needs the client sentence from after the delivery and the last answer');
+  }
   ledger.upsertJob({ id: job.id, meta: { ...(job.meta ?? {}), portfolio: { ...(job.meta?.portfolio ?? {}), permission: value, answeredAt: s.at, quote: s.evidence?.quote ?? null, source: s.evidence?.source ?? null } } });
   out.effects.push({ type: 'sync_portfolio' });
 };

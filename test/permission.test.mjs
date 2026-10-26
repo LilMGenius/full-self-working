@@ -4,6 +4,8 @@ import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
+import { loadDescriptor } from '../src/platforms/registry.mjs';
+import { advance } from '../src/deal/index.mjs';
 import { step } from '../src/loop/index.mjs';
 import { permissionSignal } from '../src/loop/permission.mjs';
 import { scriptedSurface } from './helpers/surface.mjs';
@@ -73,6 +75,16 @@ test('no answer, or a job that is not delivered or closed, gives no signal and n
   assert.deepEqual(permissionSignal({ thread: thread([]), job: null, decision: decision('refused', null) }), { signal: null, reason: null });
 });
 
+test('a brain grant never replaces a denial, needs nothing over a grant, and quotes only messages after the last answer', () => {
+  const yes = thread([msg('in', GRANT, '2026-10-20T11:00:00+09:00')]);
+  const denied = { ...job, meta: { portfolio: { permission: 'denied', answeredAt: '2026-10-20T13:00:00+09:00', source: 'operator' } } };
+  assert.deepEqual(permissionSignal({ thread: yes, job: denied, decision: decision('granted', GRANT) }), { signal: null, reason: 'the client refused before; only the operator lifts it with fsw deal kmong-k1 permission granted' });
+  const granted = { ...job, meta: { portfolio: { permission: 'granted', answeredAt: '2026-10-20T12:00:00+09:00' } } };
+  assert.deepEqual(permissionSignal({ thread: yes, job: granted, decision: decision('granted', GRANT) }), { signal: null, reason: null });
+  const answered = { ...job, meta: { portfolio: { permission: 'pending', answeredAt: '2026-10-20T12:00:00+09:00' } } };
+  assert.equal(permissionSignal({ thread: yes, job: answered, decision: decision('granted', GRANT) }).signal, null);
+});
+
 // The step: the brain's answer on a delivered thread reaches the deal, or is recorded as unverified.
 function setup() {
   const dir = tempDir('fsw-permission-');
@@ -85,18 +97,22 @@ function setup() {
   const ledger = openLedger(':memory:');
   const t = ledger.upsertThread({ platform: 'kmong', externalId: 'k1', kind: 'message' });
   ledger.upsertJob({ id: 'kmong-k1', threadId: t.id, platform: 'kmong', service: 'landing_page_web', status: 'delivered', deliveredAt: DELIVERED, meta: { portfolio: { permission: 'pending', askedAt: DELIVERED } } });
-  const now = new Date('2026-10-20T12:00:00+09:00');
-  const run = (inboundText, answer) => {
-    const at = '2026-10-20T11:00:00+09:00';
+  const messages = [msg('out', '작업물 전달드립니다. 포트폴리오에 써도 될까요?', DELIVERED)];
+  // One tick: the client wrote inboundText at hour:00 and the step reads the thread at hour:30.
+  const run = (inboundText, answer, hour = 11) => {
+    const at = '2026-10-20T' + hour + ':00:00+09:00';
+    const now = new Date('2026-10-20T' + hour + ':30:00+09:00');
+    messages.push(msg('in', inboundText, at));
     const surface = scriptedSurface({
       sense: [{ platform: 'kmong', ref: 'k1', kind: 'message', at, unread: true, service: null, preview: inboundText, notice: null, status: null, hired: null, quotable: null, expiresAt: null, quoteCostKRW: null, requestId: null, customer: null, quote: null }],
-      threads: () => ({ ref: 'k1', kind: 'message', stage: 'post_order', messages: [msg('out', '작업물 전달드립니다. 포트폴리오에 써도 될까요?', DELIVERED), msg('in', inboundText, at)], notices: [] }),
+      threads: () => ({ ref: 'k1', kind: 'message', stage: 'post_order', messages: [...messages], notices: [] }),
     });
     const d = { intent: 'smalltalk', service: 'landing_page_web', language: 'ko', reply: null, quote: null, needsOperator: false, operatorReason: null, confidence: 0.9, claimsUsed: [], statedBudgetKRW: null, ...answer };
     return step('kmong', { instance, ledger, now, notify: async () => ({ written: true }), openSurface: async () => surface, priceTable: [], runCodex: async () => ({ data: d, durationMs: 1 }) });
   };
   const events = (kind) => ledger.db.prepare('SELECT * FROM events WHERE kind = ? ORDER BY id').all(kind).map((e) => JSON.parse(e.payload));
-  return { ledger, run, events };
+  const deal = (signal) => advance(ledger, { platform: 'kmong', jobId: 'kmong-k1', ...signal }, { instance, descriptor: loadDescriptor('kmong'), now: new Date(signal.at) });
+  return { ledger, run, events, deal };
 }
 
 test('the step sends a quoted grant to the deal, which keeps the quote on the portfolio meta', async () => {
@@ -113,6 +129,32 @@ test('the step records a grant the page text does not back as permission.unverif
   assert.equal(s.ledger.getJob('kmong-k1').meta.portfolio.permission, 'pending');
   assert.deepEqual(s.events('permission.unverified').map((e) => e.reason), ['grant whose quote is not a whole sentence of an inbound message after the delivery']);
   assert.equal(s.events('deal.permission_granted').length, 0);
+});
+
+test('after the operator records a denial, a later thanks never lets the brain grant again from the old sentence', async () => {
+  const s = setup();
+  await s.run(GRANT, { portfolioPermission: 'granted', permissionQuote: GRANT }, 11);
+  assert.equal(s.ledger.getJob('kmong-k1').meta.portfolio.permission, 'granted');
+  s.deal({ type: 'permission_refused', at: '2026-10-20T12:00:00+09:00', evidence: { source: 'operator' } });
+  await s.run('감사합니다!', { portfolioPermission: 'granted', permissionQuote: GRANT }, 13);
+  assert.equal(s.ledger.getJob('kmong-k1').meta.portfolio.permission, 'denied');
+  assert.deepEqual(s.events('permission.unverified').map((e) => e.reason), ['the client refused before; only the operator lifts it with fsw deal kmong-k1 permission granted']);
+  // The deal refuses the same grant if it arrives by another path, with or without a fresh quote time.
+  for (const quoteAt of ['2026-10-20T11:00:00+09:00', '2026-10-20T13:00:00+09:00']) s.deal({ type: 'permission_granted', at: '2026-10-20T13:40:00+09:00', evidence: { quote: GRANT, quoteAt, source: 'brain' } });
+  assert.equal(s.ledger.getJob('kmong-k1').meta.portfolio.permission, 'denied');
+  assert.deepEqual(s.events('deal.refused').map((e) => e.reason), ['only the operator lifts a portfolio denial', 'only the operator lifts a portfolio denial']);
+  s.deal({ type: 'permission_granted', at: '2026-10-20T14:00:00+09:00', evidence: { source: 'operator' } });
+  assert.equal(s.ledger.getJob('kmong-k1').meta.portfolio.permission, 'granted');
+});
+
+test('the deal refuses a grant that is not the operator and carries no client sentence from after the delivery and the last answer', () => {
+  const s = setup();
+  const reason = 'a grant needs the client sentence from after the delivery and the last answer';
+  for (const evidence of [{}, { source: 'brain', quote: GRANT }, { source: 'brain', quote: GRANT, quoteAt: '2026-10-20T09:00:00+09:00' }, { source: 'brain', quote: null, quoteAt: '2026-10-20T11:00:00+09:00' }]) {
+    s.deal({ type: 'permission_granted', at: '2026-10-20T12:00:00+09:00', evidence });
+  }
+  assert.deepEqual(s.events('deal.refused').map((e) => e.reason), [reason, reason, reason, reason]);
+  assert.equal(s.ledger.getJob('kmong-k1').meta.portfolio.permission, 'pending');
 });
 
 test('a model grant without the client sentence keeps the thread reply and is recorded as permission.unverified', async () => {

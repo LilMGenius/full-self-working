@@ -105,7 +105,7 @@ export async function driveLoop({ open }) {
     }
     const portfolioBefore = rankPortfolio(loadItems(instance)).map((i) => i.id);
     const now = new Date();
-    const granted = advance(ledger, { type: 'permission_granted', platform: 'soomgo', jobId: 'soomgo-r100', at: now.toISOString(), evidence: { source: 'test' } }, { instance, descriptor: loadDescriptor('soomgo'), now });
+    const granted = advance(ledger, { type: 'permission_granted', platform: 'soomgo', jobId: 'soomgo-r100', at: now.toISOString(), evidence: { source: 'operator' } }, { instance, descriptor: loadDescriptor('soomgo'), now });
     await applyEffects(granted.effects, { instance, ledger });
     return { instance, ledger, ticks, portfolioBefore };
   } finally {

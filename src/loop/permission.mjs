@@ -22,9 +22,16 @@ export function permissionSignal({ thread, job, decision, at = new Date().toISOS
   const inbound = (thread.messages ?? []).filter((m) => m.direction === 'in' && Number.isFinite(Date.parse(m.at ?? '')) && Date.parse(m.at) > after);
   const signal = (type, evidence) => ({ signal: { type, platform: thread.platform, threadId: job.threadId, jobId: job.id, at, evidence: { ...evidence, source: 'brain' } }, reason: null });
   if (answer === 'refused') return signal('permission_refused', { quote: null });
+  // A denial stands until the operator lifts it, and a grant already recorded needs nothing more.
+  const prior = job.meta?.portfolio ?? {};
+  if (prior.permission === 'denied') return { signal: null, reason: 'the client refused before; only the operator lifts it with fsw deal ' + job.id + ' permission granted' };
+  if (prior.permission === 'granted') return { signal: null, reason: null };
+  // The quote must be newer than the last recorded answer as well as the delivery.
+  const since = prior.answeredAt ? Date.parse(prior.answeredAt) : -Infinity;
+  const fresh = inbound.filter((m) => Date.parse(m.at) > since);
   const quote = bare(decision.permissionQuote);
-  const i = quote.length >= 2 ? inbound.findIndex((m) => bare(msgText(m)) === quote || sentencesOf(msgText(m)).includes(quote)) : -1;
+  const i = quote.length >= 2 ? fresh.findIndex((m) => bare(msgText(m)) === quote || sentencesOf(msgText(m)).includes(quote)) : -1;
   if (i < 0) return { signal: null, reason: 'grant whose quote is not a whole sentence of an inbound message after the delivery' };
-  if (inbound.slice(i).some((m) => NEGATION.test(msgText(m)))) return { signal: null, reason: 'grant quoted from a message that says no, or followed by one' };
-  return signal('permission_granted', { quote: norm(decision.permissionQuote), quoteAt: inbound[i].at });
+  if (fresh.slice(i).some((m) => NEGATION.test(msgText(m)))) return { signal: null, reason: 'grant quoted from a message that says no, or followed by one' };
+  return signal('permission_granted', { quote: norm(decision.permissionQuote), quoteAt: fresh[i].at });
 }

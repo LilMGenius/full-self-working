@@ -16,7 +16,8 @@ const SAMPLES = ['fx.test.mjs', 'ledger.test.mjs', 'economics.test.mjs', 'instan
 
 test('test files leave nothing behind in the temp folder', (t) => {
   const scratch = mkdtempSync(join(tmpdir(), 'fsw-leakguard-'));
-  t.after(() => rmSync(scratch, { recursive: true, force: true }));
+  // Chrome can still hold its own chrome_* folders for a moment after a rendering sample exits.
+  t.after(() => rmSync(scratch, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
   for (const file of SAMPLES) {
     const run = spawnSync(process.execPath, [join(here, file)], {
       env: { ...env, TEMP: scratch, TMP: scratch, TMPDIR: scratch },

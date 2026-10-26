@@ -48,21 +48,17 @@ export function matchReview(row, jobs, threadOf) {
 // opened for the first time) is recorded as stale and told to nobody, as money() keeps history. An
 // undated notice has no minute to key on, so nothing lasting is recorded for it: the notice's dedupe key
 // holds only while its operator entry is open (notifyOperator), and a later undated review notice on the
-// thread reaches the operator once that entry is resolved. An undated notice still on the page after the
-// operator recorded a review is that same notice: it is skipped while the thread's newest review row
-// (reviews.at, the one record every answer path writes) is newer than the row's last change, the row's
-// list time or else the thread's last inbound message, so only the client writing again revives it.
+// thread reaches the operator once that entry is resolved. An undated notice is skipped only when no
+// candidate is left, every delivered or closed job of the thread already holding a review: then the notice
+// still on the page has been answered, while a second job delivered later still gets its ask.
 // Returns the notify effects for the loop.
-export function reviewPosted(ledger, { platform, thread, signal, now = new Date(), rowAt = null }) {
+export function reviewPosted(ledger, { platform, thread, signal, now = new Date() }) {
   const minute = minuteKey(signal.at);
-  if (!minute) {
-    const reviewed = ledger.db.prepare('SELECT max(r.at) AS at FROM reviews r JOIN jobs j ON j.id = r.job_id WHERE j.platform = ? AND j.thread_id = ?').get(platform, thread.id)?.at;
-    const changed = Math.max(Date.parse(rowAt ?? '') || 0, Date.parse(thread.lastInboundAt ?? '') || 0);
-    if (reviewed && Date.parse(reviewed) >= changed) return [];
-  }
   const key = platform + ':' + thread.externalId + ':review_posted:' + (minute ?? 'undated');
   if (minute && ledger.db.prepare("SELECT 1 FROM events WHERE kind = 'review.posted' AND ref = ?").get(key)) return [];
-  const candidates = jobsOfThread(ledger, platform, thread.id).filter((j) => ['delivered', 'closed'].includes(j.status) && !ledger.jobReviews(j.id).length);
+  const delivered = jobsOfThread(ledger, platform, thread.id).filter((j) => ['delivered', 'closed'].includes(j.status));
+  const candidates = delivered.filter((j) => !ledger.jobReviews(j.id).length);
+  if (!minute && delivered.length && !candidates.length) return [];
   if (minute) {
     const stale = !fresh(signal.at, now);
     ledger.addEvent({ kind: 'review.posted', platform, ref: key, payload: { thread: thread.externalId, at: signal.at, candidates: candidates.map((j) => j.id), ...(stale ? { stale: true, note: 'older than ' + MONEY_LOOKBACK_DAYS + ' days; recorded, not told' } : {}) } });

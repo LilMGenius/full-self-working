@@ -23,10 +23,12 @@ const METHOD = { message: 'send', quote: 'quote', pay_request: 'payRequest', del
 export const handles = (surface, kind) => typeof surface?.[METHOD[kind]] === 'function';
 
 // Refusals a surface raises before it touches the page (the 020 contract for the pacing guard): the row
-// goes back as it was and this platform's drain stops for the tick, as the pipeline did on pacing
-// (src/supervisor/run.mjs:239). kmong's proposal refusals (its NOT_TYPED) join it: a spent day quota and
-// a missing enterprise profile stop before anything is typed.
-export const NOT_SENT = ['FSW_PACING_LIMIT', 'FSW_KMONG_QUOTA_SPENT', 'FSW_KMONG_ENTERPRISE_PROFILE'];
+// goes back as it was. Pacing stops this platform's drain for the tick, as the pipeline did
+// (src/supervisor/run.mjs:239). kmong's proposal refusals (its NOT_TYPED), a spent day quota and a
+// missing enterprise profile, stop only the proposal rows of this drain, so a customer reply planned
+// after an older proposal still goes out.
+export const PROPOSAL_NOT_SENT = ['FSW_KMONG_QUOTA_SPENT', 'FSW_KMONG_ENTERPRISE_PROFILE'];
+export const NOT_SENT = ['FSW_PACING_LIMIT', ...PROPOSAL_NOT_SENT];
 // The clock drift allowed between the machine and a platform's line times when reading a send back.
 export const READBACK_MARGIN_MS = 60_000;
 
@@ -151,7 +153,9 @@ export async function drain(ledger, { platform, surface, authorize, ctx }) {
     const u = quotaUsage(ledger, platform, now);
     return { quotes: u.quotes + spentHere.quotes, cashKRW: u.cashKRW + spentHere.cashKRW };
   };
+  let proposalsStopped = false;
   for (const row of ledger.listOutbox({ platform, statuses: ['planned', 'approved'] }).filter((r) => handles(surface, r.kind))) {
+    if (proposalsStopped && row.kind === 'proposal') continue;
     const ready = ctx.hold ? await ctx.hold(row) : null;
     if (ready?.stale || ready?.block) {
       const to = ready.stale ? 'stale' : 'blocked';
@@ -224,6 +228,10 @@ export async function drain(ledger, { platform, surface, authorize, ctx }) {
         setStatus(ledger, row.id, { from: 'sending', to: row.status, reason: err.message });
         ledger.addEvent({ kind: 'send.deferred', platform, ref: row.payload.threadRef, payload: { outboxId: row.id, kind: row.kind, code: err.code, reason: err.message } });
         out.push({ id: row.id, kind: row.kind, action: 'deferred', code: err.code, reason: err.message });
+        if (PROPOSAL_NOT_SENT.includes(err.code) && row.kind === 'proposal') {
+          proposalsStopped = true;
+          continue;
+        }
         break;
       }
       receipt = mayHaveSpent(row, { observed: false, reason: (err.code ? err.code + ' ' : '') + err.message }, now.toISOString());

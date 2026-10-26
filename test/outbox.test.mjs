@@ -273,6 +273,26 @@ test('a missing kmong enterprise profile returns the approved proposal, writes s
   assert.equal(events(s.ledger, 'send.unobserved').length, 0);
 });
 
+test('a refused kmong proposal skips the newer proposals but a newer customer reply still goes out', async () => {
+  const s = setup();
+  const proposals = ['p1', 'p2'].map((ref, i) => {
+    const row = plan(s.ledger, { platform: 'kmong', threadId: s.thread(ref).id, kind: 'proposal', payload: { text: '요청하신 범위로 제안드립니다. 일정은 협의 가능합니다. ' + i, amountKRW: 1000000 } });
+    setStatus(s.ledger, row.id, { from: 'planned', to: 'awaiting_operator', approvalId: '20261020-kmong-1000000' + i });
+    resolve(s.ledger, '20261020-kmong-1000000' + i, { approve: true });
+    return row;
+  });
+  const t = s.thread('t1');
+  const msg = plan(s.ledger, { platform: 'kmong', threadId: t.id, kind: 'message', payload: msgPayload() });
+  const surface = scriptedSurface({ methods: ['propose'], receipts: { propose: [Object.assign(new Error('the enterprise profile is not registered'), { code: 'FSW_KMONG_ENTERPRISE_PROFILE' })] } });
+  const out = await s.run(surface);
+  assert.deepEqual(out.map((x) => [x.id, x.action]), [[proposals[0].id, 'deferred'], [msg.id, 'observed']]);
+  assert.deepEqual([surface.count('propose'), surface.count('send')], [1, 1]);
+  assert.deepEqual(proposals.map((r) => s.ledger.getOutbox(r.id).status), ['approved', 'approved']);
+  assert.equal(s.ledger.getOutbox(msg.id).status, 'observed');
+  assert.equal(outMessages(s.ledger, t.id).length, 1);
+  assert.deepEqual(events(s.ledger, 'send.deferred').map((e) => [e.payload.outboxId, e.payload.code]), [[proposals[0].id, 'FSW_KMONG_ENTERPRISE_PROFILE']]);
+});
+
 test('a row another drain moved before the claim is skipped as moved with no surface call', async () => {
   const s = setup();
   const row = plan(s.ledger, { platform: 'kmong', threadId: s.thread('t1').id, kind: 'message', payload: msgPayload() });

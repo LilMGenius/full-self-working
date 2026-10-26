@@ -24,8 +24,8 @@
     "delivery": "Who delivers the service: agent (the default when absent) runs its recipe in a job; operator means the operator does the work, so the service has no recipe and no job run, and a paid job is handed to the operator (src/orders/run.mjs). An operator service is answered only on platforms whose config platforms.<id>.services lists it.",
     "questions": "What a reply asks before quoting an operator-delivered service, read into the decision prompt.",
     "game_dev": "A small 2D web game: one core loop with menus, checked on a phone and a desktop; deluxe adds levels and saves, premium a backend or a store build. The reviewer plays every build, so reviewer time is the highest in the catalog. 숨고's 게임 개발 guide prices a whole job.",
-    "mobile_app_dev": "A small app for Android and iOS from one Expo React Native codebase: a few screens, local or hosted data and tests; deluxe adds sign-in and a backend, premium push notifications and payments. The job sandbox has neither the Android SDK nor a Mac, so the recipe hands the Android release build to the operator after acceptance and asks for his Mac at the iOS build step; store submission runs under the customer's developer accounts.",
-    "erp_dev": "A small business management system delivered as a web app: records for one business area (items, customers, orders or stock), roles, reports and a spreadsheet import; deluxe covers two or three linked areas, premium an outside integration such as a tax invoice or shop API. The data model and permissions keep the reviewer longest.",
+    "mobile_app_dev": "A small app for Android and iOS from one Expo React Native codebase: a few screens, local or hosted data and tests; deluxe adds sign-in and a backend, premium push notifications and payments. The job sandbox has neither the Android SDK nor a Mac, so the recipe hands the Android release build to the operator after acceptance and asks for his Mac at the iOS build step; store submission runs under the customer's developer accounts. 숨고's 안드로이드 개발 guide prices it, since one service samples one guide and the Android build is the one the agent hands over without the operator's Mac; its iOS 개발 label maps here through the descriptor. 크몽's 모바일 앱 category (602) is its listing market.",
+    "erp_dev": "A small business management system delivered as a web app: records for one business area (items, customers, orders or stock), roles, reports and a spreadsheet import; deluxe covers two or three linked areas, premium an outside integration such as a tax invoice or shop API. The data model and permissions keep the reviewer longest. 숨고's ERP 개발 guide prices it; 크몽 has no ERP category, so it has no kmongCategory.",
     "lesson_tutoring": "A subject lesson the operator teaches in sessions, online or in person. humanMinutes.standard is one 60-minute session and agentHours are zero, since the agent only answers and quotes. 숨고's 프로그래밍/코딩 레슨 guide publishes only an hourly average, which prices one session."
   },
   "landing_page_web": {
@@ -430,6 +430,9 @@
   "mobile_app_dev": {
     "ko": "모바일 앱 개발",
     "en": "Mobile app development",
+    "kmongCategory": "모바일 앱",
+    "kmongCategoryId": 602,
+    "soomgoGuide": "안드로이드 개발",
     "agentHours": {
       "standard": 36,
       "deluxe": 80,
@@ -448,6 +451,8 @@
   "erp_dev": {
     "ko": "ERP 및 업무 관리 시스템 개발",
     "en": "ERP and business management system",
+    "kmongCategory": null,
+    "soomgoGuide": "ERP 개발",
     "agentHours": {
       "standard": 40,
       "deluxe": 90,

@@ -235,6 +235,20 @@ test('a review names its job: on a thread with an older closed job and a newer d
   assert.match(c.note, /corrects the review recorded with rating 5/);
 });
 
+test('a review signal with no job id is refused and writes nothing, the chat notice of a new review included', () => {
+  const s = setup();
+  const t = s.thread('c6');
+  s.ledger.upsertJob({ id: 'old', threadId: t.id, platform: 'soomgo', service: 'landing_page_web', status: 'closed', priceKRW: 100000, deliveredAt: at('09:00') });
+  s.ledger.upsertJob({ id: 'new', threadId: t.id, platform: 'soomgo', service: 'landing_page_web', status: 'delivered', priceKRW: 100000, deliveredAt: at('12:00') });
+  const bare = s.step({ type: 'review', platform: 'soomgo', threadId: t.id, at: at('14:00'), evidence: { source: 'operator', rating: 5, text: 'x', liked: null } });
+  const [notice] = s.notices(t, [{ text: '고객님의 리뷰가 등록되었습니다', at: at('14:05') }]);
+  assert.equal(notice.type, 'review');
+  const fromNotice = s.step(notice);
+  assert.deepEqual([bare.effects, fromNotice.effects], [[], []]);
+  assert.deepEqual([s.ledger.jobReviews('old').length, s.ledger.jobReviews('new').length, s.ledger.listMoneyEvents({ event: 'review' }).length], [0, 0, 0]);
+  assert.deepEqual(s.events('deal.refused').map((e) => e.reason), ['a review signal names no job id; a review is recorded only on the job it names', 'a review signal names no job id; a review is recorded only on the job it names']);
+});
+
 test('a review naming a job of another thread is refused and writes nothing', () => {
   const s = setup();
   const t1 = s.thread('c8');

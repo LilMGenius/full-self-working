@@ -33,11 +33,13 @@ const APPLIED_EVENT = { quote: 'deal.quote_observed', delivery: 'deal.delivery_o
 
 // unappliedObserved(ledger, {platform}) -> outbox rows: observed sends whose deal signal never ran, because
 // the process stopped between the drain's commit and advance (or advance threw). The deal's own events carry
-// the outboxId of every signal it applied or refused; a row imported from the 2c77326 approval files was
-// recorded by the old code and is left out.
+// the outboxId of every signal it applied or refused. A row the 2c77326 code sent was recorded by that code
+// (its quote row is already in the ledger) and is left out: one imported from an approval file
+// (payload.importedFrom) and one v0 planned that the old code sent after a rollback, which the import marks
+// receipt.pipeline 2c77326 when it follows the file.
 export function unappliedObserved(ledger, { platform }) {
   const kinds = Object.keys(APPLIED_EVENT);
-  const rows = ledger.listOutbox({ platform, statuses: ['observed'], kinds }).filter((r) => !r.payload.importedFrom);
+  const rows = ledger.listOutbox({ platform, statuses: ['observed'], kinds }).filter((r) => !r.payload.importedFrom && r.receipt?.pipeline !== 'd605c5d');
   if (!rows.length) return [];
   const marks = Object.values(APPLIED_EVENT).map(() => '?').join(', ');
   const applied = new Set(ledger.db.prepare('SELECT payload FROM events WHERE kind IN (' + marks + ')').all(...Object.values(APPLIED_EVENT)).map((e) => JSON.parse(e.payload ?? 'null')?.outboxId).filter((id) => id != null));

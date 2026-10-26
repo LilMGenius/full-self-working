@@ -139,7 +139,7 @@ test('a send the old pipeline could not observe imports as unobserved, with its 
   assert.equal(importApprovals(ledger, approvals).imported, 2);
   const d = ledger.outboxByApproval('20261023-soomgo-dddddddd');
   assert.equal(d.status, 'unobserved');
-  assert.deepEqual(d.receipt, { observed: false, reason: 'unobserved by the d605c5d pipeline', pressed: true, pressedAt: '2026-10-23T05:00:00.000Z', costKRW: 600 });
+  assert.deepEqual(d.receipt, { observed: false, reason: 'unobserved by the d605c5d pipeline', pipeline: 'd605c5d', pressed: true, pressedAt: '2026-10-23T05:00:00.000Z', costKRW: 600 });
   const e = ledger.outboxByApproval('20261023-soomgo-eeeeeeee');
   assert.equal(e.status, 'unobserved');
   assert.equal(e.receipt.pressed, undefined);

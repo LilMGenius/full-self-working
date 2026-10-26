@@ -25,7 +25,8 @@ export const SENT_FILE = ['sent', 'unobserved'];
 const FOLLOWS = [...OPEN_ROW, 'sending'];
 const followed = (fileStatus, rowStatus) => (rowStatus === 'sending' ? (fileStatus === 'sent' ? 'observed' : 'unobserved') : STATUS_OF[fileStatus]);
 
-const receiptOf = (status) => (status === 'observed' ? { observed: true, reason: 'sent by the d605c5d pipeline' } : status === 'unobserved' ? { observed: false, reason: 'unobserved by the d605c5d pipeline' } : null);
+// pipeline names the code that sent it: the deal sweep never applies again a send the old code recorded.
+const receiptOf = (status) => (status === 'observed' ? { observed: true, reason: 'sent by the d605c5d pipeline', pipeline: 'd605c5d' } : status === 'unobserved' ? { observed: false, reason: 'unobserved by the d605c5d pipeline', pipeline: 'd605c5d' } : null);
 
 // An old approval whose send was not observed: status unobserved, or open with unobserved true (the queue
 // path of src/pipeline/thread.mjs at 7b9524e). Approving it again could send it twice, so it imports as

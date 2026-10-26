@@ -321,3 +321,30 @@ test('a send observed in an earlier pass whose deal signal was lost is applied o
   assert.deepEqual(s.ledger.listJobs().map((j) => j.status), ['quoted', 'quoted']);
 });
 
+
+test('sends the d605c5d code recorded are never applied again by the sweep after the takeover', async () => {
+  const { importApprovals } = await import('../src/core/approvals-import.mjs');
+  const { mkdirSync, writeFileSync } = await import('node:fs');
+  const s = setup();
+  const dir = s.instance.paths.approvals;
+  mkdirSync(dir, { recursive: true });
+  const write = (a) => writeFileSync(join(dir, a.id + '.json'), JSON.stringify(a));
+  const oldQuote = (t) => s.ledger.addQuote({ threadId: t.id, platform: 'soomgo', service: 'landing_page_web', amountKRW: 300000, costKRW: 990, status: 'sent', at: hoursBefore(NOON, 2) });
+  // A sent approval file the old code recorded, with its quote row already in the ledger.
+  const t1 = s.ledger.upsertThread({ platform: 'soomgo', externalId: 'r1', kind: 'request' });
+  oldQuote(t1);
+  write({ id: '20261020-soomgo-0000ee01', platform: 'soomgo', kind: 'quote', threadRef: 'r1', status: 'sent', createdAt: hoursBefore(NOON, 3), draft: REPLY, quote: { amountKRW: 300000 }, closedAt: hoursBefore(NOON, 2) });
+  // A quote v0 left waiting for the operator, which the old code sent after a rollback.
+  const t2 = s.ledger.upsertThread({ platform: 'soomgo', externalId: 'r2', kind: 'request' });
+  const row = plan(s.ledger, { platform: 'soomgo', threadId: t2.id, kind: 'quote', payload: { text: REPLY + ' r2', amountKRW: 300000, costKRW: 990, thread: { kind: 'request', stage: 'pre_order' } } });
+  setStatus(s.ledger, row.id, { from: 'planned', to: 'awaiting_operator', approvalId: '20261020-soomgo-0000ee02' });
+  oldQuote(t2);
+  write({ id: '20261020-soomgo-0000ee02', platform: 'soomgo', kind: 'quote', threadRef: 'r2', status: 'sent', createdAt: hoursBefore(NOON, 3), draft: REPLY + ' r2', quote: { amountKRW: 300000 }, closedAt: hoursBefore(NOON, 2) });
+  const imported = importApprovals(s.ledger, dir);
+  assert.deepEqual([imported.imported, imported.reconciled], [1, 1]);
+  assert.deepEqual(s.ledger.listOutbox().map((r) => r.status), ['observed', 'observed']);
+  await s.run('soomgo', scriptedSurface());
+  assert.deepEqual(s.ledger.listQuotes().map((q) => q.threadId).sort(), [t1.id, t2.id].sort());
+  assert.equal(s.ledger.listJobs().length, 0);
+});
+

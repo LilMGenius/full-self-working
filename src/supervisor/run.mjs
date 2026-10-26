@@ -304,8 +304,10 @@ export const JOB_HANDLERS = {
     const observeIds = Object.entries(ctx.instance.config.platforms ?? {}).filter(([, q]) => q.enabled && q.mode === 'observe').map(([id]) => id);
     const observed = observeIds.length ? await runPlatforms(observeIds, ctx) : { status: 'ok', platforms: [] };
     const supply = await writeSupply({ instance: ctx.instance, ledger: ctx.ledger, now: ctx.now, ...(ctx.openSurface ? { openSurface: ctx.openSurface } : {}), ...(ctx.notify ? { notify: ctx.notify } : {}) });
-    const bad = ['daemon start failed', 'no daemon', 'keeper check failed'].includes(browser.status) || observed.status !== 'ok' || supply.status !== 'ok';
-    return { status: bad ? 'partial' : 'ok', self, browser, observe: observed.platforms.map((q) => ({ platform: q.platform, status: q.status })), supply: { file: supply.file, platforms: supply.reports.map((r) => ({ platform: r.platform, status: r.status, awaitingReply: r.awaitingReply })) } };
+    const { recordReviews } = await import('../loop/reviews.mjs');
+    const reviews = await recordReviews({ instance: ctx.instance, ledger: ctx.ledger, now: ctx.now, ...(ctx.openSurface ? { openSurface: ctx.openSurface } : {}), ...(ctx.notify ? { notify: ctx.notify } : {}) });
+    const bad = ['daemon start failed', 'no daemon', 'keeper check failed'].includes(browser.status) || observed.status !== 'ok' || supply.status !== 'ok' || reviews.some((r) => r.status === 'failed');
+    return { status: bad ? 'partial' : 'ok', self, browser, observe: observed.platforms.map((q) => ({ platform: q.platform, status: q.status })), supply: { file: supply.file, platforms: supply.reports.map((r) => ({ platform: r.platform, status: r.status, awaitingReply: r.awaitingReply })) }, reviews };
   },
   async poll(ctx) {
     const ids = pollTargets(ctx.instance);

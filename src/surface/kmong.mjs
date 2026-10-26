@@ -45,6 +45,13 @@ export async function openKmongSurface({ session, openReader = openProjectReader
     // kmong has no mapped quote form: a price goes out as a message the loop plans as kind message.
     quote: async () => ({ observed: false, reason: 'kmong has no mapped quote form; send the price as a message' }),
     orders: () => a.orders(),
+    // 003 reviews?(): counts from the public profile; rows join once pageReviewRows is mapped (U6.6). The
+    // page's profile is named seller, since scripts/check-example.mjs reads profile.x as an instance key.
+    reviews: async () => {
+      const { profile: seller } = await a.profile();
+      if (!seller) return { counts: null, rows: null, gap: 'no nickname on the dashboard, so the public profile was not read' };
+      return { counts: { reviews: seller.reviews, rating: seller.rating }, rows: null, gap: 'review rows are not parsed yet' };
+    },
     supply: async () => ({ platform: 'kmong', listings: (await openKmongListing({ session: a.session }).then((l) => l.listings())).gigs, services: null }),
     // An enterprise proposal (003 propose; ref is the project thread's externalId, project:<id>). The
     // project is read first for its title, which the read-back on /seller/proposals matches, and its

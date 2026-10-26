@@ -2,7 +2,7 @@
 // node scripts/probe.mjs <platform> <op> [ref] [--kind message|request] [--out <dir>] [--record] [--now]
 // One read operation of a surface on the operator's signed-in Chrome, printed as counts and field
 // presence, never customer text. ops: login, sense, read (refuses a ref the list shows unread, since
-// opening it would mark it read under the live supervisor), orders, supply. It starts inside the probe
+// opening it would mark it read under the live supervisor), orders, supply, reviews. It starts inside the probe
 // window: after the live supervisor recorded its tick for the current 5-minute mark, and at least a
 // minute before the next one, so it never shares the BrowserSkill extension with a poll; --now skips the
 // wait. --record writes every call to <instance>/qa/surfaces/<platform>/<day>/. Exit 0 when the operation
@@ -15,7 +15,7 @@ import { instanceDir } from '../src/core/instance.mjs';
 import { recordingPath } from '../src/surface/recorder.mjs';
 import { hasSurface, openSurface } from '../src/surface/index.mjs';
 
-export const READ_OPS = ['login', 'sense', 'read', 'orders', 'supply'];
+export const READ_OPS = ['login', 'sense', 'read', 'orders', 'supply', 'reviews'];
 const MARK_MS = 5 * 60_000;
 export const CLOSE_MS = 60_000;
 export const FALLBACK_OPEN_MS = 150_000;

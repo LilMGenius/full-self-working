@@ -51,6 +51,11 @@ export async function openSoomgoSurface({ session, sleep } = {}) {
     // soomgo has no order list: a hire is a chat row (Inbound.hired, from sense) and its 숨고페이 notices, so
     // orders gives the hired chat count without rows or counters, which raises no counter alert.
     orders: async () => ({ counts: null, total: (await a.orders()).length, gap: 'soomgo has no order list; hires are chat rows from sense', orders: null }),
+    // 003 reviews?(): counts from /profile (리뷰수, 리뷰 평점); rows join once the review list is mapped (U6.6).
+    reviews: async () => {
+      const { profile: seller } = await a.profile();
+      return { counts: { reviews: seller.reviews, rating: seller.rating }, rows: null, gap: 'review rows are not parsed yet' };
+    },
     supply: async () => ({ platform: 'soomgo', listings: null, services: await a.services() }),
     // What the platform spends on its own beside fsw's quotes (smart quote campaigns, other charges).
     spend: (opts) => a.spend(opts),

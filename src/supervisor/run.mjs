@@ -35,6 +35,9 @@ export { MAX_THREADS_PER_PLATFORM } from '../loop/index.mjs';
 // so a wrong password or a page that asks for a human check cannot lock the account by retrying. The
 // values go only into the platform's form; the event records whether the sign-in worked (36400c4). The
 // loop step calls it through its ctx when a surface reports no login.
+// The attempt is recorded whether signIn returns or throws, since a throw after the form was sent (a
+// click or tool timeout) has already submitted the password; any text the page or tool returns has the
+// password cut out before it is stored or thrown on.
 export const SIGN_IN_GAP_MS = 60 * 60_000;
 
 export async function signInAgain({ id, surface, instance, ledger, now }) {
@@ -45,8 +48,16 @@ export async function signInAgain({ id, surface, instance, ledger, now }) {
   if (login?.method !== 'email' || !login.email || !login.password) return null;
   const last = ledger.db.prepare("SELECT at FROM events WHERE kind = 'platform.sign_in' AND platform = ? ORDER BY id DESC LIMIT 1").get(id);
   if (last && now.getTime() - Date.parse(last.at) < SIGN_IN_GAP_MS) return null;
-  const r = await surface.signIn({ email: login.email, password: login.password });
-  ledger.addEvent({ at: now.toISOString(), kind: 'platform.sign_in', platform: id, payload: { ok: r?.signedIn === true, reason: r?.reason ?? null } });
+  const scrub = (s) => (s == null ? null : String(s).split(login.password).join('[password]'));
+  let r;
+  try {
+    r = await surface.signIn({ email: login.email, password: login.password });
+  } catch (err) {
+    const message = scrub(err.message);
+    ledger.addEvent({ at: now.toISOString(), kind: 'platform.sign_in', platform: id, payload: { ok: false, code: err.code ?? null, reason: message } });
+    throw Object.assign(new Error(message), { code: err.code ?? null });
+  }
+  ledger.addEvent({ at: now.toISOString(), kind: 'platform.sign_in', platform: id, payload: { ok: r?.signedIn === true, reason: scrub(r?.reason) } });
   return r?.signedIn === true ? surface.login() : null;
 }
 

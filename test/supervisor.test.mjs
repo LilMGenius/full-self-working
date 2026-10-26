@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
@@ -260,6 +260,39 @@ test('a signed-out platform is signed in again from the logins file at most once
   const events = ledger.db.prepare('SELECT kind, payload FROM events').all();
   assert.deepEqual(events.filter((e) => e.kind === 'platform.sign_in').map((e) => JSON.parse(e.payload).ok), [false, true]);
   assert.equal(events.some((e) => String(e.payload ?? '').includes('not-a-real-password')), false);
+});
+
+test('a sign-in that throws after the form went out counts against the hour, and its error never carries the password', async () => {
+  const instance = makeInstance({ kmong: { enabled: true, mode: 'auto' } });
+  const file = join(tempDir('fsw-logins-'), 'logins.json');
+  const password = 'pw-in-the-error-7731';
+  writeFileSync(file, JSON.stringify({ kmong: { method: 'email', email: 'seller@example.invalid', password } }));
+  instance.config.logins = file;
+  const ledger = openLedger(':memory:');
+  let signIns = 0;
+  const surface = {
+    login: async () => ({ loggedIn: false }),
+    signIn: async (login) => {
+      signIns += 1;
+      throw Object.assign(new Error('tool RPC timed out: fill #password with "' + login.password + '"'), { code: 'FSW_TOOL_TIMEOUT' });
+    },
+    sense: async () => [],
+    stop: async () => {},
+  };
+  const state = { lastRuns: {} };
+  const tick = async (min) => (await runTick({ instance, ledger, now: new Date(Date.parse('2026-10-26T01:00:00Z') + min * 60_000), state, only: ['poll'], openSurface: async () => surface, notify: quiet, persist: false })).jobs[0].platforms[0];
+  const first = await tick(0);
+  const second = await tick(5);
+  assert.equal(signIns, 1);
+  assert.deepEqual([first.status, first.code], ['failed', 'FSW_TOOL_TIMEOUT']);
+  assert.match(first.error, /tool RPC timed out/);
+  const signInEvents = ledger.db.prepare("SELECT payload FROM events WHERE kind = 'platform.sign_in'").all().map((e) => JSON.parse(e.payload));
+  assert.deepEqual(signInEvents.map((e) => [e.ok, e.code]), [[false, 'FSW_TOOL_TIMEOUT']]);
+  assert.equal(JSON.stringify([first, second]).includes(password), false);
+  assert.equal(ledger.db.prepare('SELECT payload FROM events').all().some((e) => String(e.payload ?? '').includes(password)), false);
+  const written = readdirSync(instance.dir, { recursive: true }).map((f) => join(instance.dir, f)).filter((f) => statSync(f).isFile());
+  assert.ok(written.some((f) => /events-.*\.jsonl$/.test(f)), 'the tick wrote an events log');
+  assert.deepEqual(written.filter((f) => readFileSync(f, 'utf8').includes(password)), []);
 });
 
 // A chat whose list time a platform notice moved past its newest stored message, as 숨고 chat 239668351

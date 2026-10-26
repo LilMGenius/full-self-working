@@ -57,9 +57,21 @@ export function permissionSignal({ thread, jobs, decision, at = new Date().toISO
   if (decision?.permissionIssue) return none(decision.permissionIssue);
   const answer = decision?.portfolioPermission ?? null;
   if (!answer) return none(null);
-  // A consent the model read as conditional never grants: the operator scopes it.
-  if (answer === 'conditional') return none('the client set a condition on showing the work, for the operator to scope');
   const signal = (type, j, evidence) => ({ type, platform: thread.platform, threadId: j.threadId, jobId: j.id, at, evidence: { ...evidence, source: 'brain' } });
+  // The client's own sentence and its time, when the page holds it.
+  const saidEvidence = () => {
+    const said = bare(decision.permissionQuote);
+    const from = said.length >= 2 ? (thread.messages ?? []).find((m) => m.direction === 'in' && unitsOf(msgText(m)).some((u) => bare(u) === said)) : null;
+    return from ? { quote: norm(decision.permissionQuote), quoteAt: from.at ?? null } : { quote: null };
+  };
+  // A consent the model read as conditional never grants: it is recorded on the latest delivered job, which
+  // then refuses a later model grant like a denial, and the operator is told once and scopes it.
+  if (answer === 'conditional') {
+    const reason = 'the client set a condition on showing the work, for the operator to scope';
+    const p = job?.meta?.portfolio?.permission;
+    if (!job?.deliveredAt || p === 'denied' || p === 'conditional') return none(reason);
+    return { signals: [signal('permission_conditional', job, saidEvidence())], reason, jobId: job.id };
+  }
   // A refusal cannot say which of the thread's works it means, so it holds on every job delivered once (an
   // older closed one, a revision or a rerun included): hiding work is the safe side.
   if (answer === 'refused') {
@@ -67,10 +79,7 @@ export function permissionSignal({ thread, jobs, decision, at = new Date().toISO
     // Nothing delivered means no job the operator could record it on yet.
     if (!delivered.length) return { signals: [], reason: 'refusal on a thread whose job was never delivered', jobId: null };
     // The client's own sentence is kept for the operator when the page holds it; a refusal applies either way.
-    const said = bare(decision.permissionQuote);
-    const from = said.length >= 2 ? (thread.messages ?? []).find((m) => m.direction === 'in' && unitsOf(msgText(m)).some((u) => bare(u) === said)) : null;
-    const evidence = from ? { quote: norm(decision.permissionQuote), quoteAt: from.at ?? null } : { quote: null };
-    return { signals: delivered.map((j) => signal('permission_refused', j, evidence)), reason: null, jobId: job.id };
+    return { signals: delivered.map((j) => signal('permission_refused', j, saidEvidence())), reason: null, jobId: job.id };
   }
   if (!job || !['delivered', 'closed'].includes(job.status)) return none(null);
   // The window starts at the latest delivery: the deal moves deliveredAt on every redelivery, so a change
@@ -80,6 +89,7 @@ export function permissionSignal({ thread, jobs, decision, at = new Date().toISO
   // A denial stands until the operator lifts it, and a grant already recorded needs nothing more.
   const prior = job.meta?.portfolio ?? {};
   if (prior.permission === 'denied') return none('the client refused before; only the operator lifts it with fsw deal ' + job.id + ' permission granted');
+  if (prior.permission === 'conditional') return none('the client set a condition before; only the operator lifts it with fsw deal ' + job.id + ' permission granted');
   if (prior.permission === 'granted') return none(null);
   // The quote must be newer than the last recorded answer as well as the delivery.
   const since = prior.answeredAt ? Date.parse(prior.answeredAt) : -Infinity;

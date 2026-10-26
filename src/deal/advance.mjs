@@ -12,7 +12,7 @@ import { nextPart, paymentKind, paymentLevelMet, settled } from './levels.mjs';
 import { MONEY_LOOKBACK_DAYS, fresh, jobIdFor, minuteKey } from './signals.mjs';
 
 // 003 Deal signal types, amended 2026-10-25 15:40.
-export const SIGNAL_TYPES = ['quote_observed', 'ordered', 'order_cancelled', 'hired', 'hire_cancelled', 'pay_requested', 'paid', 'confirmed', 'remitted', 'pay_cancelled', 'run_started', 'run_accepted', 'run_failed', 'handoff_done', 'delivery_observed', 'revision_requested', 'permission_granted', 'permission_refused', 'review', 'expired'];
+export const SIGNAL_TYPES = ['quote_observed', 'ordered', 'order_cancelled', 'hired', 'hire_cancelled', 'pay_requested', 'paid', 'confirmed', 'remitted', 'pay_cancelled', 'run_started', 'run_accepted', 'run_failed', 'handoff_done', 'delivery_observed', 'revision_requested', 'permission_granted', 'permission_conditional', 'permission_refused', 'review', 'expired'];
 // Signals read from platform notices or list rows: each is recorded once in money_events under its key.
 export const MONEY_TYPES = ['ordered', 'order_cancelled', 'hired', 'hire_cancelled', 'pay_requested', 'paid', 'confirmed', 'remitted', 'pay_cancelled', 'review'];
 // Each package includes one revision round (src/orders/revision.mjs:11).
@@ -378,16 +378,21 @@ function money(ledger, out, signal, thread, { instance, descriptor, now }) {
   if (live) out.effects.push(notifyEffect(signal.platform + ' ' + signal.type + (signal.amountKRW ? ' ' + signal.amountKRW + ' KRW' : '') + ' in thread ' + thread.externalId, [note, job ? 'job ' + job.id + ' (' + (ledger.getJob(job.id)?.status ?? '') + ')' : null, 'evidence: ' + String(ev.text ?? '').slice(0, 160)].filter(Boolean).join('\n'), 'money:' + key));
 }
 
-// Only the operator's word (fsw deal, source operator) grants without a checked quote or lifts a denial; any
-// other grant must carry the client's sentence from after the delivery and after the last recorded answer.
+// Only the operator's word (fsw deal, source operator) grants without a checked quote or lifts a denial or a
+// condition; any other grant must carry the client's sentence from after the delivery and after the last
+// recorded answer. A condition the client set (conditional) keeps the work private like a denial until the
+// operator scopes it; it never replaces a denial.
 const permission = (value) => (ledger, out, s, { job }) => {
-  // A refusal keeps the work private on any job delivered once (a revision or its rerun included); a grant
-  // needs the delivered or closed work it publishes.
+  // A refusal or a condition keeps the work private on any job delivered once (a revision or its rerun
+  // included); a grant needs the delivered or closed work it publishes.
   if (value === 'denied' && !job?.deliveredAt) return refuse(ledger, out, s, job, 'a portfolio refusal needs a job that was delivered');
+  if (value === 'conditional' && !job?.deliveredAt) return refuse(ledger, out, s, job, 'a portfolio condition needs a job that was delivered');
   if (value === 'granted' && !(job && ['delivered', 'closed'].includes(job.status))) return refuse(ledger, out, s, job, 'portfolio permission needs a delivered or closed job');
   const prior = job.meta?.portfolio ?? {};
+  if (value === 'conditional' && prior.permission === 'denied') return refuse(ledger, out, s, job, 'a portfolio denial stands over a later condition');
   if (value === 'granted' && s.evidence?.source !== 'operator') {
     if (prior.permission === 'denied') return refuse(ledger, out, s, job, 'only the operator lifts a portfolio denial');
+    if (prior.permission === 'conditional') return refuse(ledger, out, s, job, 'only the operator lifts a portfolio condition');
     const quoteAt = Date.parse(s.evidence?.quoteAt ?? '');
     const floor = Math.max(Date.parse(job.deliveredAt ?? ''), prior.answeredAt ? Date.parse(prior.answeredAt) : -Infinity);
     if (!s.evidence?.quote || !(quoteAt > floor)) return refuse(ledger, out, s, job, 'a grant needs the client sentence from after the delivery and the last answer');
@@ -473,6 +478,7 @@ const RULES = {
     out.effects.push({ type: 'start_run', jobId: job.id });
   },
   permission_granted: permission('granted'),
+  permission_conditional: permission('conditional'),
   permission_refused: permission('denied'),
 };
 

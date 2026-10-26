@@ -63,8 +63,9 @@ export async function run(argv, ctx = {}) {
       log('job ' + job.id + ' review ' + (corrected ? 'corrected; the job keeps one review, now rating ' + JSON.parse(corrected.payload).to.rating : 'already recorded with this rating and text; nothing changed'));
       return 0;
     }
-    // A grant over a refusal publishes work the client asked to keep private, so the operator sees what he lifted.
-    if (!reason && signal.type === 'permission_granted' && prior.permission === 'denied') log('job ' + job.id + ' permission granted lifts the refusal recorded ' + (prior.answeredAt ?? 'earlier') + ' from ' + (prior.source ?? 'unknown') + (prior.quote ? ': "' + prior.quote + '"' : ' (no client sentence kept)'));
+    // A grant over a refusal or a condition publishes work the client limited, so the operator sees what he lifted.
+    const lifted = { denied: 'refusal', conditional: 'condition' }[prior.permission];
+    if (!reason && signal.type === 'permission_granted' && lifted) log('job ' + job.id + ' permission granted lifts the ' + lifted + ' recorded ' + (prior.answeredAt ?? 'earlier') + ' from ' + (prior.source ?? 'unknown') + (prior.quote ? ': "' + prior.quote + '"' : ' (no client sentence kept)'));
     log('job ' + job.id + ' ' + sub + (reason ? ' refused: ' + reason : ' recorded; the portfolio is synced and the next daily publish shows it'));
     return reason ? 1 : 0;
   } finally {

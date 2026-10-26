@@ -84,3 +84,15 @@ test('a review on a delivered job writes one reviews row; a bad rating is a usag
   assert.equal(await s.call(['list']), 0);
   assert.match(s.lines.at(-1), /^j3 {2}kmong {2}logo_brand {2}delivered/);
 });
+
+test('granting over a client condition says it lifts that condition and quotes it; denying it works', async () => {
+  const s = setup();
+  s.job('j6', 'closed');
+  s.ledger.upsertJob({ id: 'j6', meta: { portfolio: { permission: 'conditional', answeredAt: '2026-10-21T02:00:00Z', source: 'brain', quote: '대표님 확인이 먼저 필요해요.' } } });
+  assert.equal(await s.call(['j6', 'permission', 'granted']), 0);
+  assert.equal(s.lines.at(-2), 'job j6 permission granted lifts the condition recorded 2026-10-21T02:00:00Z from brain: "대표님 확인이 먼저 필요해요."');
+  s.job('j7', 'closed');
+  s.ledger.upsertJob({ id: 'j7', meta: { portfolio: { permission: 'conditional', answeredAt: '2026-10-21T02:00:00Z', source: 'brain', quote: 'x' } } });
+  assert.equal(await s.call(['j7', 'permission', 'denied']), 0);
+  assert.equal(s.ledger.getJob('j7').meta.portfolio.permission, 'denied');
+});

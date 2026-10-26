@@ -394,9 +394,9 @@ test('an answer that is not applied tells the operator once per job and answer, 
 });
 
 test('the backstop holds a yes beside a preference, a restriction or an imperative even when the model says granted', () => {
-  // The model's own conditional never grants, even beside a clean yes.
+  // The model's own conditional never grants, even beside a clean yes: it is recorded as a condition.
   const c = single({ thread: thread([msg('in', GRANT, '2026-10-20T11:00:00+09:00')]), job, decision: decision('conditional', GRANT) });
-  assert.deepEqual([c.signal, c.reason], [null, 'the client set a condition on showing the work, for the operator to scope']);
+  assert.deepEqual([c.signal?.type, c.reason], ['permission_conditional', 'the client set a condition on showing the work, for the operator to scope']);
   const at = (k) => '2026-10-20T11:0' + k + ':00+09:00';
   for (const line of ['포트폴리오엔 2번 시안이 나을 것 같아요.', '로고는 빼는 게 좋겠어요.', 'Use the second version.', "I'd prefer the dark theme version."]) {
     for (const texts of [[GRANT + ' ' + line], [GRANT, line], [line, GRANT]]) {
@@ -433,8 +433,36 @@ test('a model conditional on a thread is held and tells the operator once, namin
   const answer = { portfolioPermission: 'conditional', permissionQuote: '네, 로고만 빼고 올려 주세요.' };
   await s.run('네, 로고만 빼고 올려 주세요.', answer, 11);
   await s.run('네, 로고만 빼고 올려 주세요. 감사합니다.', answer, 13);
-  assert.equal(s.ledger.getJob('kmong-k1').meta.portfolio.permission, 'pending');
+  assert.equal(s.ledger.getJob('kmong-k1').meta.portfolio.permission, 'conditional');
   assert.deepEqual(keys(), ['portfolio-answer-check:kmong-k1:conditional']);
   assert.match(s.requests(), /read the client as conditional/);
   assert.equal(s.events('permission.unverified').length, 2);
+});
+
+test('a model conditional is recorded on the job; a later model grant of the earlier yes stays conditional and only the operator lifts it', async () => {
+  const s = setup();
+  const keys = () => [...s.requests().matchAll(/^- dedupe: (portfolio-answer-check:.+)$/gm)].map((m) => m[1]);
+  const COND = '대표님 확인이 먼저 필요해요.';
+  await s.run('네 좋아요. ' + COND, { portfolioPermission: 'conditional', permissionQuote: COND }, 11);
+  const p = s.ledger.getJob('kmong-k1').meta.portfolio;
+  assert.deepEqual([p.permission, p.quote, p.quoteAt, p.source], ['conditional', COND, '2026-10-20T11:00:00+09:00', 'brain']);
+  await s.run('감사합니다!', { portfolioPermission: 'granted', permissionQuote: '네 좋아요.' }, 13);
+  assert.equal(s.ledger.getJob('kmong-k1').meta.portfolio.permission, 'conditional');
+  assert.deepEqual(keys(), ['portfolio-answer-check:kmong-k1:conditional', 'portfolio-answer-check:kmong-k1:granted']);
+  // The deal refuses the same grant by any path, with a fresh quote time too.
+  s.deal({ type: 'permission_granted', at: '2026-10-20T13:40:00+09:00', evidence: { quote: '감사합니다!', quoteAt: '2026-10-20T13:00:00+09:00', source: 'brain' } });
+  assert.equal(s.events('deal.refused').at(-1).reason, 'only the operator lifts a portfolio condition');
+  assert.equal(s.ledger.getJob('kmong-k1').meta.portfolio.permission, 'conditional');
+  s.deal({ type: 'permission_granted', at: '2026-10-20T14:00:00+09:00', evidence: { source: 'operator' } });
+  assert.equal(s.ledger.getJob('kmong-k1').meta.portfolio.permission, 'granted');
+});
+
+test('a condition never replaces a denial, and the operator can deny a conditional job', () => {
+  const s = setup();
+  s.deal({ type: 'permission_conditional', at: '2026-10-20T12:00:00+09:00', evidence: { quote: 'x', source: 'brain' } });
+  s.deal({ type: 'permission_refused', at: '2026-10-20T12:10:00+09:00', evidence: { source: 'operator' } });
+  assert.equal(s.ledger.getJob('kmong-k1').meta.portfolio.permission, 'denied');
+  s.deal({ type: 'permission_conditional', at: '2026-10-20T12:20:00+09:00', evidence: { quote: 'x', source: 'brain' } });
+  assert.equal(s.ledger.getJob('kmong-k1').meta.portfolio.permission, 'denied');
+  assert.equal(s.events('deal.refused').at(-1).reason, 'a portfolio denial stands over a later condition');
 });

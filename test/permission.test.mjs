@@ -83,6 +83,7 @@ test('a private ask, a question, an echo of my question or a conditional yes is 
     ['로고는 가려 주세요.', 'grant with a condition, for the operator to scope'],
     ['정식 오픈 후에 올려 주세요.', 'grant with a condition, for the operator to scope'],
     ['Sure, once the site launches.', 'grant with a condition, for the operator to scope'],
+    ['Yes, use it once it is live.', 'grant with a condition, for the operator to scope'],
     ['혹시 어디에 올리시는 건가요', 'grant quoted from a question'],
     ['어떤 화면을 쓰실 건지요', 'grant quoted from a question'],
     ['그럼 언제 올리시나요', 'grant quoted from a question'],
@@ -99,6 +100,30 @@ test('a private ask, a question, an echo of my question or a conditional yes is 
   assert.equal(yes.signal?.type, 'permission_granted');
   const plain = single({ thread: thread([msg('out', ASK, DELIVERED), msg('in', '네 올리셔도 됩니다.', at)]), job, decision: decision('granted', '네 올리셔도 됩니다.') });
   assert.equal(plain.signal?.type, 'permission_granted');
+  // A scope word anywhere in the granting message still holds it.
+  const scoped = single({ thread: thread([msg('in', '네 올리셔도 됩니다. 회사 이름은 빼주세요.', at)]), job, decision: decision('granted', '네 올리셔도 됩니다.') });
+  assert.equal(scoped.reason, 'grant with a condition, for the operator to scope');
+});
+
+test('a sign-off with 다음에, 이후, 후에 or once again is no condition on a plain yes', () => {
+  const at = '2026-10-20T11:00:00+09:00';
+  const cases = [
+    ['네 올리셔도 됩니다. 다음에도 잘 부탁드려요.', '네 올리셔도 됩니다.'],
+    ['포트폴리오에 쓰셔도 됩니다. 이후로도 잘 부탁드립니다.', '포트폴리오에 쓰셔도 됩니다.'],
+    ['확인 후에 연락드릴게요. 포트폴리오는 올리셔도 돼요.', '포트폴리오는 올리셔도 돼요.'],
+    ['Sure, go ahead. Thanks once again!', 'Sure, go ahead.'],
+  ];
+  for (const [text, quote] of cases) {
+    for (const q of [quote, text]) {
+      const r = single({ thread: thread([msg('in', text, at)]), job, decision: decision('granted', q) });
+      assert.deepEqual([r.signal?.type, r.reason], ['permission_granted', null], text + ' / ' + q);
+    }
+  }
+  // A later sign-off does not hold it either; a later message that times the posting does.
+  const later = single({ thread: thread([msg('in', GRANT, at), msg('in', '다음에도 잘 부탁드려요.', '2026-10-20T11:30:00+09:00')]), job, decision: decision('granted', GRANT) });
+  assert.equal(later.signal?.type, 'permission_granted');
+  const timed = single({ thread: thread([msg('in', GRANT, at), msg('in', '아, 정식 오픈 후에 올려 주세요.', '2026-10-20T11:30:00+09:00')]), job, decision: decision('granted', GRANT) });
+  assert.equal(timed.reason, 'grant with a condition, for the operator to scope');
 });
 
 test('a refusal needs no quote and becomes permission_refused', () => {

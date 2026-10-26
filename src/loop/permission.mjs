@@ -19,10 +19,20 @@ const NEGATION = /않|못|말아|말고|마세요|마시고|마십시오|싫|아
 // A yes with a condition is the operator's to scope. A held yes costs the operator one notice; a granted
 // conditional yes publishes work against the client's word. Scope words leave part of the work out, cover
 // it or set a condition; timing words put the posting off.
-const SCOPE = /빼고|빼서|빼주|빼\s+주|제외|만\s*(?:올려|보여|공개)|가려|가리|모자이크|지워|지우|삭제|노출|가명|익명|흐리게|바꿔|교체|\b(?:except|without|blur|hide|only if|as long as|remove|removed|redact\w*|anonymi\w*|rename\w*|swap\w*|replace\w*|placeholder)\b/iu;
+const SCOPE = /빼[는고서주]|빼\s+주|제외|만\s*(?:올려|보여|공개)|에만|만\s*요|가려|가리|모자이크|지워|지우|삭제|노출|가명|익명|흐리게|바꿔|교체|\b(?:except|without|blur|hide|only|as long as|remove|removed|redact\w*|anonymi\w*|rename\w*|swap\w*|replace\w*|placeholder)\b/iu;
 const TIMING = /후에|이후|다음에|나서|까지|기다려|(?:하|나|되)면|때(?!문)[^.!?]*?(?:올려|올리|게시|공개|보여)|\b(?:after|once|until|wait|when)\b/iu;
 // A sentence that speaks about posting or showing the work.
 const POSTING = /올려|올리|게시|공개|보여|포트폴리오|\b(?:post|share|show|publish|portfolio|use it)\b/iu;
+// A sentence that talks about the work itself (a version, a page, the logo) or states a preference about
+// it: beside a yes it may say which work or how, so it must itself be a plain yes.
+const WORK = /시안|버전|로고|이미지|페이지|\b(?:versions?|themes?|logos?|images?|screenshots?|pages?)\b/iu;
+const PREFERENCE = /나을|좋겠|선호|\b(?:prefer\w*|rather|should|better)\b/iu;
+// A plain yes in Korean or English.
+const YES = /네|예|좋아요|좋습니다|괜찮|돼요|됩니다|되요|물론|\b(?:yes|yeah|sure|ok|okay|of course|go ahead|fine|feel free)\b/iu;
+// Delivery and payment logistics; a sentence about them that says nothing about showing the work is neutral.
+const LOGISTICS = /세금계산서|계산서|정산|입금|파일|원본|\b(?:invoice|receipt|source|download|payment)\b/iu;
+// A sentence that opens with a bare imperative verb asks for something.
+const IMPERATIVE = /^(?:use|show|post|put|keep|remove|make)\b/iu;
 // Whole thank-you and sign-off phrases that carry a timing word (or, for can't wait, a negation) and set no
 // condition. They are taken out only of a sentence that does not speak about posting, never as bare word
 // pairs, so 보고 나서 올려 주세요 stays a condition.
@@ -61,6 +71,8 @@ export function permissionSignal({ thread, jobs, decision, at = new Date().toISO
     return { signals: delivered.map((j) => signal('permission_refused', j, evidence)), reason: null, jobId: job.id };
   }
   if (!job || !['delivered', 'closed'].includes(job.status)) return none(null);
+  // The window starts at the latest delivery: the deal moves deliveredAt on every redelivery, so a change
+  // request handled before it is read no more.
   const after = Date.parse(job.deliveredAt ?? '');
   const inbound = (thread.messages ?? []).filter((m) => m.direction === 'in' && Number.isFinite(Date.parse(m.at ?? '')) && Date.parse(m.at) > after);
   // A denial stands until the operator lifts it, and a grant already recorded needs nothing more.
@@ -77,17 +89,25 @@ export function permissionSignal({ thread, jobs, decision, at = new Date().toISO
   const mine = (thread.messages ?? []).filter((m) => m.direction === 'out').flatMap((m) => unitsOf(msgText(m)).map(bare));
   if (mine.includes(quote)) return none('grant quoting a sentence of my own message');
   if (unitsOf(msgText(fresh[i])).some((u) => bare(u) === quote && isQuestion(u))) return none('grant quoted from a question');
-  // Every client message since the delivery is read, sentence by sentence, and an unknown sentence holds the
-  // grant (fail-safe: a held yes costs the operator one notice, a granted conditional yes publishes work
-  // against the client's word). The quoted sentence must be an unconditional yes on its own: no negation,
-  // scope or timing word (a question was refused above). Every other sentence must be a known sign-off or
+  // The model judges conditions first (a conditional answer never reaches this point); this check is the
+  // backstop. Every client message since the latest delivery is read, sentence by sentence, and an unknown
+  // sentence holds the grant (fail-safe: a held yes costs the operator one notice, a granted conditional yes
+  // publishes work against the client's word). The quoted sentence must be an unconditional yes on its own:
+  // no negation, scope, restriction or timing word (a question was refused above). A sentence about
+  // logistics that says nothing about showing the work is neutral. A sentence that talks about the work or
+  // states a preference must itself be a plain yes. Every other sentence must be a known sign-off or
   // thank-you, or carry no negation, scope, timing or request form once those phrases are taken out, and ask
   // nothing. A sentence that speaks about posting keeps its words: no sign-off is taken out of it.
+  // Residual risk: a condition stated in words none of these lists knows passes only when the model also
+  // labelled the answer granted; the lists are not chased further, and the operator can deny with fsw deal.
   const quoted = new Set(sentencesOf(decision.permissionQuote).map(bare));
+  const isQuoted = (u) => quoted.size === 1 && quoted.has(bare(u));
   const read = (u) => {
-    const strict = POSTING.test(u) || (quoted.size === 1 && quoted.has(bare(u)));
+    if (LOGISTICS.test(u) && !POSTING.test(u) && !SCOPE.test(u)) return { rest: '', request: false };
+    const strict = POSTING.test(u) || isQuoted(u);
     const rest = strict ? u : u.replace(SIGNOFF, ' ').replace(THANKS, ' ');
-    const request = !(quoted.size === 1 && quoted.has(bare(u))) && (REQUEST.test(rest) || isQuestion(u));
+    const notPlainYes = !YES.test(u) || PREFERENCE.test(u);
+    const request = !isQuoted(u) && (REQUEST.test(rest) || IMPERATIVE.test(u) || isQuestion(u) || ((WORK.test(u) || PREFERENCE.test(u)) && notPlainYes));
     return { rest, request };
   };
   const sentences = inbound.flatMap((m) => sentencesOf(msgText(m))).map(read);

@@ -197,6 +197,41 @@ export function quoteCharge(rows, { since, customer = null, marginMs = 180_000 }
   return rows.find((r) => r.what === '견적 발송' && Date.parse(r.at) >= since - marginMs && (!customer || r.customer === squash(customer))) ?? null;
 }
 
+// Cash spent on one Seoul day (YYYY-MM-DD) by source, from parseCashHistory rows: quotes are the 견적 발송
+// charges (fsw's presses and any the operator sent by hand), smartQuotes the 스마트견적 발송 charges the
+// platform's smart quote campaigns make by themselves, other every other charge; credits (paybacks,
+// recharges) are not spend. The page lists the newest rows only, so complete says whether a row older
+// than the day was read, which proves the day's rows are all there.
+export function cashSpend(rows, day) {
+  const out = { day, quotesKRW: 0, quotes: 0, smartQuotesKRW: 0, smartQuotes: 0, otherKRW: 0, complete: rows.some((r) => r.at.slice(0, 10) < day) };
+  for (const r of rows) {
+    if (r.at.slice(0, 10) !== day || r.amountKRW >= 0) continue;
+    if (r.what === '견적 발송') {
+      out.quotesKRW -= r.amountKRW;
+      out.quotes += 1;
+    } else if (r.what === '스마트견적 발송') {
+      out.smartQuotesKRW -= r.amountKRW;
+      out.smartQuotes += 1;
+    } else out.otherKRW -= r.amountKRW;
+  }
+  return out;
+}
+
+// Smart quote campaigns from the links on /instant-match (read 2026-10-26): each campaign is a link
+// /instant-match/<id> whose text holds 하루 예산 and its amount in 캐시, and may hold 최대 <n>건 (the detail
+// page reads "60,000 캐시 / 최대 30건 발송"). name is the link's first line.
+export function parseCampaigns(links) {
+  return links.flatMap(({ href, text }) => {
+    const id = String(href ?? '').match(/^\/instant-match\/([^/?#]+)/)?.[1];
+    if (!id) return [];
+    const ls = lines(text);
+    const tail = String(text).slice(String(text).indexOf('하루 예산'));
+    const budget = /하루 예산/.test(text) ? tail.match(/([\d,]+)\s*캐시/) : null;
+    const max = tail.match(/최대\s*([\d,]+)\s*건/);
+    return [{ id, name: ls.find((l) => !/하루 예산|캐시|최대/.test(l)) ?? null, dailyBudgetKRW: budget ? toInt(budget[1]) : null, maxPerDay: max ? toInt(max[1]) : null }];
+  });
+}
+
 // /mypage body text: the cash balance sits after 스토어, the payback after 이번 달 페이백.
 export function parseCash(text) {
   const ls = lines(text);

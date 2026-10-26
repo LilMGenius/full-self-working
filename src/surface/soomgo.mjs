@@ -44,6 +44,8 @@ export async function openSoomgoSurface({ session } = {}) {
     // orders gives the hired chat count without rows or counters, which raises no counter alert.
     orders: async () => ({ counts: null, total: (await a.orders()).length, gap: 'soomgo has no order list; hires are chat rows from sense', orders: null }),
     supply: async () => ({ platform: 'soomgo', listings: null, services: await a.services() }),
+    // What the platform spends on its own beside fsw's quotes (smart quote campaigns, other charges).
+    spend: (opts) => a.spend(opts),
     stop: () => a.stop(),
   };
 }

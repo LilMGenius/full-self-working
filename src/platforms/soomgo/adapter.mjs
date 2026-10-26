@@ -6,7 +6,7 @@
 import { openSession } from '../../browser/driver.mjs';
 import { loadDescriptor } from '../registry.mjs';
 import { AdapterRefusal, squash } from '../kit.mjs';
-import { parseCash, parseCashHistory, parseChats, parseChatThread, parseProfile, parseRequestDetail, parseRequests, quoteCharge } from './parse.mjs';
+import { cashSpend, parseCampaigns, parseCash, parseCashHistory, parseChats, parseChatThread, parseProfile, parseRequestDetail, parseRequests, quoteCharge } from './parse.mjs';
 import { readServices } from './services.mjs';
 
 const BASE = 'https://soomgo.com';
@@ -165,6 +165,13 @@ function pageChatThread() {
 function pageText() {
   return document.body.innerText;
 }
+
+// The smart quote campaign links on /instant-match, as href and text only.
+function pageCampaignLinks() {
+  return [...document.querySelectorAll('a[href^="/instant-match/"]')].map((a) => ({ href: a.getAttribute('href'), text: a.innerText }));
+}
+
+const seoulDay = (d) => new Intl.DateTimeFormat('sv', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
 
 // The 숨고페이 요청 dialog (a Bootstrap modal .safe-payment-modal, read 2026-10-25): a tel amount input
 // (maxLength 11) mirrored into a hidden safePaymentAmount, date radios, a Close button and the confirm
@@ -409,6 +416,15 @@ export async function openSoomgo({ session, sleep = wait } = {}) {
 
     // Offered services with whether their request items are set (src/platforms/soomgo/services.mjs).
     services: () => readServices(s),
+
+    // Every path soomgo spends the account's cash on, one page each: today's charges by source from
+    // 충전/사용 내역 and each smart quote campaign with its daily budget from /instant-match.
+    async spend({ now = new Date() } = {}) {
+      await s.navigate(`${BASE}/mypage/cash-dashboard`);
+      const today = cashSpend(parseCashHistory(await s.evaluate(pageText)), seoulDay(now));
+      await s.navigate(`${BASE}/instant-match`);
+      return { today, campaigns: parseCampaigns(await s.evaluate(pageCampaignLinks)) };
+    },
 
     stop: () => s.stop(),
   };

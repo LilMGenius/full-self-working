@@ -390,3 +390,28 @@ test('soomgo quote is not observed from another customer\'s charge or one older 
   const stale = sentQuoteSession(['견적 발송 - 고객A', seoulStamp(Date.now() - 3_600_000), '-5,890캐시'].join('\n'));
   assert.equal((await (await openSoomgo({ session: stale, sleep: async () => {} })).quote('req1', quoteArgs)).observed, false);
 });
+
+// Synthetic 충전/사용 내역 and /instant-match pages: two of fsw's quotes, three smart quotes and one other
+// charge today, a payback, and a row from the day before.
+const SPEND_HISTORY = ['35,000캐시', '스마트견적 발송 - 고객B', '2026-10-26 20:10:00', '-1,990캐시', '견적 발송 - 고객A', '2026-10-26 19:00:00', '-4,490캐시', '스마트견적 발송 - 고객C', '2026-10-26 12:00:00', '-2,990캐시', '견적 보상 - 고객D', '2026-10-26 11:00:00', '1,990캐시', '프로필 광고 - 고객E', '2026-10-26 10:00:00', '-5,000캐시', '스마트견적 발송 - 고객F', '2026-10-26 09:00:00', '-1,000캐시', '견적 발송 - 고객G', '2026-10-26 08:00:00', '-2,490캐시', '견적 발송 - 고객H', '2026-10-25 23:00:00', '-9,990캐시', '전체 내역'].join('\n');
+const CAMPAIGN_LINKS = [
+  { href: '/instant-match/abc123', text: '웹 개발 스마트견적\n진행중\n하루 예산\n60,000 캐시 / 최대 30건 발송' },
+  { href: '/instant-match/def456?tab=1', text: '앱 개발\n하루 예산 1,000,000 캐시' },
+  { href: '/instant-match', text: '새 캠페인 만들기' },
+];
+const NOW_SPEND = new Date('2026-10-26T21:00:00+09:00');
+
+test('soomgo spend reads today\'s charges by source and every smart quote campaign with its daily budget', async () => {
+  const today = soomgo.cashSpend(soomgo.parseCashHistory(SPEND_HISTORY), '2026-10-26');
+  assert.deepEqual(today, { day: '2026-10-26', quotesKRW: 6980, quotes: 2, smartQuotesKRW: 5980, smartQuotes: 3, otherKRW: 5000, complete: true });
+  assert.equal(soomgo.cashSpend(soomgo.parseCashHistory(SPEND_HISTORY), '2026-10-25').complete, false);
+  assert.deepEqual(soomgo.parseCampaigns(CAMPAIGN_LINKS), [
+    { id: 'abc123', name: '웹 개발 스마트견적', dailyBudgetKRW: 60000, maxPerDay: 30 },
+    { id: 'def456', name: '앱 개발', dailyBudgetKRW: 1000000, maxPerDay: null },
+  ]);
+  const s = fakeSession({ pageText: SPEND_HISTORY, pageCampaignLinks: CAMPAIGN_LINKS });
+  const spend = await (await openSoomgo({ session: s, sleep: async () => {} })).spend({ now: NOW_SPEND });
+  assert.deepEqual(spend, { today, campaigns: soomgo.parseCampaigns(CAMPAIGN_LINKS) });
+  assert.deepEqual(s.log.filter((l) => l.startsWith('navigate')), ['navigate https://soomgo.com/mypage/cash-dashboard', 'navigate https://soomgo.com/instant-match']);
+  assert.deepEqual(acted(s.log), []);
+});

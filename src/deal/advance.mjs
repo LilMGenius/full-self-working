@@ -354,7 +354,7 @@ const permission = (value) => (ledger, out, s, { job }) => {
     const floor = Math.max(Date.parse(job.deliveredAt ?? ''), prior.answeredAt ? Date.parse(prior.answeredAt) : -Infinity);
     if (!s.evidence?.quote || !(quoteAt > floor)) return refuse(ledger, out, s, job, 'a grant needs the client sentence from after the delivery and the last answer');
   }
-  ledger.upsertJob({ id: job.id, meta: { ...(job.meta ?? {}), portfolio: { ...(job.meta?.portfolio ?? {}), permission: value, answeredAt: s.at, quote: s.evidence?.quote ?? null, source: s.evidence?.source ?? null } } });
+  ledger.upsertJob({ id: job.id, meta: { ...(job.meta ?? {}), portfolio: { ...(job.meta?.portfolio ?? {}), permission: value, answeredAt: s.at, quote: s.evidence?.quote ?? null, quoteAt: s.evidence?.quoteAt ?? null, source: s.evidence?.source ?? null } } });
   out.effects.push({ type: 'sync_portfolio' });
 };
 

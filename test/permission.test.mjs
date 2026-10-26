@@ -116,7 +116,8 @@ test('a refusal keeps the client sentence when the page holds it, and the deal s
   const s = setup();
   const { threadId, ...signal } = r.signal;
   s.deal({ ...signal, at: '2026-10-20T12:00:00+09:00' });
-  assert.deepEqual([s.ledger.getJob('kmong-k1').meta.portfolio.permission, s.ledger.getJob('kmong-k1').meta.portfolio.quote], ['denied', NO]);
+  const p = s.ledger.getJob('kmong-k1').meta.portfolio;
+  assert.deepEqual([p.permission, p.quote, p.quoteAt], ['denied', NO, '2026-10-20T11:00:00+09:00']);
 });
 
 test('a refusal reaches every job of the thread that was ever delivered, the older ones included', () => {

@@ -134,3 +134,25 @@ test('a poll that reads several listed chats loads the chat list once for all of
   assert.equal(used(acct), 4);
   assert.deepEqual(acct.sessions[0].log, ['navigate /mypage', 'navigate /pro/chats', 'navigate /requests/received', 'navigate /pro/chats']);
 });
+
+
+// 2026-10-26 15:21Z to 16:00Z: the supervisor restarted with an empty guard, the polls read every new item
+// they listed, and by the 01:00 hourly the 60 were spent, so the spend read and the next poll failed.
+test('an hour of polls that each list new requests leaves the hourly reads and the sends room in the cap', async () => {
+  const instance = makeInstance();
+  const ledger = openLedger(':memory:');
+  const acct = account({ chats: [] });
+  for (let i = 0; i < 12; i++) {
+    acct.at(START + i * 5 * 60_000);
+    acct.page.requests = Array.from({ length: 5 }, (_, k) => requestRow('r' + i + '-' + k));
+    const r = await poll(instance, ledger, acct);
+    assert.equal(r.status, 'ok', 'poll ' + i + ' ' + JSON.stringify(r.errors ?? r.error));
+  }
+  acct.at(START + 59 * 60_000);
+  const supply = await supplyReport('soomgo', { instance, ledger, now: acct.now(), openSurface: acct.surface });
+  assert.equal(supply.status, 'ok', supply.notes.join('; '));
+  assert.ok(supply.spend, 'the spend read ran');
+  // What is left for the hour's sends: a quote press costs up to 8 (its request page, the price, the text,
+  // the send and up to four cash history loads).
+  assert.ok(pacing.maxActionsPerHour - used(acct) >= 10, 'room left ' + (pacing.maxActionsPerHour - used(acct)));
+});

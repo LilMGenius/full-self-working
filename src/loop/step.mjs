@@ -135,6 +135,11 @@ export async function step(platform, ctx) {
     const work = prioritize(inbound, { allocation: latestAllocation(instance), descriptor });
     let opened = 0;
     let done = 0;
+    // The session's pacing guard keeps a share of the hour's actions for thread reads (descriptor
+    // pacing.readActionsPerHour); a replay or scripted session has none, and reads are not limited there.
+    const guard = surface.session?.guard;
+    const readsLeft = () => (typeof guard?.readRoom === 'function' ? guard.readRoom() : Infinity);
+    const reading = (fn) => (typeof guard?.reading === 'function' ? guard.reading(fn) : fn());
     for (const ib of work) {
       if (opened >= MAX_THREADS_PER_PLATFORM) break;
       done += 1;
@@ -167,9 +172,15 @@ export async function step(platform, ctx) {
         bump('threads', 'budget');
         continue;
       }
+      // With the hour's read share spent, the item waits for a later poll unread and unparked, so the list
+      // loads, the hourly reads and the sends keep their room in the action cap.
+      if (readsLeft() <= 0) {
+        bump('threads', 'paced');
+        continue;
+      }
       opened += 1;
       try {
-        const thread = await surface.read(ref, { willReply: t.action === 'open', kind: ib.kind ?? 'message' });
+        const thread = await reading(() => surface.read(ref, { willReply: t.action === 'open', kind: ib.kind ?? 'message' }));
         if (thread.notices?.length) for (const s of moneyToSignals({ platform, threadId: row.id, inbound: { requestId: ib.requestId, service: ib.service, quote: ib.quote }, notices: thread.notices, now })) applyAdvance(s);
         for (const m of thread.messages ?? []) if (m.direction === 'in') ledger.addMessage({ threadId: row.id, direction: 'in', body: msgText(m), externalId: msgExternalId(m), at: m.at, attachments: m.attachments });
         // A read remembers the list time it covered under the settings key (meta.settled, e5d20eb), so a list

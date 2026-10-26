@@ -35,20 +35,29 @@ export class PacingLimitError extends Error {
 // Enforces a descriptor's pacing across every session in one process: page loads keep minGapMs
 // apart (waiting), and actions and messages within a rolling hour stop at their caps (throwing,
 // since waiting out an hour inside a tick would stall every other platform).
+// readActionsPerHour (optional) is the share of the action cap that thread reads may take in a rolling
+// hour: actions taken inside reading() count toward it as well as toward the cap, and readRoom() says how
+// many are left, so a poll stops reading before the list loads, hourly reads and sends that follow run out.
 export function createPacingGuard(platform, pacing, { now = Date.now, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
-  const { minGapMs = 0, maxActionsPerHour = Infinity, maxMessagesPerHour = Infinity } = pacing ?? {};
+  const { minGapMs = 0, maxActionsPerHour = Infinity, maxMessagesPerHour = Infinity, readActionsPerHour = Infinity } = pacing ?? {};
   let lastLoad = -Infinity;
   const actions = [];
   const messages = [];
+  const reads = [];
+  let inRead = 0;
+  const prune = (list, t) => {
+    while (list.length && list[0] <= t - HOUR_MS) list.shift();
+  };
   const take = (list, cap, kind) => {
     const t = now();
-    while (list.length && list[0] <= t - HOUR_MS) list.shift();
+    prune(list, t);
     if (list.length >= cap) throw new PacingLimitError(platform, kind, cap);
     list.push(t);
+    if (list === actions && inRead) reads.push(t);
   };
   return {
     platform,
-    pacing: { minGapMs, maxActionsPerHour, maxMessagesPerHour },
+    pacing: { minGapMs, maxActionsPerHour, maxMessagesPerHour, readActionsPerHour },
     async beforeLoad() {
       const wait = lastLoad + minGapMs - now();
       if (wait > 0) await sleep(wait);
@@ -60,6 +69,18 @@ export function createPacingGuard(platform, pacing, { now = Date.now, sleep = (m
     },
     beforeMessage() {
       take(messages, maxMessagesPerHour, 'message');
+    },
+    async reading(fn) {
+      inRead += 1;
+      try {
+        return await fn();
+      } finally {
+        inRead -= 1;
+      }
+    },
+    readRoom() {
+      prune(reads, now());
+      return readActionsPerHour - reads.length;
     },
     counts: () => ({ actions: actions.length, messages: messages.length }),
   };

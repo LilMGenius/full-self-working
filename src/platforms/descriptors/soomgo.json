@@ -53,7 +53,8 @@
   "pacing": {
     "minGapMs": 8000,
     "maxActionsPerHour": 60,
-    "maxMessagesPerHour": 20
+    "maxMessagesPerHour": 20,
+    "readActionsPerHour": 10
   },
   "limits": {
     "message": {

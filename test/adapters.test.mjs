@@ -64,6 +64,22 @@ test('actions stop at the hourly cap and free up once the hour rolls over', asyn
   assert.throws(() => g.beforeMessage(), { kind: 'message' });
 });
 
+
+test('the pacing guard counts actions taken inside reading() against the read share, and the share renews by the hour', async () => {
+  let t = 0;
+  const g = createPacingGuard('x', { minGapMs: 0, maxActionsPerHour: 10, readActionsPerHour: 3 }, { now: () => t, sleep: async () => {} });
+  await g.beforeLoad();
+  assert.equal(g.readRoom(), 3);
+  await g.reading(async () => {
+    await g.beforeLoad();
+    g.beforeAction();
+  });
+  assert.deepEqual([g.readRoom(), g.counts().actions], [1, 3]);
+  t = 3_600_001;
+  assert.equal(g.readRoom(), 3);
+  assert.equal(createPacingGuard('x', { maxActionsPerHour: 10 }).readRoom(), Infinity);
+});
+
 test('the newest omo version directory wins, and FSW_OMOWRIGHT overrides it', () => {
   const root = tempDir('fsw-omo-');
   for (const v of ['5.1.9', '5.1.45', '5.1.100-beta']) {

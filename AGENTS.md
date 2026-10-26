@@ -14,7 +14,7 @@ The repository is generic and publishable. Everything about one operator lives i
 
 docs/DESIGN.md holds the module map and the contracts between modules.
 
-- `src/core` holds the instance loader, the SQLite ledger (`node:sqlite`, migrations by user_version), log, notify and Seoul clock helpers.
+- `src/core` holds the instance loader, the SQLite ledger (`node:sqlite`, migrations by user_version, v4 adds the outbox), log, notify and Seoul clock helpers.
 - `src/platforms` holds one descriptor per marketplace (fees, payment model, contact and payment policy, pacing), validated on load, plus the shared kit.
 - `src/policy` is the deterministic outbound gate and slop lint; every message, quote, proposal and listing passes it before it leaves the machine.
 - `src/economics` holds the service catalog, fees, exchange rates, market summaries, sampling, pricing and the price table file.

@@ -1,7 +1,7 @@
 // SQLite ledger on node:sqlite. Tables follow docs/DESIGN.md (Ledger); helpers take and return
 // camelCase objects, JSON columns are stored as text and parsed on read. `ledger.db` is the raw handle.
 import { DatabaseSync } from 'node:sqlite';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { dirname } from 'node:path';
 import { ensureDir } from './instance.mjs';
 
@@ -141,11 +141,41 @@ const MIGRATIONS = [
   CREATE INDEX threads_platform_status ON threads(platform, status);
   `,
   },
+  // Every outbound item (a message, a quote, a payment request, a delivery, a proposal) as one row from
+  // plan to receipt; src/outbox is its only writer. Additive: the v3 code opens a v4 file and never reads it.
+  `
+  CREATE TABLE outbox (
+    id INTEGER PRIMARY KEY,
+    key TEXT NOT NULL UNIQUE,
+    platform TEXT NOT NULL,
+    thread_id INTEGER REFERENCES threads(id),
+    job_id TEXT REFERENCES jobs(id),
+    kind TEXT NOT NULL CHECK (kind IN ('message','quote','pay_request','delivery','proposal')),
+    payload TEXT NOT NULL,
+    verdict TEXT,
+    status TEXT NOT NULL CHECK (status IN ('planned','awaiting_operator','approved','sending','observed','unobserved','blocked','rejected','stale')),
+    reason TEXT,
+    approval_id TEXT UNIQUE,
+    operator TEXT,
+    receipt TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX outbox_status ON outbox(status, platform);
+  `,
 ];
 
-export const TABLES = ['threads', 'messages', 'quotes', 'jobs', 'payments', 'reviews', 'events', 'money_events'];
-const JSON_COLUMNS = new Set(['meta', 'attachments', 'gate', 'scope', 'payload']);
+export const TABLES = ['threads', 'messages', 'quotes', 'jobs', 'payments', 'reviews', 'events', 'money_events', 'outbox'];
+const JSON_COLUMNS = new Set(['meta', 'attachments', 'gate', 'scope', 'payload', 'verdict', 'operator', 'receipt']);
 const BOOL_COLUMNS = new Set(['liked', 'applied']);
+
+// The outbox key: platform, thread ref, kind and a sha1 over the planned text, the amount and the files,
+// so the same item planned twice is one row; an operator edit stays on that row as operator.finalText.
+export function outboxKey({ platform, threadRef, kind, text, amountKRW, files }) {
+  if (!platform || threadRef == null || threadRef === '' || !kind) throw new TypeError('outboxKey needs platform, threadRef and kind');
+  const body = [String(text ?? ''), amountKRW == null ? '' : String(amountKRW), [files ?? []].flat().map(String).join(',')].join('|');
+  return platform + ':' + threadRef + ':' + kind + ':' + createHash('sha1').update(body).digest('hex');
+}
 
 const camel = (s) => s.replace(/_krw$/, 'KRW').replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 const snake = (s) => s.replace(/KRW$/, 'Krw').replace(/[A-Z]/g, (c) => '_' + c.toLowerCase());
@@ -297,6 +327,40 @@ export function openLedger(path) {
     return Object.fromEntries(TABLES.map((t) => [t, db.prepare(`SELECT count(*) AS n FROM ${t}`).get().n]));
   }
 
+  function addOutbox({ key, platform, threadId, jobId, kind, payload, verdict, status, reason, approvalId, operator, receipt, createdAt, updatedAt }) {
+    if (!key || !platform || !kind || !status || payload == null) throw new TypeError('addOutbox needs key, platform, kind, status and payload');
+    const at = createdAt ?? now();
+    const r = insert('outbox', { key, platform, threadId, jobId, kind, payload, verdict, status, reason, approvalId, operator, receipt, createdAt: at, updatedAt: updatedAt ?? at });
+    return get('outbox', Number(r.lastInsertRowid));
+  }
+
+  // With from, a compare-and-set on status: the row changes only while its status is still from, and
+  // null comes back when it has moved, so two drains never both claim one row.
+  function updateOutbox(id, patch, { from } = {}) {
+    const row = encode({ ...patch, updatedAt: patch.updatedAt ?? now() });
+    delete row.id;
+    const sets = Object.keys(row).map((c) => `${c} = :${c}`).join(', ');
+    const guard = from == null ? '' : ' AND status = :expected';
+    const r = db.prepare(`UPDATE outbox SET ${sets} WHERE id = :id${guard}`).run({ ...row, id, ...(from == null ? {} : { expected: from }) });
+    return r.changes ? get('outbox', id) : null;
+  }
+
+  // statuses and kinds are lists, so a drain asks for planned and approved rows in one read.
+  function listOutbox({ platform, statuses, kinds, threadId, jobId, ...rest } = {}) {
+    if ('status' in rest || 'kind' in rest) throw new TypeError('listOutbox takes statuses and kinds as lists');
+    const row = encode({ platform, threadId, jobId });
+    const conds = Object.keys(row).map((c) => `${c} = :${c}`);
+    for (const [col, values] of [['status', statuses], ['kind', kinds]]) {
+      if (values == null) continue;
+      const names = values.map((v, i) => {
+        row[col + '_' + i] = v;
+        return ':' + col + '_' + i;
+      });
+      conds.push(names.length ? `${col} IN (${names.join(', ')})` : '0');
+    }
+    return db.prepare(`SELECT * FROM outbox${conds.length ? ' WHERE ' + conds.join(' AND ') : ''} ORDER BY id`).all(row).map(decode);
+  }
+
   return {
     db,
     path,
@@ -320,6 +384,12 @@ export function openLedger(path) {
     addMoneyEvent,
     getMoneyEvent: (key) => decode(db.prepare('SELECT * FROM money_events WHERE key = ?').get(key)),
     listMoneyEvents: ({ platform, threadId, jobId, event } = {}) => list('money_events', { platform, threadId, jobId, event }, 'at, id'),
+    addOutbox,
+    updateOutbox,
+    getOutbox: (id) => get('outbox', id),
+    outboxByKey: (key) => decode(db.prepare('SELECT * FROM outbox WHERE key = ?').get(key)),
+    outboxByApproval: (approvalId) => decode(db.prepare('SELECT * FROM outbox WHERE approval_id = ?').get(approvalId)),
+    listOutbox,
     counts,
     close: () => db.close(),
   };

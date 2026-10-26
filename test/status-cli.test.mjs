@@ -1,0 +1,32 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { exampleDir, loadInstance } from '../src/core/instance.mjs';
+import { openLedger } from '../src/core/ledger.mjs';
+import { plan, setStatus } from '../src/outbox/index.mjs';
+import { run } from '../src/cli/status.mjs';
+import { tempDir } from './tmp.mjs';
+
+test('status prints outbox counts by status, the last tick, and object settings as JSON', async () => {
+  const dir = tempDir('fsw-status-');
+  for (const f of ['profile.json', 'business.json', 'config.json']) copyFileSync(join(exampleDir, f), join(dir, f));
+  const instance = loadInstance({ dir });
+  mkdirSync(join(dir, 'run'), { recursive: true });
+  writeFileSync(join(dir, 'run', 'state.json'), JSON.stringify({ lastRuns: {}, lastTick: { at: '2026-10-25T03:00:00.000Z', failures: 2 } }));
+  const ledger = openLedger(':memory:');
+  const t = ledger.upsertThread({ platform: 'kmong', externalId: 't1', kind: 'message' });
+  const a = plan(ledger, { platform: 'kmong', threadId: t.id, kind: 'message', payload: { text: '하나' } });
+  plan(ledger, { platform: 'kmong', threadId: t.id, kind: 'message', payload: { text: '둘' } });
+  setStatus(ledger, a.id, { from: 'planned', to: 'awaiting_operator', approvalId: '20261025-kmong-0000abcd' });
+  const lines = [];
+  assert.equal(await run([], { instance, ledger, log: (l) => lines.push(l) }), 0);
+  const out = lines.join('\n');
+  assert.match(out, /^outbox$/m);
+  assert.match(out, /^ {2}awaiting_operator +1$/m);
+  assert.match(out, /^ {2}planned +1$/m);
+  assert.match(out, /^last tick 2026-10-25T03:00:00\.000Z, failures 2$/m);
+  assert.match(out, /kmong .*proposals=\{"maxPerDay":5/);
+  assert.doesNotMatch(out, /object Object/);
+  assert.equal(JSON.parse(readFileSync(join(dir, 'config.json'), 'utf8')).platforms.kmong.enabled, true);
+});

@@ -8,7 +8,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const MODULES = ['core', 'platforms', 'surface', 'economics', 'policy', 'triage', 'brain', 'outbox', 'deal', 'work', 'render', 'portfolio', 'learning', 'listings', 'projects', 'loop', 'supervisor', 'cli', 'site'];
+export const MODULES = ['core', 'platforms', 'surface', 'economics', 'policy', 'triage', 'brain', 'outbox', 'deal', 'work', 'render', 'portfolio', 'learning', 'listings', 'projects', 'profile', 'loop', 'supervisor', 'cli', 'site'];
 
 // importer -> what it never imports: a module name, or a repository path for a single file.
 export const FORBIDDEN = {

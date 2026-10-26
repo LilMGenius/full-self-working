@@ -6,7 +6,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { openLedger } from '../src/core/ledger.mjs';
-import { evaluate, FORMATS, gaps, parseLog } from '../scripts/takeover-check.mjs';
+import { evaluate, FORMATS, gaps, parseLog, timeOf } from '../scripts/takeover-check.mjs';
 import { measure } from '../scripts/tick-gaps.mjs';
 import { tempDir } from './tmp.mjs';
 
@@ -29,6 +29,12 @@ test('every supervisor.log format of 59a9948 and v0 parses, the import line with
 
 test('one complete handover parses as one move with no problem and no restart', () => {
   assert.deepEqual(parseLog(handover(A, B, 0)), { moves: [{ from: 'aaaaaaa', to: 'bbbbbbb' }], restarts: 0, imports: 1, problems: [] });
+});
+
+test('only a line that starts with an ISO time has a time, so an old stack trace never falls inside --since', () => {
+  assert.equal(timeOf(at(0) + ' supervisor stopped'), T0);
+  assert.ok(Number.isNaN(timeOf('file:///C:/repo/src/supervisor/run.mjs:451')));
+  assert.ok(Number.isNaN(timeOf('    at runSupervisor (file:///C:/repo/src/supervisor/run.mjs:451:7)')));
 });
 
 test('a handover with its exiting line missing, the pid before the exit, or no tick after the pid is named', () => {
@@ -139,7 +145,8 @@ function scratch({ lockPid = process.pid } = {}) {
   for (const [min, c] of [[-40, a], [-18, a], [-13, a], [-8, b], [-3, b]]) ledger.addEvent({ at: t(min), kind: 'supervisor.tick', payload: { jobs: ['poll:ok'], failures: 0, forceMode: null, code: c } });
   ledger.addEvent({ at: t(-2), kind: 'takeover', payload: { from: a, to: b } });
   ledger.close();
-  const log = [t(-40) + ' supervisor pid 100', t(-13) + ' tick poll:ok failures=0', t(-12.9) + ' code moved from ' + a.slice(0, 7) + ' to ' + b.slice(0, 7) + '; restarting', t(-12.8) + ' supervisor exiting for a restart', t(-12.7) + ' supervisor pid ' + lockPid, t(-12.6) + ' approvals import read 0, imported 0, already 0, reconciled 0, skipped 0', t(-8) + ' tick poll:ok failures=0'];
+  // An untimed stack line, as the launcher's redirect leaves in the live log, sits before --since.
+  const log = [t(-40) + ' supervisor pid 100', 'file:///C:/repo/src/supervisor/run.mjs:451', t(-13) + ' tick poll:ok failures=0', t(-12.9) + ' code moved from ' + a.slice(0, 7) + ' to ' + b.slice(0, 7) + '; restarting', t(-12.8) + ' supervisor exiting for a restart', t(-12.7) + ' supervisor pid ' + lockPid, t(-12.6) + ' approvals import read 0, imported 0, already 0, reconciled 0, skipped 0', t(-8) + ' tick poll:ok failures=0'];
   writeFileSync(join(instance, 'logs', 'supervisor.log'), log.join('\r\n') + '\r\n');
   writeFileSync(join(instance, 'run', 'supervisor.pid'), lockPid + '\n');
   return { repo, code, instance, a, b, since: t(-20) };
@@ -157,6 +164,7 @@ test('the CLI reads refs, lock, ledger and the log since --since, and names only
   assert.deepEqual(r.out.failures, ['task fsw-test-no-such-task is missing, expected Running']);
   assert.deepEqual([r.out.main, r.out.deploy, r.out.expect, r.out.lockAlive, r.out.version, r.out.ticks, r.out.restarts, r.out.imports], [s.b.slice(0, 7), s.b.slice(0, 7), s.b.slice(0, 7), true, 4, 4, 0, 1]);
   assert.deepEqual(r.out.moves, [{ from: s.a.slice(0, 7), to: s.b.slice(0, 7) }]);
+  assert.ok(r.out.logLinesSince.length === 6 && !r.out.logLinesSince.some((l) => l.startsWith('file:')));
   assert.ok(r.out.trailingGapMin >= 3 && r.out.trailingGapMin < 4);
   const strict = cli(s, ['--moves', '0', '--gap-min', '4', '--imports', '0']);
   assert.deepEqual(strict.out.failures.slice(1), ['a 5.0 min gap between supervisor ticks (the last gap runs to now)', '1 handovers since ' + s.since + ', expected 0', '1 approval import lines since ' + s.since + ', expected 0']);

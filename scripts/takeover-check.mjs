@@ -25,7 +25,9 @@ export const FORMATS = {
   imports: /^\S+ approvals import read \d+, imported \d+, already \d+, reconciled \d+, skipped \d+(?:: .+)?$/,
 };
 
-const timeOf = (line) => Date.parse(line.slice(0, line.indexOf(' ')));
+// The time a log line starts with, or NaN for a line without one (a stack trace the launcher's redirect
+// caught), which Date.parse alone would read leniently: 'file:///.../run.mjs:451' parses as a year 2045.
+export const timeOf = (line) => (/^\d{4}-\d{2}-\d{2}T\S+ /.test(line) ? Date.parse(line.slice(0, line.indexOf(' '))) : NaN);
 
 // Pure: the handover transactions in log lines. A handover is a tick, `code moved from A to B`, then
 // `supervisor exiting for a restart`, then the new process's `supervisor pid`, then a tick from it (its

@@ -147,6 +147,12 @@ test('freelancer payment verification is the operator\'s unless the setting skip
   await h.next(session);
   const re = new RegExp(spec.re, spec.flags);
   assert.ok(re.test('Skip') && !re.test('Verify payment method'));
+  // The paid membership offer is always declined the same way.
+  const m = FREELANCER['membership-offer'];
+  assert.ok(m.same(await m.read(), m.want({})));
+  await m.next(session);
+  const re2 = new RegExp(spec.re, spec.flags);
+  assert.ok(re2.test('Skip') && !re2.test('Start your free month'));
 });
 
 test('freelancer linked-accounts links nothing and leaves by Skip', async () => {

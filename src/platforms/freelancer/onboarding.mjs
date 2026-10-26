@@ -23,6 +23,7 @@ export const STEPS = [
   { id: 'profile-details/languages-and-birthdate', detect: { path: BASE + 'profile-details/languages-and-birthdate', heading: /what languages do you speak/i } },
   { id: 'phone-verification', detect: { path: BASE + 'phone-verification', heading: /verify payment method/i } },
   { id: 'payment-verification', detect: { path: BASE + 'payment-verification', heading: /verify payment method/i } },
+  { id: 'membership-offer', detect: { path: BASE + 'membership-offer', heading: /get plus membership today/i } },
 ];
 
 // A step is the wizard path after /new-freelancer/, since profile-details holds several pages.
@@ -222,6 +223,15 @@ const paymentVerification = {
 };
 HANDLERS['phone-verification'] = paymentVerification;
 HANDLERS['payment-verification'] = paymentVerification;
+
+// Mapped 2026-10-26: "Get Plus Membership today" offers a free month that bills $9.99 a month after;
+// onboarding takes no paid plan, so the step leaves by Skip.
+HANDLERS['membership-offer'] = {
+  read: async () => 'declined',
+  want: () => 'declined',
+  same: (cur, want) => cur === want,
+  next: (s) => clickMatch(s, 'button, a, [role=button], fl-button', /^Skip$/),
+};
 
 const LANGUAGE_CODES = { en: 'English', ko: 'Korean', ja: 'Japanese', zh: 'Chinese', es: 'Spanish', fr: 'French', de: 'German' };
 // profile.languages holds codes ("ko") or names with a note ("Korean (native)"); the page lists names.

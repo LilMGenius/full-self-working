@@ -80,6 +80,8 @@ test('about must fit 150 to 600 characters and pass the gate', () => {
 
 test('skill candidates are short parts, single words first, and the level setting is checked', () => {
   assert.deepEqual(skillCandidates(instance.profile), ['Node.js', 'JavaScript', 'TypeScript']);
+  // A configured list replaces the derived one, and a name the profile does not back is dropped.
+  assert.deepEqual(skillCandidates(instance.profile, ['TypeScript', 'Rust', 'node.js', 'TypeScript']), ['TypeScript', 'node.js']);
   assert.equal(skillLevel(instance), 'PRO');
   assert.equal(skillLevel({ config: { onboarding: { fiverr: { skillLevel: 'guru' } } } }), 'INTERMEDIATE');
 });

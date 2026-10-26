@@ -66,10 +66,15 @@ export function aboutOf(profile) {
   return text.length >= 150 && text.length <= 600 ? text : null;
 }
 
-// Skill candidates from profile.skills: the parts of each entry around " and " that are one or two words,
-// single words first; the page's suggestions decide which exist. Each try costs about six paced actions,
-// so longer phrases, which never match a suggestion exactly, are not tried.
-export function skillCandidates(profile) {
+// Skill candidates: config onboarding.fiverr.skills when set, since each try costs about six paced
+// actions and on 2026-10-26 the 32 phrases profile.skills yields spent the 60-action hourly budget before
+// Continue; else the parts of each profile.skills entry around " and " that are one or two words, single
+// words first. The page's suggestions decide which exist.
+// A configured name counts only when profile.skills mentions it, so the list cannot claim a skill the
+// profile does not back.
+export function skillCandidates(profile, configured = null) {
+  const backing = Object.values(profile?.skills ?? {}).flat().join(' | ').toLowerCase();
+  if (Array.isArray(configured) && configured.length) return [...new Set(configured.map((s) => String(s).trim()).filter((s) => s && backing.includes(s.toLowerCase())))];
   const parts = [...new Set(Object.values(profile?.skills ?? {}).flat().flatMap((e) => String(e).split(/\s+and\s+/)).map((t) => t.trim()))];
   const words = (t) => t.split(/\s+/).length;
   return parts.filter((t) => t.length >= 2 && words(t) <= 2).sort((a, b) => words(a) - words(b));
@@ -223,7 +228,7 @@ async function profileStep(session, ctx) {
   }
   const seen = parseProfileText(page.text);
   const todo = unsetFields(want, page, seen);
-  const candidates = skillCandidates(p);
+  const candidates = skillCandidates(p, instance.config?.onboarding?.fiverr?.skills);
   const missingSkills = candidates.filter((c) => !seen.skills.some((s) => s.toLowerCase() === c.toLowerCase()));
   const photoFile = instance.config?.onboarding?.photo ?? null;
   const notes = [];

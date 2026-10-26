@@ -25,6 +25,7 @@ import { startAllowed, sweep } from '../deal/index.mjs';
 import { startDue } from '../work/index.mjs';
 import { dueJobs, JOBS, nextWake } from './schedule.mjs';
 import { createBrowserKeeper, holdAwake } from './keepalive.mjs';
+import { writeSupply } from './supply.mjs';
 
 export { effectiveMode };
 export { MAX_THREADS_PER_PLATFORM } from '../loop/index.mjs';
@@ -199,7 +200,8 @@ async function runPlatforms(ids, ctx) {
 // Job handlers print through ctx.log and return {status, ...detail}; status is ok, partial, failed or
 // skipped. The ids are the lastRuns keys of run/state.json and never change (D14).
 export const JOB_HANDLERS = {
-  // Supervisor self-check, the BrowserSkill keeper, and the read pass on observe platforms.
+  // Supervisor self-check, the BrowserSkill keeper, the read pass on observe platforms, and the lead
+  // supply report (architect D18, shipped here by the 000 amendment).
   async hourly(ctx) {
     const self = { pid: process.pid, uptimeMin: Math.round(process.uptime() / 60), rssMB: Math.round(process.memoryUsage().rss / 1048576), ledgerEvents: ctx.ledger.counts().events };
     // The tick checked the keeper before its first job (runTick, b2ec31d); the hourly job reports that check.
@@ -207,8 +209,9 @@ export const JOB_HANDLERS = {
     // Observe platforms are not polled every 5 minutes, so their login and read pass runs here.
     const observeIds = Object.entries(ctx.instance.config.platforms ?? {}).filter(([, q]) => q.enabled && q.mode === 'observe').map(([id]) => id);
     const observed = observeIds.length ? await runPlatforms(observeIds, ctx) : { status: 'ok', platforms: [] };
-    const bad = browser.status === 'daemon start failed' || browser.status === 'no daemon' || observed.status !== 'ok';
-    return { status: bad ? 'partial' : 'ok', self, browser, observe: observed.platforms.map((q) => ({ platform: q.platform, status: q.status })) };
+    const supply = await writeSupply({ instance: ctx.instance, ledger: ctx.ledger, now: ctx.now, ...(ctx.openSurface ? { openSurface: ctx.openSurface } : {}) });
+    const bad = browser.status === 'daemon start failed' || browser.status === 'no daemon' || observed.status !== 'ok' || supply.status !== 'ok';
+    return { status: bad ? 'partial' : 'ok', self, browser, observe: observed.platforms.map((q) => ({ platform: q.platform, status: q.status })), supply: { file: supply.file, platforms: supply.reports.map((r) => ({ platform: r.platform, status: r.status, awaitingReply: r.awaitingReply })) } };
   },
   async poll(ctx) {
     const ids = pollTargets(ctx.instance);

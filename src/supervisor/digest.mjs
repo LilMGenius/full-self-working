@@ -12,6 +12,7 @@ import { latestSummary } from '../economics/market.mjs';
 import { CATEGORY_FIELD } from '../economics/pricing.mjs';
 import { readLessons } from '../learning/lessons.mjs';
 import { loadDescriptor } from '../platforms/registry.mjs';
+import { latestSupply, supplyLines } from './supply.mjs';
 import catalog from '../economics/services.json' with { type: 'json' };
 
 const DAY_MS = 86_400_000;
@@ -100,6 +101,7 @@ export function digestNumbers({ instance, ledger, now = new Date() }) {
   const allocation = latestFiles(instance.paths.pricing, /^allocation-\d{8}\.json$/, 1)[0] ?? null;
   return {
     day,
+    supply: latestSupply(instance),
     leads: { total: threads.length, byPlatform: byPlatform(threads) },
     repliesSent: { total: outbound.length, byPlatform: byPlatform(outbound) },
     quotesSent: { total: quotes.length, amountKRW: quotes.reduce((s, x) => s + (x.amount_krw ?? 0), 0), cashSpentKRW: quotes.reduce((s, x) => s + (x.cost_krw ?? 0), 0) },
@@ -121,6 +123,12 @@ const cell = (c) => c.platform + ' ' + krw(c.valueKRW) + ' ' + c.basis + (c.n !=
 export function renderDigest(n) {
   const lines = [
     '# Digest for ' + n.day.slice(0, 4) + '-' + n.day.slice(4, 6) + '-' + n.day.slice(6),
+    '',
+    '## Lead supply' + (n.supply ? ' (' + n.supply.file + ')' : ''),
+    '',
+    ...supplyLines(n.supply),
+    '',
+    '## Activity',
     '',
     '- leads: ' + n.leads.total + (n.leads.total ? ' (' + counts(n.leads.byPlatform) + ')' : ''),
     '- replies sent: ' + n.repliesSent.total + (n.repliesSent.total ? ' (' + counts(n.repliesSent.byPlatform) + ')' : ''),
@@ -159,7 +167,8 @@ export async function writeDigest({ instance, ledger, now = new Date(), notify =
   writeFileSync(file + '.tmp', text);
   renameSync(file + '.tmp', file);
   const errorCount = Object.values(numbers.errors).reduce((s, m) => s + Object.values(m).reduce((a, b) => a + b, 0), 0);
-  const body = ['leads ' + numbers.leads.total, 'replies ' + numbers.repliesSent.total, 'quotes ' + numbers.quotesSent.total, 'approvals waiting ' + numbers.approvalsWaiting, 'payments ' + numbers.payments.count, 'errors ' + errorCount].join(', ');
+  const supply = supplyLines(numbers.supply).map((l) => l.slice(2)).join(' | ');
+  const body = supply + '\n' + ['leads ' + numbers.leads.total, 'replies ' + numbers.repliesSent.total, 'quotes ' + numbers.quotesSent.total, 'approvals waiting ' + numbers.approvalsWaiting, 'payments ' + numbers.payments.count, 'errors ' + errorCount].join(', ');
   const notified = await notify(instance, { kind: 'digest', title: 'Daily digest ' + numbers.day, body: body + '\n' + file, dedupeKey: 'digest:' + dayKey(now) });
   return { file, numbers, notified: notified.written };
 }

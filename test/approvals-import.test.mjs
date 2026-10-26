@@ -6,6 +6,7 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { openLedger, outboxKey } from '../src/core/ledger.mjs';
 import { importApprovals } from '../src/core/approvals-import.mjs';
+import { expireProposals, syncProposals } from '../src/projects/job.mjs';
 import { tempDir } from './tmp.mjs';
 
 // A temp ledger and an approvals directory; files is {name: object or raw string}.
@@ -156,3 +157,37 @@ test('a second import adds nothing and a missing directory reads nothing', () =>
   assert.equal(ledger.counts().outbox, 1);
   assert.deepEqual(importApprovals(ledger, join(dir, 'missing')), { read: 0, imported: 0, already: 0, reconciled: 0, skipped: [] });
 }));
+
+// The shape queueProposal wrote at a8ae31c (project, proposal, critic, violations on the file).
+const projectProposal = (id, projectId, fields) => approval(id, {
+  platform: 'kmong', kind: 'project_proposal', orderItem: true, threadRef: 'project:' + projectId, service: 'web_app_dev', title: 'kmong 제안 검토: 과제 ' + projectId, draft: '제안서 ' + projectId,
+  quote: { amountKRW: 2000000 }, project: { id: projectId, title: '과제 ' + projectId, amountKRW: 3000000, deadlineAt: '2026-10-30', url: 'https://kmong.com/enterprise/requests/' + projectId },
+  proposal: { totalKRW: 2000000, phases: [{ title: '설계', priceKRW: 2000000 }], floorKRW: 1500000 }, critic: { score: 8, pass: true, problems: [] }, violations: [], warnings: [], ...fields,
+});
+
+test('imported project proposals carry the payload the projects job reads, and one the old code sent is not proposed again', async () => {
+  const dir = tempDir('fsw-approvals-');
+  const approvals = join(dir, 'operator', 'approvals');
+  mkdirSync(approvals, { recursive: true });
+  writeFileSync(join(approvals, '20261025-kmong-aaaa0001.json'), JSON.stringify(projectProposal('20261025-kmong-aaaa0001', 501, { status: 'sent', resolvedAt: '2026-10-25T03:00:00.000Z', finalText: '제안서 501', closedAt: '2026-10-25T03:05:00.000Z' })));
+  writeFileSync(join(approvals, '20261025-kmong-aaaa0002.json'), JSON.stringify(projectProposal('20261025-kmong-aaaa0002', 502, { status: 'open', createdAt: '2026-10-25T04:00:00.000Z' })));
+  const ledger = openLedger(join(dir, 'ledger.sqlite'));
+  try {
+    assert.equal(importApprovals(ledger, approvals).imported, 2);
+    const sent = ledger.outboxByApproval('20261025-kmong-aaaa0001');
+    const open = ledger.outboxByApproval('20261025-kmong-aaaa0002');
+    assert.deepEqual([sent.status, open.status], ['observed', 'awaiting_operator']);
+    assert.deepEqual([open.payload.project.id, open.payload.service, open.payload.proposal.phases.length, open.payload.critic.score, open.payload.summary], [502, 'web_app_dev', 1, 8, 'needs the operator']);
+    const instance = { dir, config: {} };
+    const now = new Date('2026-10-25T06:00:00.000Z');
+    const synced = await syncProposals({ instance, ledger, now });
+    assert.deepEqual(synced, []);
+    assert.equal(ledger.db.prepare("SELECT COUNT(*) AS n FROM events WHERE kind = 'project.proposed'").get().n, 0);
+    const read = [];
+    const expired = await expireProposals({ ledger, now }, { reader: { readProject: async (id) => (read.push(id), { id, status: 'CLOSED' }) } });
+    assert.deepEqual(read, [502]);
+    assert.deepEqual(expired, [{ id: 502, outboxId: open.id, action: 'stale' }]);
+  } finally {
+    ledger.close();
+  }
+});

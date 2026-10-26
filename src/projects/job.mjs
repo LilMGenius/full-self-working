@@ -124,10 +124,12 @@ function dropProposal(ctx, { project, verdict, best, reason }) {
 // against the day (project.proposed); an unobserved one marks it unobserved, which readStatuses then reads
 // back from /seller/proposals. A send.deferred event with the enterprise profile code, newer than the last
 // profile state, sets the day memory and tells the operator once (profileBlocked).
+// A row the approvals import closed as sent or unobserved by the 2c77326 code (receipt.pipeline) is skipped,
+// as the deal sweep skips it: that code already marked the project and wrote its project.proposed event.
 export async function syncProposals(ctx) {
   const { instance, ledger, now = new Date() } = ctx;
   const out = [];
-  for (const row of ledger.listOutbox({ platform: 'kmong', kinds: ['proposal'], statuses: ['observed', 'unobserved'] })) {
+  for (const row of ledger.listOutbox({ platform: 'kmong', kinds: ['proposal'], statuses: ['observed', 'unobserved'] }).filter((r) => r.receipt?.pipeline !== 'd605c5d')) {
     const id = row.payload.project.id;
     const prev = projectThread(ledger, id)?.meta?.proposal ?? {};
     if (prev.syncedOutboxId === row.id) continue;

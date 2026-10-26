@@ -68,6 +68,24 @@ function threadIdFor(ledger, a) {
   return ledger.db.prepare('SELECT id FROM threads WHERE platform = ? AND external_id = ?').get(a.platform, String(a.threadRef))?.id ?? null;
 }
 
+// What planProposal (src/projects/job.mjs) writes on a proposal row, rebuilt from a 2c77326
+// project_proposal file (queueProposal at a8ae31c kept project, proposal, critic, violations and service on
+// the file and the operator summary as its reason), so syncProposals, expireProposals and the drain read an
+// imported proposal as they read their own.
+function proposalPayload(a) {
+  const summary = a.reason ?? null;
+  return {
+    service: a.service ?? null,
+    summary,
+    thread: { kind: 'project', stage: 'pre_order' },
+    decision: { intent: 'quote_request', service: a.service ?? null, language: 'ko', reply: a.draft ?? null, quote: null, needsOperator: true, operatorReason: summary, confidence: 1, claimsUsed: [] },
+    project: a.project ?? null,
+    proposal: a.proposal ?? null,
+    critic: a.critic ?? null,
+    violations: a.violations ?? [],
+  };
+}
+
 export function rowFromApproval(ledger, a) {
   const kind = KIND_OF[a.kind];
   if (!kind) return { skip: 'kind ' + a.kind + ' has no outbox kind' };
@@ -88,7 +106,7 @@ export function rowFromApproval(ledger, a) {
       threadId,
       jobId: a.jobId && ledger.getJob(a.jobId) ? a.jobId : null,
       kind,
-      payload: { text: a.draft ?? null, amountKRW, split: a.quote?.split ?? null, scope: a.quote?.scope ?? null, deliveryDays: a.quote?.deliveryDays ?? null, files, costKRW: a.costKRW ?? a.deferredForBudget?.costKRW ?? null, threadRef: String(a.threadRef), importedFrom: 'operator/approvals/' + a.id + '.json', ...(deferred ? deferredPayload(ledger, a, threadId) : {}) },
+      payload: { text: a.draft ?? null, amountKRW, split: a.quote?.split ?? null, scope: a.quote?.scope ?? null, deliveryDays: a.quote?.deliveryDays ?? null, files, costKRW: a.costKRW ?? a.deferredForBudget?.costKRW ?? null, threadRef: String(a.threadRef), importedFrom: 'operator/approvals/' + a.id + '.json', ...(deferred ? deferredPayload(ledger, a, threadId) : {}), ...(kind === 'proposal' ? proposalPayload(a) : {}) },
       verdict: null,
       status,
       reason: a.reason ?? null,

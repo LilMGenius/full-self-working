@@ -57,6 +57,8 @@ export function permissionSignal({ thread, jobs, decision, at = new Date().toISO
   if (decision?.permissionIssue) return none(decision.permissionIssue);
   const answer = decision?.portfolioPermission ?? null;
   if (!answer) return none(null);
+  // A consent the model read as conditional never grants: the operator scopes it.
+  if (answer === 'conditional') return none('the client set a condition on showing the work, for the operator to scope');
   const signal = (type, j, evidence) => ({ type, platform: thread.platform, threadId: j.threadId, jobId: j.id, at, evidence: { ...evidence, source: 'brain' } });
   // A refusal cannot say which of the thread's works it means, so it holds on every job delivered once (an
   // older closed one, a revision or a rerun included): hiding work is the safe side.

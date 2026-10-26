@@ -233,7 +233,8 @@ export async function step(platform, ctx) {
         const perm = permissionSignal({ thread: view, jobs: jobsOfThread(ledger, platform, row.id), decision: d, at: now.toISOString() });
         for (const s of perm.signals) applyAdvance(s);
         if (perm.reason) {
-          const answer = d.portfolioPermission === 'refused' ? 'refused' : 'granted';
+          // A grant dropped by the parser (no client sentence) is reported as the granted claim it was.
+          const answer = d.portfolioPermission ?? 'granted';
           event(answer === 'refused' ? 'permission.refusal_unapplied' : 'permission.unverified', ref, { reason: perm.reason, jobId: perm.jobId });
           const verb = perm.jobId ? '\nRecord the client answer with: fsw deal ' + perm.jobId + ' permission granted (or denied)' : '\nNo job on this thread was delivered, so there is nothing to record yet.';
           effects.push({ type: 'notify', note: { kind: 'order', title: platform + ' ' + (perm.jobId ?? 'thread ' + ref) + ': a portfolio answer was not applied', body: 'The model read the client as ' + answer + ' on thread ' + ref + ', and it was not applied: ' + perm.reason + '.\nQuote: ' + (d.permissionQuote ?? 'none') + verb, dedupeKey: 'portfolio-answer-check:' + (perm.jobId ?? platform + ':' + ref) + ':' + answer } });

@@ -37,6 +37,7 @@ Four more limits apply on top of the mode:
 
 - **The outbound gate** is plain code, not a prompt. A message that breaks a rule is blocked and rewritten once; a second failure becomes an approval request for you.
 - **Cash caps.** Platforms that charge per quote (숨고 charges cash) refuse a quote until you set `maxQuotesPerDay` and `maxCashPerDay` for that platform.
+- **Sign-in.** `logins` in `config.json` names a JSON file outside the repository, such as `{"kmong": {"method": "email", "email": "...", "password": "..."}}`. When kmong signs out, the supervisor signs in again from it, at most once an hour, instead of waiting for you; a platform without an entry still asks you.
 - **Services.** A platform answers every service the agent can deliver unless its `services` setting lists the ones you want. Lessons (`lesson_tutoring`) are taught by you, so they are answered only where `services` lists them; fsw then replies, quotes and asks for payments, and tells you to schedule the sessions once the deposit arrives.
 - **Approvals.** Delivery and payment requests always wait for you. Profile edits follow the `profileEdits` setting of each platform (`approval` waits for you). Until `orders.watched` is true in `config.json`, every reply in a thread with an accepted quote or a payment goes to you first.
 

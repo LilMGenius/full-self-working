@@ -1,6 +1,7 @@
 {
   "timezone": "Asia/Seoul",
   "browser": null,
+  "logins": null,
   "activeHours": {
     "outbound": [
       "08:00",

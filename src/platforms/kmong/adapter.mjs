@@ -25,6 +25,22 @@ function pageLogin() {
   };
 }
 
+// The 로그인 modal (/?open=login_modal, read 2026-10-26): an email input, a password input and a 로그인
+// submit button in one box, with 로그인 유지 checked by default. The three are marked for fill and click.
+function pageLoginForm() {
+  const pw = document.querySelector('input[type=password]');
+  if (!pw) return { found: false };
+  let box = pw;
+  for (let i = 0; i < 12 && box && !box.querySelector('input[type=email], input[name=email]'); i++) box = box.parentElement;
+  const email = box?.querySelector('input[type=email], input[name=email]');
+  const submit = box && ([...box.querySelectorAll('button')].find((b) => b.innerText.trim() === '로그인') ?? box.querySelector('button[type=submit]'));
+  if (!email || !submit) return { found: false };
+  email.setAttribute('data-fsw', 'login-email');
+  pw.setAttribute('data-fsw', 'login-password');
+  submit.setAttribute('data-fsw', 'login-submit');
+  return { found: true };
+}
+
 function pageInboxRows() {
   return [...document.querySelectorAll('a[href*="inbox_group_id="]')].filter((a) => /inbox_group_id=\d+/.test(a.getAttribute('href'))).map((a) => ({
     href: a.getAttribute('href'),
@@ -508,7 +524,7 @@ export function editIds(url) {
 
 // ---- adapter ----
 
-export async function openKmong({ session } = {}) {
+export async function openKmong({ session, sleep = wait } = {}) {
   const s = session ?? (await openSession('kmong', { platform: 'kmong', pacing: loadDescriptor('kmong').pacing }));
 
   const unreadHrefs = async () => {
@@ -541,6 +557,17 @@ export async function openKmong({ session } = {}) {
       const p = await s.evaluate(pageLogin);
       const nickname = p.profileHref ? decodeURIComponent(p.profileHref.slice(2)) : null;
       return { loggedIn: p.avatar && p.authSection && !p.loginButton, sellerMode: p.sellerMode, nickname, url: p.url };
+    },
+
+    // Signs in through the email login; the values go only into the form and never into a return value.
+    async signIn({ email, password }) {
+      await s.navigate(`${BASE}/?open=login_modal&next_page=%2Fseller%2Fdashboard`);
+      if (!(await s.evaluate(pageLoginForm)).found) return { signedIn: false, reason: 'the login form was not found' };
+      await s.fill('[data-fsw=login-email]', email);
+      await s.fill('[data-fsw=login-password]', password);
+      await s.click('[data-fsw=login-submit]');
+      await sleep(7000);
+      return (await adapter.login()).loggedIn ? { signedIn: true } : { signedIn: false, reason: 'still signed out after the form was sent' };
     },
 
     async inbox() {

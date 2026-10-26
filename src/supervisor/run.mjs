@@ -24,6 +24,25 @@ import { createBrowserKeeper, holdAwake } from './keepalive.mjs';
 // the next 5-minute mark; the rest wait for the following tick.
 export const MAX_THREADS_PER_PLATFORM = 10;
 
+// A platform that signed out is signed in again from the logins file config logins names
+// ({<platform>: {method: 'email', email, password}}, kept outside the repository), at most once an hour,
+// so a wrong password or a page that asks for a human check cannot lock the account by retrying. The
+// values go only into the platform's form; the event records whether the sign-in worked.
+export const SIGN_IN_GAP_MS = 60 * 60_000;
+
+export async function signInAgain({ id, adapter, instance, ledger, now }) {
+  if (typeof adapter.signIn !== 'function') return null;
+  const file = instance.config?.logins;
+  if (!file || !existsSync(file)) return null;
+  const login = JSON.parse(readFileSync(file, 'utf8'))[id];
+  if (login?.method !== 'email' || !login.email || !login.password) return null;
+  const last = ledger.db.prepare("SELECT at FROM events WHERE kind = 'platform.sign_in' AND platform = ? ORDER BY id DESC LIMIT 1").get(id);
+  if (last && now.getTime() - Date.parse(last.at) < SIGN_IN_GAP_MS) return null;
+  const r = await adapter.signIn({ email: login.email, password: login.password });
+  ledger.addEvent({ at: now.toISOString(), kind: 'platform.sign_in', platform: id, payload: { ok: r?.signedIn === true, reason: r?.reason ?? null } });
+  return r?.signedIn === true ? adapter.login() : null;
+}
+
 // fsw run exits with this code when newer code should take over; the scheduled task's launcher starts it
 // again at once (scripts/task.ps1).
 export const RESTART_EXIT = 75;
@@ -212,6 +231,7 @@ export async function runPlatform(id, ctx) {
   try {
     adapter = await open();
     result.login = await adapter.login();
+    if (!result.login?.loggedIn) result.login = (await signInAgain({ id, adapter, instance, ledger, now })) ?? result.login;
     if (!result.login?.loggedIn) {
       await notifyOperator(instance, { kind: 'login', title: id + ' needs a login', body: 'Sign in to ' + descriptor.name + ' in Chrome; the supervisor reads it again on the next tick.', dedupeKey: 'login:' + id + ':' + dayKey(now) });
       return { ...result, status: 'failed', error: 'not logged in' };

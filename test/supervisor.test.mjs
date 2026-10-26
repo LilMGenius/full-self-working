@@ -248,6 +248,33 @@ test('a thread whose pass threw is passed again on the next ticks, at most THREA
   assert.equal(needsWork({ id: 'r1', at }, { ...row, lastOutboundAt: '2026-10-25T03:05:00Z', meta: failedAt }), false);
 });
 
+// 크몽 signed out at 07:52 Seoul on 2026-10-26 and stayed out until the operator typed his password.
+test('a signed-out platform is signed in again from the logins file at most once an hour, and the password goes nowhere else', async () => {
+  const instance = makeInstance({ kmong: { enabled: true, mode: 'auto' } });
+  const file = join(tempDir('fsw-logins-'), 'logins.json');
+  writeFileSync(file, JSON.stringify({ kmong: { method: 'email', email: 'seller@example.invalid', password: 'not-a-real-password' } }));
+  instance.config.logins = file;
+  const ledger = openLedger(':memory:');
+  let signedIn = false;
+  const signIns = [];
+  const adapter = {
+    login: async () => ({ loggedIn: signedIn }),
+    signIn: async (login) => (signIns.push(login), { signedIn: false, reason: 'still signed out after the form was sent' }),
+    inbox: async () => [],
+    stop: async () => {},
+  };
+  const tick = (min) => runPlatform('kmong', { instance, ledger, now: new Date(Date.parse('2026-10-26T01:00:00Z') + min * 60_000), priceTable: [], loadAdapter: async () => async () => adapter });
+  assert.deepEqual([(await tick(0)).status, signIns.length], ['failed', 1]);
+  assert.deepEqual([(await tick(5)).status, signIns.length], ['failed', 1]);
+  adapter.signIn = async (login) => (signIns.push(login), (signedIn = true), { signedIn: true });
+  const back = await tick(61);
+  assert.deepEqual([back.status, back.login.loggedIn, signIns.length], ['ok', true, 2]);
+  assert.deepEqual(signIns[1], { email: 'seller@example.invalid', password: 'not-a-real-password' });
+  const events = ledger.db.prepare('SELECT kind, payload FROM events').all();
+  assert.deepEqual(events.filter((e) => e.kind === 'platform.sign_in').map((e) => JSON.parse(e.payload).ok), [false, true]);
+  assert.equal(events.some((e) => String(e.payload ?? '').includes('not-a-real-password')), false);
+});
+
 // A chat whose list time a platform notice moved past its newest stored message, as 숨고 chat 239668351
 // was on 2026-10-25, when it went through the model on every tick for an hour.
 function noticeMovedChat() {

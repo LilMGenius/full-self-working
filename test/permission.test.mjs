@@ -90,3 +90,12 @@ test('the step records a grant the page text does not back as permission.unverif
   assert.deepEqual(s.events('permission.unverified').map((e) => e.reason), ['grant without a quote found in an inbound message after the delivery']);
   assert.equal(s.events('deal.permission_granted').length, 0);
 });
+
+test('a model grant without the client sentence keeps the thread reply and is recorded as permission.unverified', async () => {
+  const s = setup();
+  const r = await s.run(GRANT, { portfolioPermission: 'granted', permissionQuote: null, reply: '확인 감사합니다. 남은 일정도 안내드리겠습니다.' });
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(s.ledger.listOutbox({ platform: 'kmong' }).map((o) => o.payload.text), ['확인 감사합니다. 남은 일정도 안내드리겠습니다.']);
+  assert.deepEqual(s.events('permission.unverified').map((e) => e.reason), ['the model answered granted without the client sentence']);
+  assert.equal(s.ledger.getJob('kmong-k1').meta.portfolio.permission, 'pending');
+});

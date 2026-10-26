@@ -96,11 +96,17 @@ export function parseDecision(data, ids) {
   // A decision written before the field existed (an older fixture) parses as null.
   const stated = data.statedBudgetKRW ?? null;
   if (stated !== null && !(Number.isInteger(stated) && stated > 0)) throw bad('statedBudgetKRW');
-  const permission = data.portfolioPermission ?? null;
+  let permission = data.portfolioPermission ?? null;
   const permissionQuote = data.permissionQuote ?? null;
   if (![null, 'granted', 'refused'].includes(permission)) throw bad('portfolioPermission ' + permission);
   if (permissionQuote !== null && typeof permissionQuote !== 'string') throw bad('permissionQuote');
-  if (permission === 'granted' && !(permissionQuote ?? '').trim()) throw bad('portfolioPermission granted without permissionQuote');
+  // A grant the model cannot quote is no grant, but the reply and the quote in the same answer still stand;
+  // the loop records the dropped claim for the operator (permission.unverified).
+  let permissionIssue = null;
+  if (permission === 'granted' && !(permissionQuote ?? '').trim()) {
+    permission = null;
+    permissionIssue = 'the model answered granted without the client sentence';
+  }
   return {
     intent: data.intent,
     service: data.service,
@@ -114,6 +120,7 @@ export function parseDecision(data, ids) {
     statedBudgetKRW: stated,
     portfolioPermission: permission,
     permissionQuote,
+    permissionIssue,
   };
 }
 
@@ -146,7 +153,7 @@ export function outboundItem(thread, decision, text) {
 
 const SYSTEM_DECISION = Object.freeze({
   intent: 'system', service: null, language: null, reply: null, quote: null,
-  needsOperator: false, operatorReason: null, confidence: 1, claimsUsed: [], statedBudgetKRW: null, portfolioPermission: null, permissionQuote: null,
+  needsOperator: false, operatorReason: null, confidence: 1, claimsUsed: [], statedBudgetKRW: null, portfolioPermission: null, permissionQuote: null, permissionIssue: null,
 });
 
 export async function decide(thread, ctx) {

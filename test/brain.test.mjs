@@ -157,12 +157,24 @@ test('a decision carries the portfolio answer with its quote; a grant without a 
   const older = parseDecision(decision(), ids);
   assert.deepEqual([older.portfolioPermission, older.permissionQuote], [null, null]);
   assert.equal(parseDecision(decision({ portfolioPermission: 'refused', permissionQuote: null }), ids).portfolioPermission, 'refused');
-  for (const over of [{ portfolioPermission: 'yes', permissionQuote: '네' }, { portfolioPermission: 'granted', permissionQuote: null }, { portfolioPermission: 'granted', permissionQuote: '  ' }, { portfolioPermission: null, permissionQuote: 3 }]) {
+  for (const over of [{ portfolioPermission: 'yes', permissionQuote: '네' }, { portfolioPermission: null, permissionQuote: 3 }]) {
     assert.throws(() => parseDecision(decision(over), ids), { code: 'FSW_BRAIN_BAD_DECISION' }, JSON.stringify(over));
   }
   const schema = DECISION_SCHEMA(ids);
   assert.ok(schema.required.includes('portfolioPermission') && schema.required.includes('permissionQuote'));
   assert.deepEqual(schema.properties.portfolioPermission.enum, ['granted', 'refused', null]);
+});
+
+test('a grant without its quote parses as no answer with the issue named, and the reply and quote stand', () => {
+  const ids = ['landing_page_web'];
+  for (const permissionQuote of [null, '  ']) {
+    const q = { amountKRW: 300000, scope: ['한 페이지'], deliveryDays: 7, priceType: 'fixed', complexity: 1 };
+    const d = parseDecision(decision({ portfolioPermission: 'granted', permissionQuote, quote: q }), ids);
+    assert.deepEqual([d.portfolioPermission, d.permissionIssue], [null, 'the model answered granted without the client sentence']);
+    assert.equal(d.reply, decision().reply);
+    assert.equal(d.quote.amountKRW, 300000);
+  }
+  assert.equal(parseDecision(decision({ portfolioPermission: 'refused', permissionQuote: null }), ids).permissionIssue, null);
 });
 
 test('the model sees only the services and price rows the instance answers on the platform', async () => {

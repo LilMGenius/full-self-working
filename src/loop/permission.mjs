@@ -5,6 +5,7 @@
 const norm = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
 
 export function permissionSignal({ thread, job, decision, at = new Date().toISOString() }) {
+  if (decision?.permissionIssue) return { signal: null, reason: decision.permissionIssue };
   const answer = decision?.portfolioPermission ?? null;
   if (!answer || !job || !['delivered', 'closed'].includes(job.status)) return { signal: null, reason: null };
   const after = Date.parse(job.deliveredAt ?? '');

@@ -257,6 +257,22 @@ test('pacing returns the row to its status, writes send.deferred and stops the d
   assert.ok(NOT_SENT.includes('FSW_PACING_LIMIT'));
 });
 
+test('a missing kmong enterprise profile returns the approved proposal, writes send.deferred and stops the drain', async () => {
+  const s = setup();
+  const rows = ['p1', 'p2'].map((ref, i) => {
+    const row = plan(s.ledger, { platform: 'kmong', threadId: s.thread(ref).id, kind: 'proposal', payload: { text: '요청하신 범위로 제안드립니다. 일정은 협의 가능합니다. ' + i, amountKRW: 1000000 } });
+    setStatus(s.ledger, row.id, { from: 'planned', to: 'awaiting_operator', approvalId: '20261020-kmong-0000000' + i });
+    resolve(s.ledger, '20261020-kmong-0000000' + i, { approve: true });
+    return row;
+  });
+  const surface = scriptedSurface({ methods: ['propose'], receipts: { propose: [Object.assign(new Error('the enterprise profile is not registered'), { code: 'FSW_KMONG_ENTERPRISE_PROFILE' })] } });
+  const out = await s.run(surface);
+  assert.deepEqual(out.map((x) => [x.action, x.code]), [['deferred', 'FSW_KMONG_ENTERPRISE_PROFILE']]);
+  assert.deepEqual(rows.map((r) => s.ledger.getOutbox(r.id).status), ['approved', 'approved']);
+  assert.deepEqual(events(s.ledger, 'send.deferred').map((e) => e.payload.code), ['FSW_KMONG_ENTERPRISE_PROFILE']);
+  assert.equal(events(s.ledger, 'send.unobserved').length, 0);
+});
+
 test('a row another drain moved before the claim is skipped as moved with no surface call', async () => {
   const s = setup();
   const row = plan(s.ledger, { platform: 'kmong', threadId: s.thread('t1').id, kind: 'message', payload: msgPayload() });

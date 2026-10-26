@@ -24,8 +24,9 @@ export const handles = (surface, kind) => typeof surface?.[METHOD[kind]] === 'fu
 
 // Refusals a surface raises before it touches the page (the 020 contract for the pacing guard): the row
 // goes back as it was and this platform's drain stops for the tick, as the pipeline did on pacing
-// (src/supervisor/run.mjs:239). 040 adds kmong's proposal refusals.
-export const NOT_SENT = ['FSW_PACING_LIMIT'];
+// (src/supervisor/run.mjs:239). kmong's proposal refusals (its NOT_TYPED) join it: a spent day quota and
+// a missing enterprise profile stop before anything is typed.
+export const NOT_SENT = ['FSW_PACING_LIMIT', 'FSW_KMONG_QUOTA_SPENT', 'FSW_KMONG_ENTERPRISE_PROFILE'];
 // The clock drift allowed between the machine and a platform's line times when reading a send back.
 export const READBACK_MARGIN_MS = 60_000;
 

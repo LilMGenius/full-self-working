@@ -1,0 +1,5 @@
+{"seq":0,"op":"navigate","name":"https://kmong.com/inboxes?inbox_group_id=&partner_id=","arg":null,"answer":"https://kmong.com/inboxes?inbox_group_id=&partner_id=","at":"2026-10-25T03:00:00.000Z"}
+{"seq":1,"op":"evaluate","name":"pageInboxRows","arg":null,"answer":[{"href":"/inboxes?inbox_group_id=111&partner_id=9","nickname":"의뢰인A","time":"10.24","preview":"상세페이지 문의드립니다"},{"href":"/inboxes?inbox_group_id=112&partner_id=8","nickname":"의뢰인B","time":"25.09.12","preview":"감사합니다"}],"at":"2026-10-25T03:00:00.000Z"}
+{"seq":2,"op":"evaluate","name":"pageSelectTab","arg":"안읽음","answer":{"ok":true,"empty":false},"at":"2026-10-25T03:00:00.000Z"}
+{"seq":3,"op":"evaluate","name":"pageInboxRows","arg":null,"answer":[{"href":"/inboxes?inbox_group_id=111&partner_id=9","nickname":"의뢰인A","time":"10.24","preview":"상세페이지 문의드립니다"}],"at":"2026-10-25T03:00:00.000Z"}
+{"seq":4,"op":"evaluate","name":"pageSelectTab","arg":"전체","answer":{"ok":true,"empty":false},"at":"2026-10-25T03:00:00.000Z"}

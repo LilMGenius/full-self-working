@@ -258,3 +258,19 @@ test('--apply writes the file of a planned v0 row, gives the row that id, and a 
   assert.deepEqual([imp.imported, imp.already, again.counts().outbox], [0, 1, 1]);
   again.close();
 });
+
+// The rules a8ae31c applies to an approval file, copied as they read there: the chat pipeline's
+// flushApprovals takes approved files for its platform unless closed or an order item
+// (src/pipeline/thread.mjs:278-280), and the projects job takes approved kmong project_proposal files
+// that are not closed (src/projects/job.mjs:147-148) and reads project.id and the final text or draft.
+const oldChatFlushTakes = (a, platform) => a.status === 'approved' && !(a.platform !== platform || a.closedAt || a.orderItem);
+const oldProjectsJobTakes = (a) => a.status === 'approved' && !(a.kind !== 'project_proposal' || a.platform !== 'kmong' || a.closedAt);
+
+test('a v0 proposal file is an order item: the old chat flush skips it and the old projects job sends it', () => {
+  const p = { text: 'proposal text', threadRef: 'project:701', amountKRW: 2000000, service: 'web_dev', project: { id: 701, title: 't', amountKRW: 3000000, deadlineAt: null, url: 'u' }, proposal: { totalKRW: 2000000, phases: [], floorKRW: 1500000 }, critic: { score: 8 }, violations: [] };
+  const file = v0OnlyFile(v0row('approved', 'proposal', { platform: 'kmong', payload: p, operator: { resolvedAt: AT, finalText: 'proposal text', edited: false } })).record;
+  assert.equal(oldChatFlushTakes(file, 'kmong'), false);
+  assert.equal(oldProjectsJobTakes(file), true);
+  assert.deepEqual([file.orderItem, file.project.id, file.quote, file.warnings, file.finalText ?? file.draft], [true, 701, { amountKRW: 2000000 }, [], 'proposal text']);
+  assert.equal(oldChatFlushTakes(v0OnlyFile(v0row('approved', 'message', { operator: { resolvedAt: AT, finalText: 'x' } })).record, 'soomgo'), true);
+});

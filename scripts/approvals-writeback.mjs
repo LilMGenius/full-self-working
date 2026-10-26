@@ -116,7 +116,12 @@ export function v0OnlyFile(row) {
       item: { platform: row.platform, kind: row.kind, text, amountKRW: p.amountKRW ?? null, thread: p.thread ?? { stage: 'pre_order' } },
       priceRow: p.priceRow ?? null, costKRW: p.costKRW ?? null,
     });
-  } else if (row.kind === 'proposal') Object.assign(record, { project: p.project ?? null, proposal: p.proposal ?? null, critic: p.critic ?? null, service: p.service ?? null, violations: p.violations ?? [] });
+  } else if (row.kind === 'proposal') {
+    // The fields queueProposal wrote at a8ae31c (src/projects/job.mjs:80): orderItem keeps the chat
+    // pipeline's flushApprovals and openApprovalFor away from the file, since only the projects job sends a
+    // proposal; without it the chat flush opens thread 'project:<id>' on kmong and throws.
+    Object.assign(record, { orderItem: true, service: p.service ?? null, quote: { amountKRW: p.proposal?.totalKRW ?? p.amountKRW ?? null }, project: p.project ?? null, proposal: p.proposal ?? null, critic: p.critic ?? null, violations: p.violations ?? [], warnings: [] });
+  }
   else if (row.kind === 'pay_request') Object.assign(record, { orderItem: true, jobId: row.jobId ?? null, amountKRW: p.amountKRW ?? null, part: p.part ?? null, rest: p.rest === true, paidBeforeKRW: p.paidBeforeKRW ?? null });
   else Object.assign(record, { orderItem: true, jobId: row.jobId ?? null, files: p.files ?? [], captures: p.captures ?? [], runAt: p.runAt ?? null, balanceKRW: null });
   if (status === 'approved') Object.assign(record, { resolvedAt: row.operator?.resolvedAt ?? row.updatedAt, finalText: row.operator?.finalText ?? text, edited: row.operator?.edited === true });

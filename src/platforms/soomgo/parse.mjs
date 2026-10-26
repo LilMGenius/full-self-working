@@ -223,7 +223,9 @@ export function cashSpend(rows, day) {
 // page reads "60,000 캐시 / 최대 30건 발송"). name is the link's first line.
 export function parseCampaigns(links) {
   return links.flatMap(({ href, text }) => {
-    const id = String(href ?? '').match(/^\/instant-match\/([^/?#]+)/)?.[1];
+    // A campaign's id is a number; the page also links promotions such as /instant-match/register
+    // (스마트견적 등록하고 견적비 10% 페이백, 2026-10-27), which are no campaign and have no budget.
+    const id = String(href ?? '').match(/^\/instant-match\/(\d+)(?:[/?#]|$)/)?.[1];
     if (!id) return [];
     const ls = lines(text);
     const tail = String(text).slice(String(text).indexOf('하루 예산'));

@@ -453,9 +453,11 @@ test('soomgo quote is not observed from another customer\'s charge or one older 
 // charge today, a payback, and a row from the day before.
 const SPEND_HISTORY = ['35,000캐시', '스마트견적 발송 - 고객B', '2026-10-26 20:10:00', '-1,990캐시', '견적 발송 - 고객A', '2026-10-26 19:00:00', '-4,490캐시', '스마트견적 발송 - 고객C', '2026-10-26 12:00:00', '-2,990캐시', '견적 보상 - 고객D', '2026-10-26 11:00:00', '1,990캐시', '프로필 광고 - 고객E', '2026-10-26 10:00:00', '-5,000캐시', '스마트견적 발송 - 고객F', '2026-10-26 09:00:00', '-1,000캐시', '견적 발송 - 고객G', '2026-10-26 08:00:00', '-2,490캐시', '견적 발송 - 고객H', '2026-10-25 23:00:00', '-9,990캐시', '전체 내역'].join('\n');
 const CAMPAIGN_LINKS = [
-  { href: '/instant-match/abc123', text: '웹 개발 스마트견적\n진행중\n하루 예산\n60,000 캐시 / 최대 30건 발송' },
-  { href: '/instant-match/def456?tab=1', text: '앱 개발\n하루 예산 1,000,000 캐시' },
+  { href: '/instant-match/491800', text: '웹 개발 스마트견적\n진행중\n하루 예산\n60,000 캐시 / 최대 30건 발송' },
+  { href: '/instant-match/491801?tab=1', text: '앱 개발\n하루 예산 1,000,000 캐시' },
   { href: '/instant-match', text: '새 캠페인 만들기' },
+  { href: '/instant-match/register', text: '스마트견적 등록하고 견적비 10% 페이백' },
+  { href: '/instant-match/700002', text: '로고 디자인\n하루 예산\n수정' },
 ];
 const NOW_SPEND = new Date('2026-10-26T21:00:00+09:00');
 
@@ -464,8 +466,9 @@ test('soomgo spend reads today\'s charges by source and every smart quote campai
   assert.deepEqual(today, { day: '2026-10-26', quotesKRW: 6980, quotes: 2, smartQuotesKRW: 5980, smartQuotes: 3, otherKRW: 5000, complete: true });
   assert.equal(soomgo.cashSpend(soomgo.parseCashHistory(SPEND_HISTORY), '2026-10-25').complete, false);
   assert.deepEqual(soomgo.parseCampaigns(CAMPAIGN_LINKS), [
-    { id: 'abc123', name: '웹 개발 스마트견적', dailyBudgetKRW: 60000, maxPerDay: 30 },
-    { id: 'def456', name: '앱 개발', dailyBudgetKRW: 1000000, maxPerDay: null },
+    { id: '491800', name: '웹 개발 스마트견적', dailyBudgetKRW: 60000, maxPerDay: 30 },
+    { id: '491801', name: '앱 개발', dailyBudgetKRW: 1000000, maxPerDay: null },
+    { id: '700002', name: '로고 디자인', dailyBudgetKRW: null, maxPerDay: null },
   ]);
   const s = fakeSession({ pageText: SPEND_HISTORY, pageCampaignLinks: CAMPAIGN_LINKS });
   const spend = await (await openSoomgo({ session: s, sleep: async () => {} })).spend({ now: NOW_SPEND });

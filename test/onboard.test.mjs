@@ -167,13 +167,18 @@ test('freelancer experiences enters the newest current role that is not teaching
   assert.deepEqual(firstExperience({ roles: [profile.roles[0]] }), { title: 'Engineer', company: 'Old Corp', start: '01/01/2020', end: '06/01/2022', current: false });
   const h = FREELANCER.experiences;
   const page = { title: '', company: '', start: '', end: '', current: false };
-  const ids = { '#TitleInputId': 'title', '#CompanyInputId': 'company', '#StartDateInputId': 'start', '#EndDateInputId': 'end' };
+  const ids = { 'input#TitleInputId': 'title', 'input#CompanyInputId': 'company', 'input#StartDateInputId': 'start', 'input#EndDateInputId': 'end' };
   // The inputs refuse the focus call and take focus from a click; keys go to the focused field.
   let active = null;
   const session = {
     evaluate: async (fn, arg) => {
       if (arg?.spec) { if (/currently working/.test(arg.spec.re ?? '')) page.current = true; return true; }
-      if (typeof arg === 'string' && arg.endsWith('InputId')) return /value\.length/.test(String(fn)) ? page[ids['#' + arg]].length : active === '#' + arg;
+      // A wrapper element carries the same id without a value, so a read by id alone breaks.
+      if (typeof arg === 'string' && arg.endsWith('InputId')) {
+        if (!/length/.test(String(fn))) return active === 'input#' + arg;
+        if (!/input#/.test(String(fn))) throw new TypeError("Cannot read properties of undefined (reading 'length')");
+        return page[ids['input#' + arg]].length;
+      }
       return arg?.selector ? true : { ...page };
     },
     click: async (sel) => { if (ids[sel]) active = sel; },

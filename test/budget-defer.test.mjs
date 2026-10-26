@@ -119,6 +119,16 @@ test('deferred quotes go out oldest first within the cap, and one the cap cannot
   assert.deepEqual([s.adapter.calls.quote, s.decide.calls, getApproval(s.instance, second.id).status], [[first.threadRef], 2, 'open']);
 });
 
+// 숨고 held a deferred lesson quote on 2026-10-26 when the operator took lessons back to answer himself.
+test('a deferred quote for a service the instance stopped answering is left for the operator', async () => {
+  const s = setup([{ id: 'r6', at: minutesAgo(30), cost: 1990 }], 0);
+  const r6 = s.ledger.upsertThread({ platform: 'soomgo', externalId: 'r6', kind: 'request' });
+  const lesson = await queueApproval(s.instance, { platform: 'soomgo', threadRef: 'r6', threadId: r6.id, threadKind: 'request', kind: 'quote', reason: 'cash quote refused: daily cash budget spent (12000 + 1990 over 10000)', draft: REPLY, quote: QUOTE, service: 'lesson_tutoring', costKRW: 1990, deferredForBudget: { costKRW: 1990 }, item: { kind: 'quote' }, priceRow: { viable: true } });
+  s.instance.config.platforms.soomgo.services = ['landing_page_web'];
+  const r = await s.tick(today());
+  assert.deepEqual([r.approvalsSent, s.adapter.calls.quote, getApproval(s.instance, lesson.id).status], [0, [], 'open']);
+});
+
 test('an approval refused for the budget before the marker existed is sent the next day the same way', async () => {
   const s = setup([{ id: 'r5', at: minutesAgo(30), cost: 4490 }], 0);
   const r5 = s.ledger.upsertThread({ platform: 'soomgo', externalId: 'r5', kind: 'request' });

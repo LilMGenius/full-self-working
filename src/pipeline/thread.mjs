@@ -280,6 +280,8 @@ export async function flushApprovals({ platform, adapter, ledger, instance, desc
     const waiting = a.status === 'open';
     const costKRW = a.costKRW ?? a.deferredForBudget?.costKRW ?? null;
     if (waiting) {
+      // A quote deferred for a service the instance has since stopped answering waits for the operator.
+      if (a.service && !answeredServices(instance.config, platform).includes(a.service)) continue;
       // The oldest deferred quote the day cannot pay holds every newer one; one no day can pay (its cost
       // over the cap, or no cap configured) waits for the operator instead.
       const check = cashBudgetCheck({ budget: instance.config?.platforms?.[platform], usage: quotaUsage(ledger, platform, now, instance), costKRW });

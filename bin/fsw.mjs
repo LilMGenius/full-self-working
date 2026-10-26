@@ -18,12 +18,13 @@ const VERBS = {
   publish: 'build and deploy the portfolio site when it changed',
   listings: 'listings build|render|check|publish <service>: write a kmong gig spec and images for review, or submit it',
   projects: 'projects list|show|draft|propose|revise|run|status: kmong enterprise projects, judged and proposed within the daily quota',
+  onboard: 'onboard <platform> [--apply] [--step <id>]: walk the seller onboarding and fill it from the instance; a dry run unless --apply',
   services: 'services soomgo [--apply] [--only <service>]: set the items each offered soomgo service matches requests on; a dry run unless --apply',
   edits: 'edits soomgo [--apply] [--only intro|detail|templates]: type the approved profile text and quote templates; saves only approved parts with --apply',
   help: 'show this help',
 };
 
-const HANDLERS = { init: 'init', profile: 'profile', doctor: 'doctor', settings: 'settings', status: 'status', tick: 'tick', run: 'run', schedule: 'schedule', approve: 'approvals', deal: 'deal', job: 'job', probe: 'probe', market: 'market', price: 'price', publish: 'publish', listings: 'listings', projects: 'projects', services: 'services', edits: 'edits' };
+const HANDLERS = { init: 'init', profile: 'profile', doctor: 'doctor', settings: 'settings', status: 'status', tick: 'tick', run: 'run', schedule: 'schedule', approve: 'approvals', deal: 'deal', job: 'job', probe: 'probe', market: 'market', price: 'price', publish: 'publish', listings: 'listings', projects: 'projects', services: 'services', edits: 'edits', onboard: 'onboard' };
 
 function help() {
   console.log('usage: fsw <verb> [args]\n');

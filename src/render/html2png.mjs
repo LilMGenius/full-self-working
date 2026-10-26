@@ -20,6 +20,10 @@ export const DEFAULT_CHROME = 'C:/Program Files/Google/Chrome/Application/chrome
 const PROFILE_PREFIX = 'fsw-render-';
 // Ending a process tree is a local system call; one that has not answered by then is reported, not awaited.
 const KILL_TIMEOUT_MS = 10000;
+// How long close waits for the browser process to finish exiting once it was told to close or killed.
+// Exit normally comes within a second; at 93% memory it took 43 s (2026-10-27), during which taskkill
+// refuses the terminating process and its profile cannot be removed.
+const EXIT_WAIT_MS = 60000;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const exited = (proc) => proc.exitCode !== null || proc.signalCode !== null;
@@ -374,8 +378,14 @@ export async function openRenderer({ chrome = process.env.FSW_CHROME ?? DEFAULT_
 
   async function close() {
     await cdp.send('Browser.close').catch(() => {});
-    const deadline = Date.now() + 5000;
-    while (!exited(proc) && Date.now() < deadline) await sleep(50);
+    // The profile is released only after the browser's real exit (the exit event, not a poll that gives up),
+    // and a browser that ignores Browser.close for 5 s is ended with its tree first.
+    const exitWithin = (ms) => within(browserExit, ms, 'the browser exit').catch(() => {});
+    await exitWithin(5000);
+    if (!exited(proc)) {
+      await within(kill(proc.pid, { timeoutMs: KILL_TIMEOUT_MS }), KILL_TIMEOUT_MS, 'taskkill').catch(() => {});
+      await exitWithin(EXIT_WAIT_MS);
+    }
     ws?.close();
     return release();
   }

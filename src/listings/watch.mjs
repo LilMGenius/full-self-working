@@ -5,6 +5,7 @@ import { listingTexts } from './kmong.mjs';
 import { basisChanged } from './proofs.mjs';
 import { addedText, gigStatus, nextReviewAction, parseReviewNotice, readReview, rejectionKey, reviewViolation, writeReview } from './review.mjs';
 import { recordOutcome } from '../learning/outcomes.mjs';
+import { careerLabel, careerMonths } from '../core/profile.mjs';
 import { build, listingsDir, loadProofs, openListings, planFor, portfolioItems, publish, readJson, readPublished, specFile } from './gig.mjs';
 
 const openAdapter = async (ctx) => (ctx.openKmong ?? openListings)();
@@ -116,6 +117,12 @@ export function refreshDecision({ status, before, now, last, today = new Date(),
 // portfolio each published gig was built from with the current one, and rebuilds and updates a gig only
 // when its top items changed and refreshDecision allows it.
 export async function listingsRefresh(ctx) {
+  const career = await careerStep(ctx);
+  const r = await refreshGigs(ctx);
+  return { ...r, career };
+}
+
+async function refreshGigs(ctx) {
   const { instance } = ctx;
   const published = readPublished(instance);
   if (!published.length) return { status: 'skipped', detail: 'no published kmong listing yet' };
@@ -154,4 +161,26 @@ export async function listingsRefresh(ctx) {
   } finally {
     await a.stop();
   }
+}
+// The kmong seller-profile career, derived from the profile's dated roles (003 Decisions of 20:30, kmong
+// career row): written only when the page shows another figure, and read back after the write. A forced
+// observe pass writes no profile, so it skips before any page opens. ctx.careerPage is the page pair
+// {read(), set(label)} from src/platforms/kmong/profile-page.mjs; until a signed-in recording of the
+// seller-profile editor maps it, the step writes nothing and tells the operator the derived figure once.
+export async function careerStep(ctx) {
+  if (ctx.forceMode === 'observe') return { status: 'skipped', detail: 'FSW_FORCE_MODE=observe skips the career write' };
+  const to = careerLabel(careerMonths(ctx.instance.profile, ctx.now ?? new Date()));
+  if (to == null) return { changed: false, detail: 'career hidden: a role has no parseable period' };
+  const page = ctx.careerPage ?? null;
+  if (!page) {
+    await notify(ctx, { kind: 'listing', title: 'kmong career should read ' + to, body: 'The kmong seller-profile career field is not mapped yet, so fsw does not write it. Your profile roles give ' + to + '; set it on kmong if the profile shows another figure.', dedupeKey: 'career:kmong' });
+    return { changed: false, to, detail: 'the kmong career field is not mapped; the operator was told the derived figure' };
+  }
+  const from = await page.read();
+  if (from === to) return { changed: false, from, to };
+  const w = await page.set(to);
+  const shown = await page.read();
+  if (!w?.observed || shown !== to) return { changed: false, from, to, detail: 'the page shows ' + shown + ' after the write' };
+  ctx.ledger?.addEvent({ kind: 'platform.profile_edit', platform: 'kmong', ref: 'career', payload: { from, to } });
+  return { changed: true, from, to };
 }

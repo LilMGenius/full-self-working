@@ -233,6 +233,23 @@ test('freelancer languages-and-birthdate picks each profile language from the li
   assert.deepEqual(page.pressed, ['Backspace', 'n']);
   assert.ok(h.same(await h.read(session), want));
   assert.equal(h.show({ languages: ['Korean'], birthdate: '01/31/2000' }, want), 'read back differs in: languages (read Korean)');
+  // A language the list never shows is left out and named, and the rest still counts as the same.
+  const want2 = h.want({ instance: { config: { onboarding: { identity } }, profile: { languages: ['ko', 'en'] } } });
+  const page2 = { languages: [], birthdate: '' };
+  const session2 = {
+    evaluate: async (fn, arg) => {
+      if (arg?.re) return /English/.test(arg.re);
+      if (arg?.spec && arg.selector === '.DropdownItemText') { page2.languages.push('English'); return true; }
+      return arg?.selector || typeof arg === 'string' ? true : { languages: [...page2.languages], birthdate: page2.birthdate };
+    },
+    click: async () => {},
+    typeKeys: async (sel, text) => { if (sel === '#inputBirthdate') page2.birthdate = text; },
+    press: async () => {},
+  };
+  await h.write(session2, want2, await h.read(session2));
+  assert.deepEqual(want2.unlisted, ['Korean']);
+  assert.match(want2.private, /does not list Korean/);
+  assert.ok(h.same(await h.read(session2), want2));
 });
 
 test('a run within the cooldown of the last one stops before opening the browser, unless forced', async () => {

@@ -175,11 +175,12 @@ export const HANDLERS = {
       if (!languages.length) return needs('profile.languages lists no language');
       return birthdate ? { private: 'languages ' + languages.join(', ') + ' and the birth date', languages, birthdate } : needs('the identity file date_of_birth is not a YYYY-MM-DD date');
     },
-    same: (cur, want) => sameSet(cur.languages, want.languages) && cur.birthdate === want.birthdate,
+    same: (cur, want) => sameSet(cur.languages, want.languages.filter((l) => !(want.unlisted ?? []).includes(l))) && cur.birthdate === want.birthdate,
     write: async (s, want, cur) => {
-      // On 2026-10-26 the list showed English for "Engl" and nothing named Korean for "Korean" in an
-      // apply run, so a language may be listed under a longer name ("Korean (...)"), and an empty list
-      // is refreshed the way the skill search is, by pressing the last key again.
+      // A language may be listed under a longer name ("Name (...)"), and an empty list is refreshed the
+      // way the skill search is, by pressing the last key again. Freelancer's list is short: on
+      // 2026-10-26 "Engl" listed English while "Kor" and "Korean" listed nothing, so a language the list
+      // never shows is left out and named in the report.
       for (const lang of want.languages.filter((l) => !cur.languages.some((c) => norm(c) === norm(l)))) {
         const item = languageItem(lang);
         const listed = (re) => [...document.querySelectorAll('.DropdownItemText')].some((e) => e.getBoundingClientRect().width > 0 && new RegExp(re.re, re.flags).test(e.innerText.trim()));
@@ -192,10 +193,13 @@ export const HANDLERS = {
           await s.press(lang.slice(-1), { target: LANGUAGE });
           found = await waitFor(s, listed, spec, { timeoutMs: 8000 });
         }
-        if (!found || !(await clickMatch(s, '.DropdownItemText', item))) {
-          const shown = await s.evaluate(() => [...document.querySelectorAll('.DropdownItemText')].filter((e) => e.getBoundingClientRect().width > 0).map((e) => e.innerText.trim()).slice(0, 8));
-          throw new Error('Freelancer lists no language named ' + lang + ' (listed: ' + shown.join(' / ') + ')');
+        if (!found) {
+          want.unlisted = [...(want.unlisted ?? []), lang];
+          want.private += '; Freelancer does not list ' + want.unlisted.join(', ');
+          await s.evaluate((sel) => { const e = document.querySelector(sel); if (e) { e.value = ''; e.dispatchEvent(new Event('input', { bubbles: true })); } }, LANGUAGE);
+          continue;
         }
+        if (!(await clickMatch(s, '.DropdownItemText', item))) throw new Error('the list item for ' + lang + ' could not be clicked');
         await sleep(800);
       }
       if (cur.birthdate !== want.birthdate) await typeInto(s, BIRTHDATE, want.birthdate);

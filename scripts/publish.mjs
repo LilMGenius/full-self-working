@@ -37,8 +37,29 @@ function writeLastDeploy(path, record) {
   renameSync(tmp, path);
 }
 
-// --json makes vercel deploy print one JSON document whether a person or an agent runs it; a deploy that
-// reports no ready production deployment is a failure.
+// vercel deploy --json (CLI 65.2.0, dist/commands/deploy/index.js) prints one JSON document in one of two
+// shapes: {status, deployment, message, next} when the CLI runs non-interactive, which it decides from
+// @vercel/detect-agent (CODEX_THREAD_ID, CLAUDECODE and the like with stdin not a TTY), and the bare
+// deployment {id, url, productionUrl, readyState, target, ...} otherwise, as under the scheduled
+// supervisor, which carries no agent variable. A failed verification adds error to the bare shape and
+// status error to the other. Either way a deploy that is not ready, not production or has no https url
+// is a failure.
+export function readDeployReport(stdout) {
+  let report;
+  try {
+    report = JSON.parse(stdout.slice(stdout.indexOf('{')));
+  } catch {
+    throw new PublishError('FSW_PUBLISH_DEPLOY', 'vercel deploy printed no JSON report: ' + stdout.trim().slice(0, 400));
+  }
+  const enveloped = 'status' in report || 'deployment' in report;
+  const d = (enveloped ? report.deployment : report) ?? {};
+  const failed = enveloped ? report.status !== 'ok' : report.error != null;
+  if (failed || d.readyState !== 'READY' || d.target !== 'production' || !/^https:\/\//.test(d.url ?? '')) {
+    throw new PublishError('FSW_PUBLISH_DEPLOY', 'vercel deploy did not report a ready production deployment: ' + JSON.stringify({ status: report.status ?? null, error: report.error?.message ?? null, readyState: d.readyState ?? null, target: d.target ?? null, url: d.url ?? null }));
+  }
+  return { url: d.url, id: d.id, productionUrl: d.productionUrl ?? null };
+}
+
 function deploy({ dir, team, project }) {
   let stdout;
   try {
@@ -49,17 +70,7 @@ function deploy({ dir, team, project }) {
   } catch (err) {
     throw new PublishError('FSW_PUBLISH_DEPLOY', 'vercel deploy failed: ' + String(err.stderr || err.message).trim().split('\n').slice(-5).join(' | '));
   }
-  let report;
-  try {
-    report = JSON.parse(stdout.slice(stdout.indexOf('{')));
-  } catch {
-    throw new PublishError('FSW_PUBLISH_DEPLOY', 'vercel deploy printed no JSON report: ' + stdout.trim().slice(0, 400));
-  }
-  const d = report.deployment ?? {};
-  if (report.status !== 'ok' || d.readyState !== 'READY' || d.target !== 'production' || !/^https:\/\//.test(d.url ?? '')) {
-    throw new PublishError('FSW_PUBLISH_DEPLOY', 'vercel deploy did not report a ready production deployment: ' + JSON.stringify({ status: report.status, readyState: d.readyState, target: d.target, url: d.url }));
-  }
-  return { url: d.url, id: d.id, productionUrl: d.productionUrl ?? null };
+  return readDeployReport(stdout);
 }
 
 // The deployment and the public domain both answer with the built index and its hash before the record

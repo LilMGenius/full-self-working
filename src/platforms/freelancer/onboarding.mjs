@@ -177,10 +177,25 @@ export const HANDLERS = {
     },
     same: (cur, want) => sameSet(cur.languages, want.languages) && cur.birthdate === want.birthdate,
     write: async (s, want, cur) => {
+      // On 2026-10-26 the list showed English for "Engl" and nothing named Korean for "Korean" in an
+      // apply run, so a language may be listed under a longer name ("Korean (...)"), and an empty list
+      // is refreshed the way the skill search is, by pressing the last key again.
       for (const lang of want.languages.filter((l) => !cur.languages.some((c) => norm(c) === norm(l)))) {
+        const item = languageItem(lang);
+        const listed = (re) => [...document.querySelectorAll('.DropdownItemText')].some((e) => e.getBoundingClientRect().width > 0 && new RegExp(re.re, re.flags).test(e.innerText.trim()));
+        const spec = { re: item.source, flags: item.flags };
         await typeInto(s, LANGUAGE, lang);
-        const listed = await waitFor(s, (name) => [...document.querySelectorAll('.DropdownItemText')].some((e) => e.getBoundingClientRect().width > 0 && e.innerText.trim().toLowerCase() === name.toLowerCase()), lang, { timeoutMs: 10000 });
-        if (!listed || !(await clickMatch(s, '.DropdownItemText', lang))) throw new Error('Freelancer lists no language named ' + lang);
+        let found = await waitFor(s, listed, spec, { timeoutMs: 8000 });
+        if (!found) {
+          await s.press('Backspace', { target: LANGUAGE });
+          await sleep(2000);
+          await s.press(lang.slice(-1), { target: LANGUAGE });
+          found = await waitFor(s, listed, spec, { timeoutMs: 8000 });
+        }
+        if (!found || !(await clickMatch(s, '.DropdownItemText', item))) {
+          const shown = await s.evaluate(() => [...document.querySelectorAll('.DropdownItemText')].filter((e) => e.getBoundingClientRect().width > 0).map((e) => e.innerText.trim()).slice(0, 8));
+          throw new Error('Freelancer lists no language named ' + lang + ' (listed: ' + shown.join(' / ') + ')');
+        }
         await sleep(800);
       }
       if (cur.birthdate !== want.birthdate) await typeInto(s, BIRTHDATE, want.birthdate);
@@ -191,6 +206,8 @@ export const HANDLERS = {
 const LANGUAGE_CODES = { en: 'English', ko: 'Korean', ja: 'Japanese', zh: 'Chinese', es: 'Spanish', fr: 'French', de: 'German' };
 // profile.languages holds codes ("ko") or names with a note ("Korean (native)"); the page lists names.
 export const profileLanguages = (profile) => [...new Set((profile?.languages ?? []).map((l) => LANGUAGE_CODES[String(l).toLowerCase()] ?? String(l).split('(')[0].trim()).filter(Boolean))];
+// A list item for a language: its name alone or followed by a note in brackets.
+export const languageItem = (lang) => new RegExp('^' + lang.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:\\s*\\(.*\\))?$', 'i');
 // YYYY-MM-DD as the page's MM/DD/YYYY.
 export const usDate = (ymd) => {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd ?? '').trim());

@@ -210,18 +210,27 @@ test('freelancer languages-and-birthdate picks each profile language from the li
   const want = h.want({ instance: { config: { onboarding: { identity } }, profile: { languages: ['ko', 'en'] } } });
   assert.deepEqual([want.languages, want.birthdate], [['Korean', 'English'], '01/31/2000']);
   assert.ok(!want.private.includes('2000'));
-  const page = { languages: ['Korean'], birthdate: '', typed: [] };
+  const page = { languages: [], birthdate: '', typed: [], pressed: [] };
+  // The list names Korean with a note in brackets and shows it only after the last key is pressed again.
+  const listedNow = () => page.typed.at(-1)?.[1] !== 'Korean' || page.pressed.join(',') === 'Backspace,n';
   const session = {
     evaluate: async (fn, arg) => {
-      if (typeof arg === 'string') return true;
-      if (arg?.spec) { if (arg.selector === '.DropdownItemText') page.languages.push(arg.spec.exact); return true; }
+      if (arg?.re) return listedNow();
+      if (arg?.spec && arg.selector === '.DropdownItemText') {
+        const shown = page.typed.at(-1)[1] === 'Korean' ? 'Korean (Hangul)' : page.typed.at(-1)[1];
+        if (!new RegExp(arg.spec.re, arg.spec.flags).test(shown)) return false;
+        page.languages.push(page.typed.at(-1)[1]);
+        return true;
+      }
       return arg?.selector ? true : { languages: [...page.languages], birthdate: page.birthdate };
     },
     click: async () => {},
     typeKeys: async (sel, text) => { page.typed.push([sel, text]); if (sel === '#inputBirthdate') page.birthdate = text; },
+    press: async (key) => { page.pressed.push(key); },
   };
   await h.write(session, want, await h.read(session));
-  assert.deepEqual(page.typed.map(([sel]) => sel), ['input[placeholder="Please select the languages you speak"]', '#inputBirthdate']);
+  assert.deepEqual(page.typed.map(([, text]) => text), ['Korean', 'English', '01/31/2000']);
+  assert.deepEqual(page.pressed, ['Backspace', 'n']);
   assert.ok(h.same(await h.read(session), want));
   assert.equal(h.show({ languages: ['Korean'], birthdate: '01/31/2000' }, want), 'read back differs in: languages (read Korean)');
 });

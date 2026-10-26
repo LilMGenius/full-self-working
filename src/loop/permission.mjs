@@ -19,14 +19,18 @@ const NEGATION = /않|못|말아|말고|마세요|마시고|마십시오|싫|아
 // A yes with a condition is the operator's to scope. A held yes costs the operator one notice; a granted
 // conditional yes publishes work against the client's word. Scope words leave part of the work out, cover
 // it or set a condition; timing words put the posting off.
-const SCOPE = /빼고|빼서|빼주|빼\s+주|제외|만\s*(?:올려|보여|공개)|가려|가리|모자이크|\b(?:except|without|blur|hide|only if|as long as)\b/iu;
+const SCOPE = /빼고|빼서|빼주|빼\s+주|제외|만\s*(?:올려|보여|공개)|가려|가리|모자이크|지워|지우|삭제|노출|가명|익명|흐리게|바꿔|교체|\b(?:except|without|blur|hide|only if|as long as|remove|removed|redact\w*|anonymi\w*|rename\w*|swap\w*|replace\w*|placeholder)\b/iu;
 const TIMING = /후에|이후|다음에|나서|까지|기다려|(?:하|나|되)면|때(?!문)[^.!?]*?(?:올려|올리|게시|공개|보여)|\b(?:after|once|until|wait|when)\b/iu;
 // A sentence that speaks about posting or showing the work.
 const POSTING = /올려|올리|게시|공개|보여|포트폴리오|\b(?:post|share|show|publish|portfolio|use it)\b/iu;
 // Whole thank-you and sign-off phrases that carry a timing word (or, for can't wait, a negation) and set no
 // condition. They are taken out only of a sentence that does not speak about posting, never as bare word
 // pairs, so 보고 나서 올려 주세요 stays a condition.
-const SIGNOFF = /(?:다음에|이후로)도?\s*(?:또\s*|계속\s*)?잘\s*부탁|다음에\s*또\s*(?:맡기|맡길|부탁|의뢰)|(?:지금|끝)까지\s*(?:신경|감사|고생|수고)|기다려\s*주셔서\s*(?:감사|고맙)|보고\s*나서\s*(?:너무|정말|진짜)?\s*좋|\bonce\s+again\b|\bcan'?t\s+wait\s+to\s+(?:see|share)\b|후에\s*연락/giu;
+const SIGNOFF = /(?:다음에|이후로)도?\s*(?:또\s*|계속\s*)?잘\s*부탁|다음에\s*또\s*(?:맡기|맡길|부탁|의뢰)|(?:지금|끝)까지\s*(?:신경|감사|고생|수고)|기다려\s*주셔서\s*(?:감사|고맙)|(?:감사|고맙)\S*\s*기다려\s*주셔서|보고\s*나서\s*(?:너무|정말|진짜)?\s*좋|\bonce\s+again\b|\bcan'?t\s+wait\s+to\s+(?:see|share)\b|후에\s*연락/giu;
+// Short thank-you words, taken out of a sentence like the sign-offs.
+const THANKS = /감사(?:합니다|해요|했습니다|드려요|드립니다)?|고맙(?:습니다|어요)?|고마워요|수고(?:하셨습니다|하셨어요|많으셨어요)?|좋네요|\b(?:thanks|thank you|great|looks good)\b/giu;
+// The forms of a request or a reservation: a sentence that asks for something, or qualifies a yes.
+const REQUEST = /주세요|주시|부탁|해\s*줘|해줘|바랍니다|원해요|다만|대신|으로\s*(?:바꿔|해|올려|올리|써)|\b(?:please|just|but|instead|rather)\b/iu;
 // A Korean question often drops its question mark: a sentence ending in 나요, 가요, 까요 or a 지요 after a
 // syllable closed by ㄴ (는지요, 인지요, 한지요) asks rather than answers.
 const endsWithBatchimN = (s) => {
@@ -73,20 +77,21 @@ export function permissionSignal({ thread, jobs, decision, at = new Date().toISO
   const mine = (thread.messages ?? []).filter((m) => m.direction === 'out').flatMap((m) => unitsOf(msgText(m)).map(bare));
   if (mine.includes(quote)) return none('grant quoting a sentence of my own message');
   if (unitsOf(msgText(fresh[i])).some((u) => bare(u) === quote && isQuestion(u))) return none('grant quoted from a question');
-  // The answer is read with the client message just before it, which may set what the yes is about, and
-  // every later one, sentence by sentence. The quoted sentence must be an unconditional yes on its own: no
-  // negation, scope or timing word (a question was refused above). Any other sentence, or a sentence of a
-  // whole-message quote, that speaks about posting must pass the same test, a question included; one that
-  // does not holds the grant only on a negation, scope or timing word outside a whole sign-off phrase.
-  const pos = inbound.indexOf(fresh[i]);
-  const around = [...(pos > 0 ? [inbound[pos - 1]] : []), ...fresh.slice(i)];
+  // Every client message since the delivery is read, sentence by sentence, and an unknown sentence holds the
+  // grant (fail-safe: a held yes costs the operator one notice, a granted conditional yes publishes work
+  // against the client's word). The quoted sentence must be an unconditional yes on its own: no negation,
+  // scope or timing word (a question was refused above). Every other sentence must be a known sign-off or
+  // thank-you, or carry no negation, scope, timing or request form once those phrases are taken out, and ask
+  // nothing. A sentence that speaks about posting keeps its words: no sign-off is taken out of it.
   const quoted = new Set(sentencesOf(decision.permissionQuote).map(bare));
   const read = (u) => {
     const strict = POSTING.test(u) || (quoted.size === 1 && quoted.has(bare(u)));
-    return { text: strict ? u : u.replace(SIGNOFF, ' '), asks: strict && isQuestion(u) };
+    const rest = strict ? u : u.replace(SIGNOFF, ' ').replace(THANKS, ' ');
+    const request = !(quoted.size === 1 && quoted.has(bare(u))) && (REQUEST.test(rest) || isQuestion(u));
+    return { rest, request };
   };
-  const sentences = around.flatMap((m) => sentencesOf(msgText(m))).map(read);
-  if (sentences.some((s) => NEGATION.test(s.text))) return none('grant quoted from a message that says no, or followed by one');
-  if (sentences.some((s) => s.asks || SCOPE.test(s.text) || TIMING.test(s.text))) return none('grant with a condition, for the operator to scope');
+  const sentences = inbound.flatMap((m) => sentencesOf(msgText(m))).map(read);
+  if (sentences.some((s) => NEGATION.test(s.rest))) return none('grant quoted from a message that says no, or followed by one');
+  if (sentences.some((s) => s.request || SCOPE.test(s.rest) || TIMING.test(s.rest))) return none('grant with a condition, for the operator to scope');
   return { signals: [signal('permission_granted', job, { quote: norm(decision.permissionQuote), quoteAt: fresh[i].at })], reason: null, jobId: job.id };
 }

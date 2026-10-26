@@ -448,7 +448,7 @@ test('a model conditional is recorded on the job; a later model grant of the ear
   assert.deepEqual([p.permission, p.quote, p.quoteAt, p.source], ['conditional', COND, '2026-10-20T11:00:00+09:00', 'brain']);
   await s.run('감사합니다!', { portfolioPermission: 'granted', permissionQuote: '네 좋아요.' }, 13);
   assert.equal(s.ledger.getJob('kmong-k1').meta.portfolio.permission, 'conditional');
-  assert.deepEqual(keys(), ['portfolio-answer-check:kmong-k1:conditional', 'portfolio-answer-check:kmong-k1:granted']);
+  assert.deepEqual(keys(), ['portfolio-answer-check:kmong-k1:conditional', 'portfolio-answer-check:kmong-k1:granted:2026-10-20T11:00:00+09:00']);
   // The deal refuses the same grant by any path, with a fresh quote time too.
   s.deal({ type: 'permission_granted', at: '2026-10-20T13:40:00+09:00', evidence: { quote: '감사합니다!', quoteAt: '2026-10-20T13:00:00+09:00', source: 'brain' } });
   assert.equal(s.events('deal.refused').at(-1).reason, 'only the operator lifts a portfolio condition');
@@ -465,4 +465,44 @@ test('a condition never replaces a denial, and the operator can deny a condition
   s.deal({ type: 'permission_conditional', at: '2026-10-20T12:20:00+09:00', evidence: { quote: 'x', source: 'brain' } });
   assert.equal(s.ledger.getJob('kmong-k1').meta.portfolio.permission, 'denied');
   assert.equal(s.events('deal.refused').at(-1).reason, 'a portfolio denial stands over a later condition');
+});
+
+test('a condition about older work reaches every delivered job of the thread, and the notice names each', async () => {
+  const s = setup();
+  const keys = () => [...s.requests().matchAll(/^- dedupe: (portfolio-answer-check:.+)$/gm)].map((m) => m[1]);
+  const a = s.ledger.getJob('kmong-k1');
+  s.ledger.upsertJob({ id: a.id, status: 'closed', meta: { ...a.meta, portfolio: { permission: 'granted', answeredAt: '2026-10-20T10:20:00+09:00', source: 'operator' } } });
+  s.ledger.upsertJob({ id: 'kmong-k1-2', threadId: a.threadId, platform: 'kmong', service: 'landing_page_web', status: 'delivered', deliveredAt: '2026-10-20T10:30:00+09:00', meta: { portfolio: { permission: 'pending' } } });
+  const COND = '예전 작업은 로고만 빼고 보여 주세요.';
+  await s.run(COND, { portfolioPermission: 'conditional', permissionQuote: COND }, 11);
+  assert.deepEqual(['kmong-k1', 'kmong-k1-2'].map((id) => s.ledger.getJob(id).meta.portfolio.permission), ['conditional', 'conditional']);
+  assert.equal(s.ledger.getJob('kmong-k1').meta.portfolio.quote, COND);
+  assert.deepEqual(keys(), ['portfolio-answer-check:kmong-k1-2:conditional']);
+  assert.match(s.requests(), /kmong kmong-k1, kmong-k1-2: a portfolio answer was not applied/);
+  assert.match(s.requests(), /fsw deal kmong-k1 permission granted[\s\S]*fsw deal kmong-k1-2 permission granted/);
+  // A denied older job keeps its denial.
+  const d = setup();
+  const b = d.ledger.getJob('kmong-k1');
+  d.ledger.upsertJob({ id: b.id, status: 'closed', meta: { ...b.meta, portfolio: { permission: 'denied', answeredAt: '2026-10-20T10:20:00+09:00', source: 'operator' } } });
+  d.ledger.upsertJob({ id: 'kmong-k1-2', threadId: b.threadId, platform: 'kmong', service: 'landing_page_web', status: 'delivered', deliveredAt: '2026-10-20T10:30:00+09:00', meta: { portfolio: { permission: 'pending' } } });
+  await d.run(COND, { portfolioPermission: 'conditional', permissionQuote: COND }, 11);
+  assert.deepEqual(['kmong-k1', 'kmong-k1-2'].map((id) => d.ledger.getJob(id).meta.portfolio.permission), ['denied', 'conditional']);
+  assert.deepEqual(d.events('deal.refused'), []);
+  // With nothing delivered the notice says so and names no job.
+  const n = setup();
+  n.ledger.upsertJob({ id: 'kmong-k1', status: 'in_progress', deliveredAt: null, meta: {} });
+  await n.run(COND, { portfolioPermission: 'conditional', permissionQuote: COND }, 11);
+  assert.match(n.requests(), /No job on this thread was delivered/);
+  assert.doesNotMatch(n.requests(), /fsw deal kmong-k1 permission/);
+});
+
+test('a newer client answer on a conditional job opens its own notice beside an open stale grant claim', async () => {
+  const s = setup();
+  const keys = () => [...s.requests().matchAll(/^- dedupe: (portfolio-answer-check:.+)$/gm)].map((m) => m[1]);
+  const COND = '대표님 확인이 먼저 필요해요.';
+  await s.run('네 좋아요. ' + COND, { portfolioPermission: 'conditional', permissionQuote: COND }, 11);
+  await s.run('감사합니다!', { portfolioPermission: 'granted', permissionQuote: '네 좋아요.' }, 13);
+  await s.run('대표님 확인 끝났습니다. 이제 올리셔도 됩니다.', { portfolioPermission: 'granted', permissionQuote: '이제 올리셔도 됩니다.' }, 15);
+  assert.deepEqual(keys(), ['portfolio-answer-check:kmong-k1:conditional', 'portfolio-answer-check:kmong-k1:granted:2026-10-20T11:00:00+09:00', 'portfolio-answer-check:kmong-k1:granted:2026-10-20T15:00:00+09:00']);
+  assert.equal(s.ledger.getJob('kmong-k1').meta.portfolio.permission, 'conditional');
 });

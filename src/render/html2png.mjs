@@ -50,8 +50,9 @@ function within(promise, ms, what) {
 }
 
 export class RenderError extends Error {
-  constructor(code, message, detail = {}) {
-    super(message);
+  // detail.cause becomes the standard error cause; every other detail field is copied onto the error.
+  constructor(code, message, { cause, ...detail } = {}) {
+    super(message, cause === undefined ? undefined : { cause });
     this.code = code;
     Object.assign(this, detail);
   }
@@ -293,19 +294,33 @@ export async function openRenderer({ chrome = process.env.FSW_CHROME ?? DEFAULT_
     onLeftover({ profile: join(tempRoot, PROFILE_PREFIX + '*'), removed: false, error: 'the leftover sweep failed: ' + describe(err) });
   }
   const profile = mkdtempSync(join(tempRoot, PROFILE_PREFIX));
-  const proc = spawn(chrome, [
-    '--headless=new', '--disable-gpu', '--hide-scrollbars', '--mute-audio', '--no-first-run',
-    '--no-default-browser-check', '--disable-extensions', '--disable-background-networking',
-    '--disable-sync', '--force-color-profile=srgb', '--font-render-hinting=none',
-    '--user-data-dir=' + profile, '--remote-debugging-port=0', 'about:blank',
-  ], { stdio: 'ignore', windowsHide: true });
+  // A start that fails keeps the system error as its cause: spawn throws for a file Windows cannot run
+  // (EFTYPE) and emits error for one it cannot find (ENOENT), which readActivePort sees only as an exit code.
+  const notStarted = (cause, cleanup) => new RenderError('FSW_RENDER_SPAWN', 'Chrome at ' + chrome + ' did not start: ' + describe(cause), { cause, ...(cleanup ? { cleanup } : {}) });
+  let proc;
+  try {
+    proc = spawn(chrome, [
+      '--headless=new', '--disable-gpu', '--hide-scrollbars', '--mute-audio', '--no-first-run',
+      '--no-default-browser-check', '--disable-extensions', '--disable-background-networking',
+      '--disable-sync', '--force-color-profile=srgb', '--font-render-hinting=none',
+      '--user-data-dir=' + profile, '--remote-debugging-port=0', 'about:blank',
+    ], { stdio: 'ignore', windowsHide: true });
+  } catch (err) {
+    const released = await releaseProfile(profile, { processes, kill, remove, warn });
+    if (!released.removed) onLeftover(released);
+    throw notStarted(err, released.removed ? null : released.error);
+  }
+  let spawnError = null;
   // Resolves once the browser process has exited. Under load a closed browser can stay in Windows' exit
   // for tens of seconds (43 s after Browser.close, measured 2026-10-27 at 93% memory) while taskkill
   // refuses a process that is already terminating, so a caller that releases the profile later without
   // the process handle waits on this first.
   const browserExit = new Promise((ok) => {
     proc.once('exit', () => ok());
-    proc.once('error', () => ok());
+    proc.once('error', (err) => {
+      spawnError = err;
+      ok();
+    });
   });
   // A close has already ended the browser and waited for it, so its release skips that pass (proc null)
   // and gets only what is left of close's deadline.
@@ -324,6 +339,7 @@ export async function openRenderer({ chrome = process.env.FSW_CHROME ?? DEFAULT_
     // Chrome holds its profile files until its tree has exited; a removal that still fails is attached to
     // the startup error instead of replacing it.
     const released = await release();
+    if (spawnError) throw notStarted(spawnError, released.removed ? null : released.error);
     if (!released.removed) err.cleanup = released.error;
     throw err;
   }

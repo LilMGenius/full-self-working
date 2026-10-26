@@ -3,9 +3,9 @@
 // process list and the killer are injected, so nothing here depends on how loaded the machine is.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { releaseProfile, sweepLeftovers } from '../src/render/html2png.mjs';
+import { openRenderer, releaseProfile, sweepLeftovers } from '../src/render/html2png.mjs';
 import { tempDir } from './tmp.mjs';
 
 const PROFILE = 'C:/tmp/fsw-render-AbC123';
@@ -160,3 +160,17 @@ test('the sweep removes old render folders no process names and keeps fresh, hel
   assert.ok([fresh, other].every(existsSync));
 });
 
+test('a Chrome that cannot start fails with the system error as its cause and leaves no profile', async () => {
+  const root = tempDir('fsw-renderroot-');
+  // A file the OS cannot run (spawn throws) and a folder (spawn emits an error event) both pass the
+  // existence check.
+  const notProgram = join(root, 'chrome.txt');
+  writeFileSync(notProgram, 'not a program');
+  for (const chrome of [notProgram, root]) {
+    const err = await openRenderer({ chrome, tempRoot: root, timeoutMs: 5000 }).then(() => assert.fail('started ' + chrome), (e) => e);
+    assert.equal(err.code, 'FSW_RENDER_SPAWN', chrome + ': ' + err.message);
+    assert.match(err.cause?.code ?? '', /^E[A-Z]+$/, chrome + ' keeps its system error');
+    assert.ok(err.message.includes(err.cause.code), err.message);
+    assert.deepEqual(readdirSync(root).filter((n) => n.startsWith('fsw-render-')), [], chrome + ' left a profile');
+  }
+});

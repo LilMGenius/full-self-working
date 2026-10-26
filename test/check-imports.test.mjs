@@ -49,3 +49,19 @@ test('a file-level cycle and a module without a row fail by name', () => withTre
   'src/gadgets/x.mjs:1 module gadgets has no row in the module table',
   'src/economics/b.mjs:2 import cycle src/economics/a.mjs -> src/economics/b.mjs -> src/economics/a.mjs',
 ])));
+
+test('a package import anywhere the deploy worktree loads from src/cli/run.mjs fails; ajv inside validateConfig passes', () => withTree({
+  'src/cli/run.mjs': "import { go } from '../supervisor/run.mjs';\nexport const run = go;\n",
+  'src/supervisor/run.mjs': "import Ajv from 'ajv';\nimport { join } from 'node:path';\nexport const go = () => import('./digest.mjs');\n",
+  'src/supervisor/digest.mjs': "export const d = () => import('lodash');\n",
+  'src/core/config.mjs': "export const v = async () => (await import('ajv/dist/2020.js')).default;\n",
+  'src/cli/settings.mjs': "import { v } from '../core/config.mjs';\nimport chalk from 'chalk';\nexport const s = v;\n",
+}, (root) => assert.deepEqual(checkImports(root), [
+  'src/supervisor/digest.mjs:1 src/supervisor/digest.mjs imports lodash, which the deploy worktree cannot resolve (no node_modules)',
+  'src/supervisor/run.mjs:1 src/supervisor/run.mjs imports ajv, which the deploy worktree cannot resolve (no node_modules)',
+])));
+
+test('ajv imported statically in src/core/config.mjs fails once the supervisor graph reaches it', () => withTree({
+  'src/cli/run.mjs': "import { v } from '../core/config.mjs';\nexport const run = v;\n",
+  'src/core/config.mjs': "import Ajv2020 from 'ajv/dist/2020.js';\nexport const v = Ajv2020;\n",
+}, (root) => assert.deepEqual(checkImports(root), ['src/core/config.mjs:1 src/core/config.mjs imports ajv/dist/2020.js, which the deploy worktree cannot resolve (no node_modules)'])));

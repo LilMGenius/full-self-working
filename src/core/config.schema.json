@@ -1,0 +1,968 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://full-self-working.local/config.schema.json",
+  "title": "fsw instance config.json",
+  "description": "Every operator choice in config.json with its type, allowed values, default and meaning. examples/instance/config.json is generated from these defaults (scripts/gen-example-config.mjs).",
+  "type": "object",
+  "$defs": {
+    "platform": {
+      "type": "object",
+      "description": "One marketplace: whether fsw works it, how far it acts, and its caps.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "whether the supervisor works this platform at all",
+          "default": false
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "observe",
+            "draft",
+            "auto"
+          ],
+          "description": "observe reads only, draft plans every outbound item for your approval, auto sends what the policy allows",
+          "default": "observe",
+          "x-choice": true
+        },
+        "profileEdits": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "approval"
+          ],
+          "description": "whether profile edits on this platform wait for your approval",
+          "default": "approval"
+        },
+        "maxQuotesPerDay": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "description": "quotes fsw may send here in one Seoul day where a quote costs cash",
+          "default": null
+        },
+        "maxCashPerDay": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "description": "cash in KRW quotes may spend here in one Seoul day; 0 or null refuses every cash quote",
+          "default": null,
+          "x-choice": true
+        },
+        "services": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "catalog service ids answered here; null answers every agent-delivered service",
+          "default": null,
+          "x-choice": true
+        },
+        "bidBudget": {
+          "type": "object",
+          "description": "the monthly ceiling for paid bids and the unanswered count that stops them",
+          "default": {
+            "monthlyKRW": 0,
+            "stopAfterUnanswered": 20
+          },
+          "x-choice": true,
+          "properties": {
+            "monthlyKRW": {
+              "type": "number",
+              "minimum": 0,
+              "description": "KRW paid bids may spend in one month",
+              "default": 0
+            },
+            "stopAfterUnanswered": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "sent proposals without a reply that stop paid bids",
+              "default": 20
+            }
+          }
+        },
+        "proposals": {
+          "type": "object",
+          "description": "kmong enterprise proposals: the daily quota and the send policy; absent on a platform without enterprise projects",
+          "properties": {
+            "maxPerDay": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "proposals in one Seoul day, never above the page quota",
+              "default": 5
+            },
+            "minFit": {
+              "type": "string",
+              "enum": [
+                "strong",
+                "some"
+              ],
+              "description": "the least profile fit a project needs to be drafted",
+              "default": "strong"
+            },
+            "autoMaxKRW": {
+              "type": "number",
+              "minimum": 0,
+              "description": "the largest total auto mode sends without your approval; 0 asks for every one",
+              "default": 0
+            },
+            "criticModel": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "the model that reviews a draft before it is sent",
+              "default": null
+            },
+            "minCriticScore": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "the critic score a draft needs to go out without you",
+              "default": 0.75
+            },
+            "pages": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "list pages read per category each hour",
+              "default": 1
+            }
+          }
+        }
+      }
+    }
+  },
+  "properties": {
+    "timezone": {
+      "type": "string",
+      "description": "the zone every schedule and day boundary is read in",
+      "default": "Asia/Seoul"
+    },
+    "browser": {
+      "type": [
+        "object",
+        "string",
+        "null"
+      ],
+      "description": "the BrowserSkill browser and the Chrome profile notices name; a bare string is the browser instance (configs written before browser became an object)",
+      "default": {
+        "instance": null,
+        "chromeProfile": null
+      },
+      "properties": {
+        "instance": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "the BrowserSkill browser a session starts in, by instance id or label; null uses the single online browser",
+          "default": null
+        },
+        "chromeProfile": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "the Chrome profile your signed-in sessions live in, named in notices only; null names plain Chrome",
+          "default": null
+        }
+      }
+    },
+    "logins": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "a JSON file outside the repository with an email login per platform, {\"kmong\": {\"method\": \"email\", \"email\": \"...\", \"password\": \"...\"}}; a signed-out platform is signed in again from it at most once an hour",
+      "default": null
+    },
+    "activeHours": {
+      "type": "object",
+      "description": "when fsw may send",
+      "default": {
+        "outbound": [
+          "08:00",
+          "23:00"
+        ]
+      },
+      "properties": {
+        "outbound": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^\\d{2}:\\d{2}$"
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "Seoul start and end of the outbound hours; outside them an auto platform only reads",
+          "default": [
+            "08:00",
+            "23:00"
+          ]
+        }
+      }
+    },
+    "pipeline": {
+      "type": "object",
+      "description": "how old an item may be to answer and how sure the model must be",
+      "default": {
+        "replyWindowHours": {
+          "message": 72,
+          "request": 48
+        },
+        "minAutoConfidence": 0.7
+      },
+      "properties": {
+        "replyWindowHours": {
+          "type": "object",
+          "description": "hours after which an item is too old to answer, per kind",
+          "default": {
+            "message": 72,
+            "request": 48
+          },
+          "properties": {
+            "message": {
+              "type": "number",
+              "minimum": 0,
+              "description": "hours for a chat message",
+              "default": 72
+            },
+            "request": {
+              "type": "number",
+              "minimum": 0,
+              "description": "hours for a buyer request",
+              "default": 48
+            }
+          }
+        },
+        "minAutoConfidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "the decision confidence below which auto mode asks you",
+          "default": 0.7
+        }
+      }
+    },
+    "platforms": {
+      "type": "object",
+      "description": "each marketplace by id",
+      "additionalProperties": {
+        "$ref": "#/$defs/platform"
+      },
+      "default": {
+        "kmong": {
+          "enabled": true,
+          "mode": "auto",
+          "profileEdits": "auto",
+          "proposals": {
+            "maxPerDay": 5,
+            "minFit": "strong",
+            "autoMaxKRW": 0,
+            "criticModel": "cpa/claude-opus-5-5",
+            "minCriticScore": 0.75,
+            "pages": 3
+          }
+        },
+        "soomgo": {
+          "enabled": true,
+          "mode": "draft",
+          "profileEdits": "approval",
+          "maxQuotesPerDay": 5,
+          "maxCashPerDay": 0,
+          "services": null
+        },
+        "wishket": {
+          "enabled": false,
+          "mode": "observe"
+        },
+        "fiverr": {
+          "enabled": false,
+          "mode": "observe"
+        },
+        "upwork": {
+          "enabled": false,
+          "mode": "draft"
+        },
+        "freelancer": {
+          "enabled": false,
+          "mode": "observe"
+        }
+      }
+    },
+    "payment": {
+      "type": "object",
+      "description": "how a price is split into payments",
+      "default": {
+        "depositRatio": 0.5,
+        "milestoneThresholdKRW": 1000000,
+        "milestones": [
+          0.3,
+          0.4,
+          0.3
+        ]
+      },
+      "properties": {
+        "depositRatio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "the share asked before work starts below the milestone threshold",
+          "default": 0.5
+        },
+        "milestoneThresholdKRW": {
+          "type": "number",
+          "minimum": 0,
+          "description": "the price from which a job is paid in milestones",
+          "default": 1000000
+        },
+        "milestones": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "description": "milestone shares, summing to 1",
+          "default": [
+            0.3,
+            0.4,
+            0.3
+          ]
+        }
+      }
+    },
+    "market": {
+      "type": "object",
+      "description": "how market samples are read",
+      "default": {
+        "engines": {
+          "kmong": null,
+          "soomgo": null,
+          "freelancer": null,
+          "wishket": null,
+          "fiverr": null
+        },
+        "categoriesPerRun": {
+          "kmong": null,
+          "soomgo": null,
+          "freelancer": null,
+          "wishket": null,
+          "fiverr": null
+        },
+        "cadence": {
+          "kmong": null,
+          "soomgo": null,
+          "freelancer": null,
+          "wishket": null,
+          "fiverr": null
+        }
+      },
+      "properties": {
+        "engines": {
+          "type": "object",
+          "description": "the browser each platform market is read through: owned, attached or archive; null uses the descriptor, else owned",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "owned",
+              "attached",
+              "archive",
+              null
+            ]
+          },
+          "default": {
+            "kmong": null,
+            "soomgo": null,
+            "freelancer": null,
+            "wishket": null,
+            "fiverr": null
+          }
+        },
+        "categoriesPerRun": {
+          "type": "object",
+          "description": "categories one run reads per platform, stalest first; null uses the descriptor, else all",
+          "additionalProperties": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "default": {
+            "kmong": null,
+            "soomgo": null,
+            "freelancer": null,
+            "wishket": null,
+            "fiverr": null
+          }
+        },
+        "cadence": {
+          "type": "object",
+          "description": "whether a platform is sampled in the daily slot or the hourly slice; null uses the descriptor, else day",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "day",
+              "hour",
+              null
+            ]
+          },
+          "default": {
+            "kmong": null,
+            "soomgo": null,
+            "freelancer": null,
+            "wishket": null,
+            "fiverr": null
+          }
+        }
+      }
+    },
+    "yield": {
+      "type": "object",
+      "description": "what an hour costs and how effort is spread across services",
+      "default": {
+        "agentHourCostKRW": 3000,
+        "humanHourValueKRW": 30000,
+        "humanHourWeight": 4,
+        "explorationFloor": 0.05,
+        "explorationShare": 0.3,
+        "exploreUntilLeads": 10
+      },
+      "properties": {
+        "agentHourCostKRW": {
+          "type": "number",
+          "minimum": 0,
+          "description": "what one agent hour costs in KRW",
+          "default": 3000
+        },
+        "humanHourValueKRW": {
+          "type": "number",
+          "minimum": 0,
+          "description": "what one of your hours is worth in KRW",
+          "default": 30000
+        },
+        "humanHourWeight": {
+          "type": "number",
+          "minimum": 0,
+          "description": "how many agent hours one of your hours counts as",
+          "default": 4
+        },
+        "explorationFloor": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "the least weight a young service keeps",
+          "default": 0.05
+        },
+        "explorationShare": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "the share of effort the young services split",
+          "default": 0.3
+        },
+        "exploreUntilLeads": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "leads after which a service is no longer young",
+          "default": 10
+        }
+      }
+    },
+    "notify": {
+      "type": "object",
+      "description": "how fsw tells you",
+      "default": {
+        "toast": true,
+        "webhookUrl": null
+      },
+      "properties": {
+        "toast": {
+          "type": "boolean",
+          "description": "a Windows toast for each notice",
+          "default": true
+        },
+        "webhookUrl": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "a webhook each notice is posted to",
+          "default": null
+        }
+      }
+    },
+    "brain": {
+      "type": "object",
+      "description": "the model replies and quotes are drafted with",
+      "default": {
+        "model": "gpt-6.1-sol",
+        "effort": "medium",
+        "timeoutMs": 240000
+      },
+      "properties": {
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "the codex model",
+          "default": "gpt-6.1-sol"
+        },
+        "effort": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "the reasoning effort",
+          "default": "medium"
+        },
+        "timeoutMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "milliseconds one decision may take",
+          "default": 240000
+        }
+      }
+    },
+    "jobs": {
+      "type": "object",
+      "description": "how paid work runs",
+      "default": {
+        "maxParallel": 3,
+        "timeoutMs": null,
+        "model": null,
+        "effort": null,
+        "jwc": {
+          "model": null,
+          "thinking": null
+        }
+      },
+      "properties": {
+        "maxParallel": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "job runs at once across the machine",
+          "default": 3
+        },
+        "timeoutMs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "milliseconds one job run may take; null uses the recipe",
+          "default": null
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "the codex model for job runs; null uses the brain model",
+          "default": null
+        },
+        "effort": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "the reasoning effort for job runs",
+          "default": null
+        },
+        "jwc": {
+          "type": "object",
+          "description": "the jawcode executor",
+          "default": {
+            "model": null,
+            "thinking": null
+          },
+          "properties": {
+            "model": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "the jawcode model",
+              "default": null
+            },
+            "thinking": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "the jawcode thinking level",
+              "default": null
+            }
+          }
+        }
+      }
+    },
+    "orders": {
+      "type": "object",
+      "description": "how far fsw acts after a hire",
+      "default": {
+        "watched": false
+      },
+      "properties": {
+        "watched": {
+          "type": "boolean",
+          "description": "false sends every reply after a hire to you until you watched a first order",
+          "default": false
+        }
+      }
+    },
+    "listings": {
+      "type": "object",
+      "description": "kmong gig listings",
+      "default": {
+        "studio": null
+      },
+      "properties": {
+        "studio": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "the studio name drawn on listing images; null uses the company name",
+          "default": null
+        }
+      }
+    },
+    "site": {
+      "type": "object",
+      "description": "the public portfolio site",
+      "default": {
+        "domain": null,
+        "vercelTeam": null,
+        "project": null
+      },
+      "properties": {
+        "domain": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "the domain the site answers on",
+          "default": null
+        },
+        "vercelTeam": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "the Vercel team that hosts it",
+          "default": null
+        },
+        "project": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "the Vercel project name",
+          "default": null
+        }
+      }
+    },
+    "onboarding": {
+      "type": "object",
+      "description": "answers the onboarding steps type into each platform profile",
+      "default": {
+        "photo": null,
+        "identity": null,
+        "wishket": {
+          "certificate": null,
+          "directSkills": null,
+          "writeGapMs": null,
+          "writesPerRun": null
+        },
+        "fiverr": {
+          "title": null,
+          "skillLevel": null
+        },
+        "upwork": {
+          "experience": "FREELANCED_BEFORE",
+          "goal": "MONEY_ON_SIDE",
+          "workPreferences": [
+            "talentMarketplace"
+          ],
+          "contractToHire": false,
+          "title": "Web developer for landing pages and web apps",
+          "overview": null,
+          "skills": [
+            "Web Development",
+            "JavaScript"
+          ],
+          "languages": [
+            {
+              "language": "English",
+              "level": "Conversational"
+            }
+          ],
+          "hourlyRateUSD": null
+        },
+        "freelancer": {
+          "headline": "Web developer for landing pages and web apps",
+          "summary": null,
+          "skills": [
+            "Web Development",
+            "JavaScript"
+          ]
+        }
+      },
+      "properties": {
+        "photo": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "a public photo of you that a profile step uploads",
+          "default": null
+        },
+        "identity": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "the path of your identity JSON file, kept outside the repository; its values go only into private fields",
+          "default": null
+        },
+        "wishket": {
+          "type": "object",
+          "description": "wishket partner profile",
+          "default": {
+            "certificate": null,
+            "directSkills": null,
+            "writeGapMs": null,
+            "writesPerRun": null
+          },
+          "properties": {
+            "certificate": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "the business registration image the identity step uploads",
+              "default": null
+            },
+            "directSkills": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              },
+              "description": "skill names typed beside the site vocabulary",
+              "default": null
+            },
+            "writeGapMs": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "milliseconds between two writes; null uses the descriptor",
+              "default": null
+            },
+            "writesPerRun": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "writes one run makes; null uses the descriptor",
+              "default": null
+            }
+          }
+        },
+        "fiverr": {
+          "type": "object",
+          "description": "fiverr seller profile",
+          "default": {
+            "title": null,
+            "skillLevel": null
+          },
+          "properties": {
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "the seller title; null uses the headline",
+              "default": null
+            },
+            "skillLevel": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "the level given to each added skill",
+              "default": null
+            }
+          }
+        },
+        "upwork": {
+          "type": "object",
+          "description": "upwork create-profile answers",
+          "default": {
+            "experience": "FREELANCED_BEFORE",
+            "goal": "MONEY_ON_SIDE",
+            "workPreferences": [
+              "talentMarketplace"
+            ],
+            "contractToHire": false,
+            "title": "Web developer for landing pages and web apps",
+            "overview": null,
+            "skills": [
+              "Web Development",
+              "JavaScript"
+            ],
+            "languages": [
+              {
+                "language": "English",
+                "level": "Conversational"
+              }
+            ],
+            "hourlyRateUSD": null
+          },
+          "properties": {
+            "experience": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "your freelancing experience answer",
+              "default": "FREELANCED_BEFORE"
+            },
+            "goal": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "your goal answer",
+              "default": "MONEY_ON_SIDE"
+            },
+            "workPreferences": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "how you want to find work",
+              "default": [
+                "talentMarketplace"
+              ]
+            },
+            "contractToHire": {
+              "type": "boolean",
+              "description": "whether you are open to contract-to-hire",
+              "default": false
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "your profile title",
+              "default": "Web developer for landing pages and web apps"
+            },
+            "overview": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "your bio; null builds it from the profile",
+              "default": null
+            },
+            "skills": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "skills the profile lists",
+              "default": [
+                "Web Development",
+                "JavaScript"
+              ]
+            },
+            "languages": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              },
+              "description": "languages and levels",
+              "default": [
+                {
+                  "language": "English",
+                  "level": "Conversational"
+                }
+              ]
+            },
+            "hourlyRateUSD": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "description": "your hourly rate; null leaves the rate step to you",
+              "default": null
+            }
+          }
+        },
+        "freelancer": {
+          "type": "object",
+          "description": "freelancer.com new-freelancer answers",
+          "default": {
+            "headline": "Web developer for landing pages and web apps",
+            "summary": null,
+            "skills": [
+              "Web Development",
+              "JavaScript"
+            ]
+          },
+          "properties": {
+            "headline": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "the one-line headline",
+              "default": "Web developer for landing pages and web apps"
+            },
+            "summary": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "the profile description; null uses profile.summary_en",
+              "default": null
+            },
+            "skills": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 20,
+              "description": "skill names the skills step selects",
+              "default": [
+                "Web Development",
+                "JavaScript"
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,6 +1,9 @@
 {
   "timezone": "Asia/Seoul",
-  "browser": {"instance": null, "chromeProfile": null},
+  "browser": {
+    "instance": null,
+    "chromeProfile": null
+  },
   "logins": null,
   "activeHours": {
     "outbound": [

@@ -9,6 +9,7 @@ import { runCodex } from '../brain/codex.mjs';
 import { DEFAULT_PROXY_URL } from '../brain/codex.mjs';
 import { exampleDir, instanceDir, readJson, repoRoot } from '../core/instance.mjs';
 import { bskStatus } from '../core/bsk.mjs';
+import { unmadeChoices } from '../core/config.mjs';
 import { pipelineSettings } from '../core/settings.mjs';
 import { answeredServices, catalogServicesFor } from '../economics/catalog.mjs';
 import { listDescriptors, loadDescriptor } from '../platforms/registry.mjs';
@@ -169,6 +170,8 @@ export async function runChecks(ctx = {}) {
 
   const { out: instanceChecks, instance } = checkInstance(dir);
   instanceChecks.forEach(push);
+  // Every choice the operator makes before the platform it guards acts (x-choice in the settings schema).
+  if (instance) for (const c of unmadeChoices(instance.config)) push(result('warn', 'choice ' + c.key, c.description, 'set it with fsw settings set ' + c.key + ' <value>'));
 
   for (const [id, p] of instance?.enabled ?? []) {
     const name = `login ${id}`;

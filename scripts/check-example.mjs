@@ -7,6 +7,7 @@
 // PLATFORM_KEYS and the example must show each on at least one platform.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { defaultsOf, loadSchema, undocumentedKeys } from '../src/core/config.mjs';
 import { exampleDir, readJson, repoRoot } from '../src/core/instance.mjs';
 
 // Maps keyed by an id the operator or the catalog chooses, so the segment after them is data, not a key.
@@ -87,7 +88,8 @@ export function missingKeys(readsByFile, example) {
 }
 
 export function loadExample() {
-  return { config: readJson(join(exampleDir, 'config.json')), profile: readJson(join(exampleDir, 'profile.json')), business: readJson(join(exampleDir, 'business.json')) };
+  // The config document is the schema's defaults, which gen-example-config writes to examples/instance.
+  return { config: defaultsOf(loadSchema()), profile: readJson(join(exampleDir, 'profile.json')), business: readJson(join(exampleDir, 'business.json')) };
 }
 
 export function checkExample(root = repoRoot) {
@@ -101,7 +103,7 @@ export function checkExample(root = repoRoot) {
     }
     for (const f of files) reads.set(relative(root, f).replace(/\\/g, '/'), findReads(readFileSync(f, 'utf8')));
   }
-  return missingKeys(reads, loadExample());
+  return [...missingKeys(reads, loadExample()), ...undocumentedKeys().map((key) => ({ file: 'src/core/config.schema.json', root: 'schema', key }))];
 }
 
 if (import.meta.url === `file:///${process.argv[1].replace(/\\/g, '/')}`) {

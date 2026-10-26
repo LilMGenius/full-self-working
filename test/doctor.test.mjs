@@ -154,3 +154,11 @@ test('an offered lesson service without items is not named while the instance an
   const answering = instance({ edit: (c) => (c.platforms.soomgo.services = ['lesson_tutoring']) });
   assert.match(by(await runChecks(base({ dir: answering, probes })), 'items soomgo').detail, /^프로그래밍\/코딩 레슨: no request items set/);
 });
+test('one choice warning names each choice the operator has not made', async () => {
+  const dir = instance();
+  const checks = await runChecks(base({ dir }));
+  const choices = checks.filter((c) => c.name.startsWith('choice '));
+  assert.ok(choices.some((c) => c.name === 'choice platforms.soomgo.bidBudget' && c.status === 'warn' && c.hint === 'set it with fsw settings set platforms.soomgo.bidBudget <value>'));
+  const set = instance({ edit: (c) => { for (const p of Object.values(c.platforms)) Object.assign(p, { maxCashPerDay: p.maxCashPerDay ?? 0, services: p.services ?? null, bidBudget: { monthlyKRW: 0, stopAfterUnanswered: 20 } }); } });
+  assert.deepEqual((await runChecks(base({ dir: set }))).filter((c) => c.name.startsWith('choice ')), []);
+});

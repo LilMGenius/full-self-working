@@ -4,6 +4,7 @@ const VERBS = {
   init: 'init [dir]: create an operator instance from the placeholder example and print the remaining steps',
   profile: 'profile build <file-or-folder-or-url>... | accept: draft profile.json from your background with a cited source for every claim, then promote it after you read it',
   doctor: 'check what a running agent needs, one line per check; exit 1 when a required check fails',
+  settings: 'settings | settings set <key> <value> | settings reset <key>: list, change or reset an operator choice in config.json',
   status: 'show the instance, ledger and outbox counts, the last tick and the enabled platforms',
   tick: 'tick [--once] [--only job,job]: run one supervisor pass over the due jobs; FSW_FORCE_MODE=observe|draft lowers every platform mode',
   run: 'start the supervisor daemon (a no-op while one runs) [--once]; FSW_FORCE_MODE applies here too',
@@ -22,7 +23,7 @@ const VERBS = {
   help: 'show this help',
 };
 
-const HANDLERS = { init: 'init', profile: 'profile', doctor: 'doctor', status: 'status', tick: 'tick', run: 'run', schedule: 'schedule', approve: 'approvals', deal: 'deal', job: 'job', probe: 'probe', market: 'market', price: 'price', publish: 'publish', listings: 'listings', projects: 'projects', services: 'services', edits: 'edits' };
+const HANDLERS = { init: 'init', profile: 'profile', doctor: 'doctor', settings: 'settings', status: 'status', tick: 'tick', run: 'run', schedule: 'schedule', approve: 'approvals', deal: 'deal', job: 'job', probe: 'probe', market: 'market', price: 'price', publish: 'publish', listings: 'listings', projects: 'projects', services: 'services', edits: 'edits' };
 
 function help() {
   console.log('usage: fsw <verb> [args]\n');

@@ -4,6 +4,7 @@
 // profile; every typed text passes the outbound gate as kind profile first. Bids and deposits are never
 // part of onboarding.
 import { Needs, clickMatch, gated, googleSignIn, needs, pathOf, readIdentity, sleep, typeInto, waitFor, walkWizard } from '../onboarding.mjs';
+import { periodOf } from '../wishket/onboarding.mjs';
 
 export const START = 'https://www.freelancer.com/new-freelancer/skills';
 const BASE = '/new-freelancer/';
@@ -24,6 +25,7 @@ export const STEPS = [
   { id: 'phone-verification', detect: { path: BASE + 'phone-verification', heading: /verify payment method/i } },
   { id: 'payment-verification', detect: { path: BASE + 'payment-verification', heading: /verify payment method/i } },
   { id: 'membership-offer', detect: { path: BASE + 'membership-offer', heading: /get plus membership today/i } },
+  { id: 'experiences', detect: { path: BASE + 'experiences', heading: /add your experience/i } },
 ];
 
 // A step is the wizard path after /new-freelancer/, since profile-details holds several pages.
@@ -231,6 +233,43 @@ HANDLERS['membership-offer'] = {
   want: () => 'declined',
   same: (cur, want) => cur === want,
   next: (s) => clickMatch(s, 'button, a, [role=button], fl-button', /^Skip$/),
+};
+
+// The experience the wizard asks for first: the newest dated role of profile.roles that is not
+// teaching (freelance clients hire for the work, as on wishket), current roles first, with its start
+// (and end) as the page's MM/DD/YYYY on the first of the month. The page says more roles can be added
+// later on the profile, so one is entered.
+const TEACHING = /instructor|lecturer|teacher/i;
+export function firstExperience(profile) {
+  const dated = (profile?.roles ?? []).filter((r) => !TEACHING.test(r.title ?? '')).map((r) => ({ r, p: periodOf(r.period) })).filter((x) => x.p);
+  dated.sort((a, b) => (a.p.end === null) - (b.p.end === null) || (a.p.start < b.p.start ? -1 : 1)).reverse();
+  const top = dated[0];
+  if (!top) return null;
+  const day = (ym) => (ym ? ym.slice(5, 7) + '/01/' + ym.slice(0, 4) : '');
+  return { title: top.r.title, company: top.r.org, start: day(top.p.start), end: day(top.p.end), current: top.p.end === null };
+}
+
+// Mapped 2026-10-26: #TitleInputId, #CompanyInputId, #StartDateInputId and #EndDateInputId (MM/DD/YYYY)
+// and an "I'm currently working in this role" checkbox, with Add another role, Skip and Next.
+HANDLERS.experiences = {
+  read: (s) => s.evaluate(() => {
+    const v = (id) => document.querySelector('#' + id)?.value ?? '';
+    return { title: v('TitleInputId'), company: v('CompanyInputId'), start: v('StartDateInputId'), end: v('EndDateInputId'), current: !!document.querySelector('fl-checkbox input[type=checkbox]')?.checked };
+  }),
+  want: (ctx) => {
+    const e = firstExperience(ctx.instance.profile);
+    if (!e) return needs('profile.roles holds no dated role');
+    const refused = gated(ctx, e.title + ', ' + e.company, 'profile.roles');
+    return refused ? needs(refused) : e;
+  },
+  same: (cur, want) => norm(cur.title) === norm(want.title) && norm(cur.company) === norm(want.company) && cur.start === want.start && cur.current === want.current && (want.current || cur.end === want.end),
+  write: async (s, want, cur) => {
+    if (norm(cur.title) !== norm(want.title)) await typeInto(s, '#TitleInputId', want.title);
+    if (norm(cur.company) !== norm(want.company)) await typeInto(s, '#CompanyInputId', want.company);
+    if (cur.start !== want.start) await typeInto(s, '#StartDateInputId', want.start);
+    if (cur.current !== want.current) await clickMatch(s, 'fl-checkbox label, label', /^I'm currently working in this role$/);
+    if (!want.current && cur.end !== want.end) await typeInto(s, '#EndDateInputId', want.end);
+  },
 };
 
 const LANGUAGE_CODES = { en: 'English', ko: 'Korean', ja: 'Japanese', zh: 'Chinese', es: 'Spanish', fr: 'French', de: 'German' };

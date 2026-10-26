@@ -6,7 +6,7 @@ import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { parseArgs, run } from '../src/cli/onboard.mjs';
 import { blockOf, dayLabel, humanize, readIdentity, walkWizard } from '../src/platforms/onboarding.mjs';
-import { HANDLERS as FREELANCER, STEPS as FREELANCER_STEPS, addSkill, headlineAndSummary, parseSelectedSkills, profileLanguages, resultPattern, skillOfResult, splitLegalName, stepOfUrl as freelancerStep, usDate } from '../src/platforms/freelancer/onboarding.mjs';
+import { HANDLERS as FREELANCER, STEPS as FREELANCER_STEPS, addSkill, firstExperience, headlineAndSummary, parseSelectedSkills, profileLanguages, resultPattern, skillOfResult, splitLegalName, stepOfUrl as freelancerStep, usDate } from '../src/platforms/freelancer/onboarding.mjs';
 import { HANDLERS as UPWORK, employmentEntries, onboard, parseEmploymentCard, parsePeriod, splitTitle, stepOfUrl, upworkSpecialties } from '../src/platforms/upwork/onboarding.mjs';
 import { tempDir } from './tmp.mjs';
 
@@ -153,6 +153,32 @@ test('freelancer payment verification is the operator\'s unless the setting skip
   await m.next(session);
   const re2 = new RegExp(spec.re, spec.flags);
   assert.ok(re2.test('Skip') && !re2.test('Start your free month'));
+});
+
+test('freelancer experiences enters the newest current role that is not teaching, ticking current work', async () => {
+  const profile = { roles: [
+    { org: 'Old Corp', title: 'Engineer', period: '2020.01 to 2022.06' },
+    { org: 'Own Co', title: 'Founder', period: '2024.12 to present' },
+    { org: 'Academy', title: 'Instructor', period: '2026.04 to present' },
+    { org: 'Side', title: 'Founder', period: 'present' },
+  ] };
+  const want = firstExperience(profile);
+  assert.deepEqual(want, { title: 'Founder', company: 'Own Co', start: '12/01/2024', end: '', current: true });
+  assert.deepEqual(firstExperience({ roles: [profile.roles[0]] }), { title: 'Engineer', company: 'Old Corp', start: '01/01/2020', end: '06/01/2022', current: false });
+  const h = FREELANCER.experiences;
+  const page = { title: '', company: '', start: '', end: '', current: false };
+  const ids = { '#TitleInputId': 'title', '#CompanyInputId': 'company', '#StartDateInputId': 'start', '#EndDateInputId': 'end' };
+  const session = {
+    evaluate: async (fn, arg) => {
+      if (arg?.spec) { if (/currently working/.test(arg.spec.re ?? '')) page.current = true; return true; }
+      return arg?.selector ? true : { ...page };
+    },
+    click: async () => {},
+    typeKeys: async (sel, text) => { page[ids[sel]] = text; },
+  };
+  await h.write(session, want, await h.read(session));
+  assert.ok(h.same(await h.read(session), want));
+  assert.equal(page.end, '');
 });
 
 test('freelancer linked-accounts links nothing and leaves by Skip', async () => {

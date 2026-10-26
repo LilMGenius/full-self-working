@@ -20,17 +20,20 @@ docs/DESIGN.md holds the module map and the contracts between modules.
 - `src/policy` is the deterministic outbound gate and slop lint; every message, quote, proposal and listing passes it before it leaves the machine.
 - `src/economics` holds the service catalog, fees, exchange rates, market summaries, sampling, pricing and the price table file.
 - `src/triage` decides each list row (wait, park, observe, open) from the row and the ledger alone; `src/policy/authorize.mjs` composes every send rule; `src/outbox` plans, screens, sends with read-back and resolves every outbound item; `src/deal` is the one state machine for jobs, quotes, payments and money events; `src/work` runs a paid job's recipe behind an executor seam; `src/loop` is one platform step from sense to drain and the effects the deal returns.
-- `src/brain` decides a reply and quote through the model, with every amount set by code; `src/portfolio` and `src/learning/outcomes.mjs` keep the ranked portfolio and the outcome cases; `bin/fsw.mjs` wires `fsw approve` and `fsw job`.
+- `src/brain` decides a reply and quote through the model, with every amount set by code; `src/portfolio` and `src/learning` keep the ranked portfolio, the outcome cases, the lessons and the playbook.
+- `src/supervisor` is the daemon and its 14 jobs (the `run/state.json` lastRuns ids of the live tree), the hourly lead supply report and the 09:00 digest; `src/listings`, `src/projects` and `src/profile` are the kmong gig writer and watch, the enterprise proposals the drain sends, and the profile tools; `site/` and `scripts/publish.mjs` are the public portfolio gallery.
+- `bin/fsw.mjs` maps each verb to `src/cli`: init, profile, doctor, settings, status, tick, run, schedule, approve, deal, job, probe, market, price, publish, listings, projects, services and edits. `src/core/config.schema.json` owns every config key; `fsw settings` changes one.
 - `docs/NEGATIVE-CORPUS.md` lists what the 2c77326 tree learned, each lesson tied to the gate, test or note that holds it.
 
 ## Rules
 
 - Platform rules are data in each descriptor and are enforced by `src/policy/gate.mjs`; a rule a script can decide is a gate, never prose in a prompt.
-- Every operator choice is a setting: a mode, cap, answered service, budget, market engine or cadence, or a figure a listing prints is a key in the instance's `config.json` or `profile.json` with its default in `examples/instance`, never a constant one operator picked; `npm run check` (`scripts/check-example.mjs`) fails a key the code reads that the example lacks, and a figure a profile can answer, such as a career length, is derived from its dated roles.
+- Every operator choice is a setting: a mode, cap, answered service, budget, market engine or cadence, or a figure a listing prints is a key in the instance's `config.json` or `profile.json` with its type, default and meaning in `src/core/config.schema.json` (the example config is generated from it), never a constant one operator picked; `npm run check` (`scripts/check-example.mjs`) fails a key the code reads that the example lacks, and a figure a profile can answer, such as a career length, is derived from its dated roles.
 - A blocked mechanism gets another mechanism before anyone proposes dropping what it served: a platform read that meets a bot wall moves to another engine, cadence or page in its descriptor and settings, and an operator-mandated source leaves only on the operator's word.
 - Money moves only through the channel the platform allows. Contact details and payout accounts are released only where the descriptor permits.
 - Every outbound customer item passes `src/outbox` and `authorize`: a surface write method is called only from `src/outbox/drain.mjs`, and only `src/deal` writes job status, quote status, payments and money events.
-- A channel that brings no leads is first checked at the platform's own matching settings, since an unset one reads as missing demand.
+- A channel that brings no leads is first checked at the platform's own matching settings, since an unset one reads as missing demand; `fsw doctor` warns for each offered soomgo catalog service without request items, and the hourly lead supply report lists them.
+- A live job is retired only by the founder in writing; until then v0 runs every job the live supervisor runs, under the same id.
 - A platform timestamp without a zone is read in the zone the page's own relative time confirms, checked live before its parser ships; soomgo request times are Seoul time although nothing in them says so.
 - A portfolio item is public only after its payment is recorded and the client allowed portfolio use.
 - Customer-facing copy passes the slop gate: no em dashes, no middle-dot enumerations, no invented metrics, no claims the instance profile cannot back.
@@ -38,5 +41,5 @@ docs/DESIGN.md holds the module map and the contracts between modules.
 - A lesson from a platform page, the market or a failure lands in `docs/NEGATIVE-CORPUS.md` with its holder; `scripts/check-negative-corpus.mjs` keeps every held row tied to a file that contains its anchor.
 - A live page is read from this tree only through `scripts/probe.mjs`, whose window keeps it off the live supervisor's polls; recordings with customer text stay under `instance.local/qa/surfaces`, and fixtures under `test/fixtures/surfaces` are synthetic.
 - Schedules start on round Seoul marks; each cron carries its Seoul time and reason.
-- Commands: `npm test`, `npm run check` (tests, privacy scan, slop lint on examples, descriptor validation, example keys, module boundaries, negative corpus).
+- Commands: `npm ci` once (ajv, for `fsw settings` only), `npm test`, `npm run check` (tests, privacy scan, slop lint on examples, descriptor validation, example keys, the generated example config, module boundaries with the deploy package rule, negative corpus).
 - Commits are English: `type(scope): problem` in at most 72 characters and a body of single-line `-` bullets. `hooks/commit-msg` checks every commit and `.github/workflows/commits.yml` every push, both copies of the vibeghost floor.

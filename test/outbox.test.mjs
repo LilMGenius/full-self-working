@@ -422,9 +422,9 @@ test('read-back after an interrupted send ignores an older bubble with the same 
 
 // A driver session behind the real soomgo adapter whose quote form fills, presses and then finds no charge
 // in 충전/사용 내역, so the adapter returns {observed: false, pressed: true, costKRW}.
-function pressedSoomgoSession() {
+function pressedSoomgoSession({ cost = 990, sendDisabled = false } = {}) {
   const form = { priceValue: '', textValue: '' };
-  const detail = () => ({ url: 'https://soomgo.com/requests/received/r1?from=request_list', service: '웹 개발', pairs: [], customerText: '', form: { priceInput: true, priceValue: form.priceValue, priceTypes: ['총 비용', '시간 당'], selectedPriceType: '총 비용', textarea: true, textValue: form.textValue, textMaxChars: 1000, fileInput: true, saveTemplateChecked: false, sendLabel: '990 캐시로 견적 보내기', sendDisabled: false } });
+  const detail = () => ({ url: 'https://soomgo.com/requests/received/r1?from=request_list', service: '웹 개발', pairs: [], customerText: '', form: { priceInput: true, priceValue: form.priceValue, priceTypes: ['총 비용', '시간 당'], selectedPriceType: '총 비용', textarea: true, textValue: form.textValue, textMaxChars: 1000, fileInput: true, saveTemplateChecked: false, sendLabel: cost.toLocaleString('en') + ' 캐시로 견적 보내기', sendDisabled } });
   const answers = { pageRequestDetail: detail, pageText: () => '충전/사용 내역' };
   return {
     loads: 0,
@@ -437,6 +437,18 @@ function pressedSoomgoSession() {
     stop: async () => {},
   };
 }
+
+test('a pressed quote counts at the cost the page showed, and one refused before the press counts nothing', { timeout: 60_000 }, async () => {
+  const { openSurface } = await import('../src/surface/index.mjs');
+  const s = setup('soomgo');
+  const priced = plan(s.ledger, { platform: 'soomgo', threadId: s.thread('r1', 'request').id, kind: 'quote', payload: quotePayload({ costKRW: 990, text: TEXT + ' priced' }) });
+  await s.run(await openSurface('soomgo', { session: pressedSoomgoSession({ cost: 700 }) }));
+  assert.deepEqual([s.ledger.getOutbox(priced.id).receipt.costKRW, quotaUsage(s.ledger, 'soomgo', NOON)], [700, { quotes: 1, cashKRW: 700 }]);
+  const t = setup('soomgo');
+  const refused = plan(t.ledger, { platform: 'soomgo', threadId: t.thread('r2', 'request').id, kind: 'quote', payload: quotePayload({ costKRW: 990, text: TEXT + ' refused' }) });
+  await t.run(await openSurface('soomgo', { session: pressedSoomgoSession({ sendDisabled: true }) }));
+  assert.deepEqual([t.ledger.getOutbox(refused.id).receipt.pressed, quotaUsage(t.ledger, 'soomgo', NOON)], [false, { quotes: 0, cashKRW: 0 }]);
+});
 
 test('a quote the real soomgo surface pressed without a found charge stays counted against the cap', { timeout: 60_000 }, async () => {
   const { openSurface } = await import('../src/surface/index.mjs');

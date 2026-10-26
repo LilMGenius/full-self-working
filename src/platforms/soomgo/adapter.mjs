@@ -258,17 +258,19 @@ export async function openSoomgo({ session, sleep = wait } = {}) {
 
     // dryRun fills the form, confirms the send button and its cost, then clears the form.
     async quote(id, { amountKRW, priceType = 'fixed', text, gate, allowSpendCash = false, dryRun = false, customer = null } = {}) {
-      if (gate?.ok !== true) return { sent: false, observed: false, reason: 'gate result missing or not ok' };
-      if (!dryRun && allowSpendCash !== true) return { sent: false, observed: false, reason: 'quote spends 숨고캐시; allowSpendCash was not given' };
-      if (!Number.isInteger(amountKRW) || amountKRW <= 0) return { sent: false, observed: false, reason: 'amountKRW must be a positive integer' };
-      if (!squash(text)) return { sent: false, observed: false, reason: 'empty text' };
+      // Every return before the send button is pressed says pressed: false, so the drain does not count the
+      // refused quote against the day's cash cap while it waits for the operator.
+      if (gate?.ok !== true) return { sent: false, observed: false, pressed: false, reason: 'gate result missing or not ok' };
+      if (!dryRun && allowSpendCash !== true) return { sent: false, observed: false, pressed: false, reason: 'quote spends 숨고캐시; allowSpendCash was not given' };
+      if (!Number.isInteger(amountKRW) || amountKRW <= 0) return { sent: false, observed: false, pressed: false, reason: 'amountKRW must be a positive integer' };
+      if (!squash(text)) return { sent: false, observed: false, pressed: false, reason: 'empty text' };
       await s.navigate(`${BASE}/requests/received/${encodeURIComponent(id)}?from=request_list`);
       const before = await s.evaluate(pageRequestDetail, String(id));
       const detail = parseRequestDetail({ id, ...before });
       const f = detail.quoteForm;
-      if (!f.priceInput || !f.textarea || !f.sendButton) return { sent: false, observed: false, reason: 'quote form incomplete', form: f };
-      if (detail.quoteCostKRW == null) return { sent: false, observed: false, reason: 'quote cost not readable from the send button' };
-      if (before.form.saveTemplateChecked) return { sent: false, observed: false, reason: '자주 쓰는 견적에 추가 is checked; refusing to change templates' };
+      if (!f.priceInput || !f.textarea || !f.sendButton) return { sent: false, observed: false, pressed: false, reason: 'quote form incomplete', form: f };
+      if (detail.quoteCostKRW == null) return { sent: false, observed: false, pressed: false, reason: 'quote cost not readable from the send button' };
+      if (before.form.saveTemplateChecked) return { sent: false, observed: false, pressed: false, reason: '자주 쓰는 견적에 추가 is checked; refusing to change templates' };
       const wanted = priceType === 'hourly' ? 'price-hourly' : 'price-total';
       if (before.form.selectedPriceType !== (priceType === 'hourly' ? '시간 당' : '총 비용')) await s.click(`[data-fsw=${wanted}]`);
       // The price input reformats with thousand separators as it types, which fill() cannot follow.
@@ -286,9 +288,9 @@ export async function openSoomgo({ session, sleep = wait } = {}) {
         const cleared = await clear();
         // An emptied price input falls back to "0".
         const report = { costKRW: detail.quoteCostKRW, priceTyped: priceOk, textTyped: textOk, sendEnabledWhenFilled: !typed.form.sendDisabled, cleared: !cleared.form.priceValue.replace(/[0,]/g, '') && !cleared.form.textValue };
-        return dryRun ? { sent: false, observed: false, dryRun: true, ...report } : { sent: false, observed: false, reason: 'the form did not hold the typed values', ...report };
+        return dryRun ? { sent: false, observed: false, pressed: false, dryRun: true, ...report } : { sent: false, observed: false, pressed: false, reason: 'the form did not hold the typed values', ...report };
       }
-      if (typed.form.sendDisabled) return { sent: false, observed: false, reason: 'send button disabled after filling', costKRW: detail.quoteCostKRW };
+      if (typed.form.sendDisabled) return { sent: false, observed: false, pressed: false, reason: 'send button disabled after filling', costKRW: detail.quoteCostKRW };
       s.guard.beforeMessage();
       const pressedAt = Date.now();
       await s.click('[data-fsw=quote-send]');

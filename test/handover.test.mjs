@@ -95,6 +95,28 @@ test('a deploy copy that cannot move keeps running its code and tells the operat
   assert.match(readFileSync(join(instance.paths.operator, 'requests.md'), 'utf8'), /New code does not load/);
 });
 
+test('a tick that wakes just short of its mark covers the mark, so a poll is neither skipped nor run a mark late', async () => {
+  const instance = makeInstance();
+  const { ctx } = daemon(instance, { states: [{ head: 'a', detached: true, target: 'a' }] });
+  const start = Date.parse('2026-10-26T01:25:33.000Z');
+  const mark = Date.parse('2026-10-26T01:30:00.000Z');
+  let t = start;
+  const seen = [];
+  let sleeps = 0;
+  ctx.clock = () => t;
+  ctx.runTick = async ({ now }) => {
+    seen.push(now.toISOString());
+    return { jobs: [], failures: 0 };
+  };
+  ctx.sleep = async () => {
+    sleeps += 1;
+    if (sleeps > 1) throw Object.assign(new Error('end of test'), { code: 'TEST_END' });
+    t = mark - 3;
+  };
+  await assert.rejects(runSupervisor(ctx), { code: 'TEST_END' });
+  assert.deepEqual(seen, ['2026-10-26T01:25:33.000Z', '2026-10-26T01:30:00.000Z']);
+});
+
 const git = (cwd, ...args) => execFileSync('git', ['-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=', ...args], { cwd, encoding: 'utf8' }).trim();
 
 function scratchRepo(runSource) {

@@ -511,6 +511,11 @@ export async function runSupervisor(ctx = {}) {
   const started = code().head;
   let rejected = null;
   let restart = false;
+  // A timer can fire a few milliseconds before the mark it was set for, and a tick that read the clock then
+  // covered the period before the mark: after a restart on 2026-10-26 the first wake found nothing due and
+  // every later job ran one mark late. So a tick that woke just short of its mark runs at the mark.
+  const clock = ctx.clock ?? Date.now;
+  let mark = null;
   try {
     const state = readState(instance);
     let current = instance;
@@ -526,7 +531,9 @@ export async function runSupervisor(ctx = {}) {
           await notifyOperator(instance, { kind: 'supervisor', title: 'The instance config did not load', body: err.message, dedupeKey: 'config:' + dayKey() });
         }
       }
-      const summary = await tick({ instance: current, ledger, state, keeper, log, forceMode: ctx.forceMode });
+      const early = mark ? mark.getTime() - clock() : 0;
+      const now = early > 0 && early < 1000 ? mark : new Date(clock());
+      const summary = await tick({ instance: current, ledger, state, keeper, log, forceMode: ctx.forceMode, now });
       if (summary.jobs.length) log('tick ' + summary.jobs.map((j) => j.job + ':' + j.status).join(' ') + ' failures=' + summary.failures);
       if (stopping || ctx.once) break;
       const at = code();
@@ -545,7 +552,8 @@ export async function runSupervisor(ctx = {}) {
         log('code at ' + head.slice(0, 7) + ' does not load; keeping ' + started.slice(0, 7) + ': ' + handover.detail);
         await notifyOperator(instance, { kind: 'supervisor', title: 'New code does not load; the supervisor keeps running ' + started.slice(0, 7), body: handover.detail, dedupeKey: 'code:' + head });
       }
-      await sleep(Math.max(0, nextWake(new Date()).getTime() - Date.now()));
+      mark = nextWake(new Date(clock()));
+      await sleep(Math.max(0, mark.getTime() - clock()));
       wake = null;
     }
   } finally {

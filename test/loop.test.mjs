@@ -294,3 +294,30 @@ test('a list row whose money signal throws is recorded as that row\'s error and 
   assert.equal(s.events('thread.error').at(-1).stage, 'money');
 });
 
+
+test('a send observed in an earlier pass whose deal signal was lost is applied once, and one signal that throws does not drop the rest', async () => {
+  const s = setup();
+  const lost = (ref, cost) => {
+    const t = s.ledger.upsertThread({ platform: 'soomgo', externalId: ref, kind: 'request' });
+    const row = plan(s.ledger, { platform: 'soomgo', threadId: t.id, kind: 'quote', payload: { text: REPLY + ' ' + ref, amountKRW: 300000, costKRW: cost, service: 'landing_page_web', thread: { kind: 'request', stage: 'pre_order' } } });
+    setStatus(s.ledger, row.id, { from: 'planned', to: 'sending' });
+    setStatus(s.ledger, row.id, { from: 'sending', to: 'observed', receipt: { observed: true, cashSpentKRW: cost } });
+    return t;
+  };
+  const broken = lost('r1', 990);
+  const fine = lost('r2', 700);
+  const real = s.ledger.addQuote;
+  s.ledger.addQuote = (q) => {
+    if (q.threadId === broken.id) throw new Error('disk I/O error');
+    return real(q);
+  };
+  const r = await s.run('soomgo', scriptedSurface());
+  assert.deepEqual(r.errors.map((e) => e.message), ['disk I/O error']);
+  assert.deepEqual(s.ledger.listQuotes().map((q) => [q.threadId, q.costKRW]), [[fine.id, 700]]);
+  s.ledger.addQuote = real;
+  await s.run('soomgo', scriptedSurface());
+  await s.run('soomgo', scriptedSurface());
+  assert.deepEqual(s.ledger.listQuotes().map((q) => q.threadId).sort(), [broken.id, fine.id].sort());
+  assert.deepEqual(s.ledger.listJobs().map((j) => j.status), ['quoted', 'quoted']);
+});
+

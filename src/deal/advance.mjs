@@ -397,7 +397,8 @@ export function advance(ledger, signal, ctx = {}) {
     if (!thread) throw new DealError('FSW_DEAL_SIGNAL', signal.type + ' needs a threadId or a job with a thread');
     if (MONEY_TYPES.includes(signal.type)) return money(ledger, out, signal, thread, { instance, descriptor, now });
     const job = job0 ?? findJob(ledger, signal.platform, thread, signal.evidence?.requestId);
-    ledger.addEvent({ kind: 'deal.' + signal.type, platform: signal.platform, ref: job?.id ?? thread.externalId, payload: { jobId: job?.id ?? null, amountKRW: signal.amountKRW ?? null } });
+    // outboxId names the observed send a signal came from, so sweep can tell an applied send from a lost one.
+    ledger.addEvent({ kind: 'deal.' + signal.type, platform: signal.platform, ref: job?.id ?? thread.externalId, payload: { jobId: job?.id ?? null, amountKRW: signal.amountKRW ?? null, outboxId: signal.evidence?.outboxId ?? null } });
     RULES[signal.type](ledger, out, signal, { thread, job, instance, descriptor, now });
   });
   return { transitions: out.transitions, effects: out.effects };

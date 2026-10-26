@@ -13,9 +13,9 @@ import { openSurface as defaultOpenSurface } from '../surface/index.mjs';
 import { parkEvent, triage } from '../triage/index.mjs';
 import { decide as defaultDecide, loadGateRules, pendingInbound } from '../brain/respond.mjs';
 import { authorize, budgetSpent, operatingMode, spendsCash } from '../policy/authorize.mjs';
-import { drain, plan } from '../outbox/index.mjs';
+import { drain, plan, signalOf } from '../outbox/index.mjs';
 import { quotaUsage } from '../outbox/usage.mjs';
-import { advance, moneyToSignals, readiness, stageOf } from '../deal/index.mjs';
+import { advance, moneyToSignals, readiness, stageOf, unappliedObserved } from '../deal/index.mjs';
 import { answeredServices, parkKey } from '../economics/catalog.mjs';
 import { latestAllocation, prioritize } from '../economics/priority.mjs';
 import { loadRecipe } from '../work/index.mjs';
@@ -68,6 +68,15 @@ export async function step(platform, ctx) {
     result.transitions += r.transitions.length;
     effects.push(...r.effects);
     return r;
+  };
+  // One signal that throws is recorded against its outbox row and the rest still apply.
+  const applySent = (signal, ref) => {
+    try {
+      applyAdvance(signal);
+    } catch (err) {
+      result.errors.push({ ref, code: err.code ?? null, message: err.message });
+      event('deal.signal_failed', ref, { type: signal.type, outboxId: signal.evidence?.outboxId ?? null, code: err.code ?? null, message: err.message });
+    }
   };
   let surface;
   try {
@@ -188,10 +197,13 @@ export async function step(platform, ctx) {
     result.deferred = work.length - done;
     await applyEffects(effects.splice(0), effCtx);
     if (mode !== 'observe') {
+      // Sends observed in an earlier pass whose deal signal was lost (a stop between the drain's commit and
+      // advance) get it now, dated by when they were observed.
+      for (const row of unappliedObserved(ledger, { platform })) applySent(signalOf(row, row.receipt ?? {}, new Date(row.updatedAt)), 'outbox ' + row.id);
       const drained = await drain(ledger, { platform, surface, authorize, ctx: { descriptor, instance, lessonsRules: loadGateRules(instance), mode, now, notify: ctx.notify, hold: (row) => readiness(ledger, row, dealCtx) } });
       for (const x of drained) {
         bump('outbox', x.action);
-        if (x.signal) applyAdvance(x.signal);
+        if (x.signal) applySent(x.signal, 'outbox ' + x.id);
       }
     }
     if (result.errors.length) result.status = 'partial';

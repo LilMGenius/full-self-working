@@ -3,5 +3,5 @@ export { countedPayments, deliveryAllowed, nextPart, paymentKind, paymentLevelMe
 export { readiness } from './readiness.mjs';
 export { MONEY_LOOKBACK_DAYS, fresh, jobIdFor, minuteKey, moneySignals, moneyToSignals } from './signals.mjs';
 export { jobOfThread, stageFromLedger, stageOf } from './stage.mjs';
-export { sweep } from './sweep.mjs';
+export { sweep, unappliedObserved } from './sweep.mjs';
 export { deliveryText } from './delivery-text.mjs';

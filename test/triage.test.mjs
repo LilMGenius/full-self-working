@@ -136,7 +136,7 @@ test('a quote the adapter pressed but could not confirm counts against the daily
   const ref = (id, minutesAgo) => ({ id, kind: 'request', unread: true, at: new Date(now.getTime() - minutesAgo * 60_000).toISOString() });
   assert.equal((await processThread({ ...s, threadRef: ref('r1', 30), adapter, mode: 'auto', decide })).action, 'queued');
   assert.deepEqual(quotaUsage(s.ledger, 'soomgo', now, s.instance), { quotes: 1, cashKRW: 5890 });
-  assert.equal((await processThread({ ...s, threadRef: ref('r2', 20), adapter, mode: 'auto', decide })).action, 'queued');
+  assert.equal((await processThread({ ...s, threadRef: ref('r2', 20), adapter, mode: 'auto', decide })).action, 'deferred');
   assert.deepEqual(pressed, ['r1']);
 });
 

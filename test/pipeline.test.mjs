@@ -115,14 +115,14 @@ const soomgoQuote = () => reply({
   priceRow: { platform: 'soomgo', service: 'landing_page_web', floorKRW: 100000, ceilingKRW: 2000000, viable: true },
 });
 
-test('a soomgo quote is refused and queued when the day cash budget is spent', async () => {
+test('a soomgo quote is refused and deferred for a later day when the day cash budget is spent', async () => {
   const s = setup('soomgo');
   const budget = { maxQuotesPerDay: 5, maxCashPerDay: 10000 };
   s.ledger.addQuote({ platform: 'soomgo', service: 'landing_page_web', amountKRW: 300000, costKRW: 8000, status: 'sent' });
   const adapter = fakeAdapter({ quoteCostKRW: 3000 });
   const r = await processThread({ ...s, threadRef: { id: 'r1', kind: 'request' }, adapter, mode: 'auto', budget, decide: fakeDecide(soomgoQuote()) });
   assert.equal(adapter.calls.quote.length, 0);
-  assert.equal(r.action, 'queued');
+  assert.equal(r.action, 'deferred');
   assert.match(r.reason, /cash budget/);
   assert.equal(s.ledger.listQuotes({ platform: 'soomgo' }).length, 1);
 });

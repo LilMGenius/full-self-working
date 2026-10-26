@@ -77,14 +77,29 @@ export function quotaUsage(ledger, platform, now, instance) {
 }
 
 // Fails closed: a missing limit or an unknown cost refuses the spend.
+// spent marks a refusal that only the day's caps caused, so an empty later day can pay it.
 export function cashBudgetCheck({ budget, usage, costKRW }) {
   const { maxQuotesPerDay, maxCashPerDay } = budget ?? {};
   if (!Number.isInteger(maxQuotesPerDay) || typeof maxCashPerDay !== 'number') return { ok: false, reason: 'no cash budget configured (maxQuotesPerDay, maxCashPerDay)' };
   if (typeof costKRW !== 'number' || !Number.isFinite(costKRW)) return { ok: false, reason: 'the quote cost was not read from the page' };
-  if (usage.quotes + 1 > maxQuotesPerDay) return { ok: false, reason: 'daily quote budget spent (' + usage.quotes + ' of ' + maxQuotesPerDay + ')' };
-  if (usage.cashKRW + costKRW > maxCashPerDay) return { ok: false, reason: 'daily cash budget spent (' + usage.cashKRW + ' + ' + costKRW + ' over ' + maxCashPerDay + ')' };
+  const spent = maxQuotesPerDay >= 1 && costKRW <= maxCashPerDay;
+  if (usage.quotes + 1 > maxQuotesPerDay) return { ok: false, spent, reason: 'daily quote budget spent (' + usage.quotes + ' of ' + maxQuotesPerDay + ')' };
+  if (usage.cashKRW + costKRW > maxCashPerDay) return { ok: false, spent, reason: 'daily cash budget spent (' + usage.cashKRW + ' + ' + costKRW + ' over ' + maxCashPerDay + ')' };
   return { ok: true };
 }
+
+// Whether the day's budget can pay for no quote at all: the quote count reached its cap or the cash
+// spent reached its cap. The descriptor records no smallest quote cost (숨고 varies it by category), so
+// any cash left counts as room. A missing cap is left to cashBudgetCheck, which refuses at send time.
+export function budgetSpent(budget, usage) {
+  const { maxQuotesPerDay, maxCashPerDay } = budget ?? {};
+  if (!Number.isInteger(maxQuotesPerDay) || typeof maxCashPerDay !== 'number') return false;
+  return usage.quotes >= maxQuotesPerDay || usage.cashKRW >= maxCashPerDay;
+}
+
+// A quote refused at send time only because the day's budget was spent waits for a later day's budget
+// instead of the operator. Approvals queued before the marker existed are known by their reason.
+export const isDeferredForBudget = (a) => a.status === 'open' && !a.orderItem && (a.deferredForBudget != null || /^cash quote refused: daily /.test(a.reason ?? ''));
 
 const msgText = (m) => String(m.text ?? m.body ?? '');
 const msgExternalId = (m) => String(m.externalId ?? m.id ?? createHash('sha1').update((m.at ?? '') + '\n' + msgText(m)).digest('hex').slice(0, 16));
@@ -174,6 +189,10 @@ export async function processThread({ platform, threadRef, adapter, ledger, inst
     event('thread.observed', { unread: true, preview: threadRef.preview ?? null });
     return { action: 'observed', opened: false };
   }
+  // While the day's budget can pay for no quote, a buyer request the list rows did not park stays unread
+  // on the platform with no message, park or event written and no model call, and every tick checks
+  // again, so the first ticks of the next Seoul day pick requests by the allocation priority.
+  if (mode === 'auto' && spendsCash(descriptor, kind) && budgetSpent(budget ?? instance.config?.platforms?.[platform], quotaUsage(ledger, platform, now, instance))) return { action: 'budget', opened: false };
 
   const willReply = mode !== 'observe';
   const full = kind === 'request' ? await adapter.readRequest(ref) : await adapter.readThread(ref, { willReply });
@@ -234,7 +253,8 @@ export async function processThread({ platform, threadRef, adapter, ledger, inst
     const check = cashBudgetCheck({ budget: budget ?? instance.config?.platforms?.[platform], usage: quotaUsage(ledger, platform, now, instance), costKRW });
     if (!check.ok) {
       event('quote.budget_refused', { reason: check.reason, costKRW });
-      return queue('cash quote refused: ' + check.reason, { costKRW });
+      if (!check.spent) return queue('cash quote refused: ' + check.reason, { costKRW });
+      return { ...(await queue('cash quote refused: ' + check.reason, { costKRW, deferredForBudget: { costKRW } })), action: 'deferred' };
     }
   }
   const sent = await act({ adapter, ledger, platform, threadId: row.id, ref, kind, text, quote: d.quote, service: d.service, gate: result.gate, allowSpendCash: cash, costKRW, customer: threadRef.customer ?? null });
@@ -248,13 +268,26 @@ export async function processThread({ platform, threadRef, adapter, ledger, inst
 }
 
 // Sends items the operator approved. The final text passes the gate again, since an operator edit is
-// new text; an approved cash quote is the operator's authorization to spend.
-export async function flushApprovals({ platform, adapter, ledger, instance, descriptor }) {
+// new text; an approved cash quote is the operator's authorization to spend. In auto mode it then sends
+// quotes deferred for the budget, oldest first, while the day's budget pays for each, gated the same way;
+// the first one the budget cannot pay waits with every newer one for a later tick.
+export async function flushApprovals({ platform, adapter, ledger, instance, descriptor, mode, now = new Date() }) {
   const out = [];
   const lessonsRules = loadGateRules(instance);
-  for (const a of listApprovals(instance, { status: 'approved' })) {
+  const deferred = mode === 'auto' ? listApprovals(instance, { status: 'open' }).filter(isDeferredForBudget) : [];
+  for (const a of [...listApprovals(instance, { status: 'approved' }), ...deferred]) {
     if (a.platform !== platform || a.closedAt || a.orderItem) continue;
-    const item = { ...(a.item ?? { platform, kind: a.kind, thread: { stage: 'pre_order' } }), text: a.finalText, amountKRW: a.quote?.amountKRW };
+    const waiting = a.status === 'open';
+    const costKRW = a.costKRW ?? a.deferredForBudget?.costKRW ?? null;
+    if (waiting) {
+      // The oldest deferred quote the day cannot pay holds every newer one; one no day can pay (its cost
+      // over the cap, or no cap configured) waits for the operator instead.
+      const check = cashBudgetCheck({ budget: instance.config?.platforms?.[platform], usage: quotaUsage(ledger, platform, now, instance), costKRW });
+      if (!check.ok && check.spent) break;
+      if (!check.ok) continue;
+    }
+    const text = waiting ? a.draft : a.finalText;
+    const item = { ...(a.item ?? { platform, kind: a.kind, thread: { stage: 'pre_order' } }), text, amountKRW: a.quote?.amountKRW };
     const gate = gateOutbound(item, { descriptor, instance, priceRow: a.priceRow ?? null, lessonsRules });
     if (!gate.ok) {
       closeApproval(instance, a.id, { status: 'blocked', violations: gate.violations });
@@ -262,15 +295,15 @@ export async function flushApprovals({ platform, adapter, ledger, instance, desc
       out.push({ id: a.id, action: 'blocked' });
       continue;
     }
-    const sent = await act({ adapter, ledger, platform, threadId: a.threadId, ref: a.threadRef, kind: a.threadKind ?? 'message', text: a.finalText, quote: a.quote, service: a.service, gate, allowSpendCash: spendsCash(descriptor, a.threadKind), costKRW: a.costKRW ?? null, customer: ledger.getThread(a.threadId)?.customer ?? null });
+    const sent = await act({ adapter, ledger, platform, threadId: a.threadId, ref: a.threadRef, kind: a.threadKind ?? 'message', text, quote: a.quote, service: a.service, gate, allowSpendCash: spendsCash(descriptor, a.threadKind), costKRW, customer: ledger.getThread(a.threadId)?.customer ?? null });
     if (!sent.observed) {
-      closeApproval(instance, a.id, { status: 'unobserved', detail: sent.res?.reason ?? null, ...(sent.res?.pressed ? { pressed: { at: new Date().toISOString(), costKRW: sent.res.costKRW ?? a.costKRW ?? null } } : {}) });
+      closeApproval(instance, a.id, { status: 'unobserved', detail: sent.res?.reason ?? null, ...(sent.res?.pressed ? { pressed: { at: new Date().toISOString(), costKRW: sent.res.costKRW ?? costKRW } } : {}) });
       ledger.addEvent({ kind: 'send.unobserved', platform, ref: a.threadRef, payload: { approvalId: a.id, detail: sent.res?.reason ?? null } });
       out.push({ id: a.id, action: 'unobserved' });
       continue;
     }
     closeApproval(instance, a.id, { status: 'sent' });
-    ledger.addEvent({ kind: 'approval.sent', platform, ref: a.threadRef, payload: { approvalId: a.id, edited: a.edited } });
+    ledger.addEvent({ kind: 'approval.sent', platform, ref: a.threadRef, payload: { approvalId: a.id, edited: a.edited, ...(waiting ? { deferredForBudget: true } : {}) } });
     out.push({ id: a.id, action: 'sent' });
   }
   // Approved order items (payment requests, deliveries) go out through their own checks.

@@ -217,6 +217,10 @@ export async function runPlatform(id, ctx) {
       return { ...result, status: 'failed', error: 'not logged in' };
     }
     if (readOnly) return result;
+    // Approved items and quotes deferred for the budget go out before the lists are read, so a quote a
+    // past day's budget could not pay is sent before a new request takes today's budget, and the lists
+    // read after it already show what it sent.
+    if (mode !== 'observe' && sendingHours) result.approvalsSent = (await flushApprovals({ platform: id, adapter, ledger, instance, descriptor, mode, now })).length;
     const refs = [];
     for (const source of ['inbox', 'requests']) {
       if (typeof adapter[source] !== 'function') continue;
@@ -255,7 +259,6 @@ export async function runPlatform(id, ctx) {
       }
     }
     result.deferred = work.length - done;
-    if (mode !== 'observe' && sendingHours) result.approvalsSent = (await flushApprovals({ platform: id, adapter, ledger, instance, descriptor })).length;
     if (result.errors.length) result.status = 'partial';
     return result;
   } catch (err) {

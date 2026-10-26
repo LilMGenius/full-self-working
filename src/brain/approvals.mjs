@@ -33,7 +33,8 @@ export async function queueApproval(instance, item) {
     ...(item.violations?.length ? ['violations: ' + item.violations.map((v) => v.rule).join(', ')] : []),
     'resolve: fsw approve ' + id + ' [--text "..."] | fsw approve ' + id + ' --reject',
   ];
-  const notified = await notifyOperator(instance, { kind: 'approval', title: item.title ?? item.platform + ' ' + item.kind + ' needs approval', body: lines.join('\n'), dedupeKey: 'approval:' + id });
+  // A quote deferred for the budget goes out on its own on a later day, so it asks nothing of the operator.
+  const notified = item.deferredForBudget ? null : await notifyOperator(instance, { kind: 'approval', title: item.title ?? item.platform + ' ' + item.kind + ' needs approval', body: lines.join('\n'), dedupeKey: 'approval:' + id });
   return { ...record, notified };
 }
 

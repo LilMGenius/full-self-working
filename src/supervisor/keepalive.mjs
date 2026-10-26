@@ -49,7 +49,19 @@ export function holdAwake({ timeoutMs = 30_000 } = {}) {
       if (!out.includes('held')) return;
       clearTimeout(timer);
       child.removeAllListeners('exit');
-      resolve({ pid: child.pid, child, stop: () => (child.exitCode === null ? child.kill() : false) });
+      // stop() also lets go of the child's pipes and handle, so a child that outlives its kill does not
+      // hold the supervisor's event loop open after it returned.
+      resolve({
+        pid: child.pid,
+        child,
+        stop: () => {
+          const killed = child.exitCode === null ? child.kill() : false;
+          child.stdout.destroy();
+          child.stderr.destroy();
+          child.unref();
+          return killed;
+        },
+      });
     });
   });
 }
@@ -57,22 +69,29 @@ export function holdAwake({ timeoutMs = 30_000 } = {}) {
 // The keeper owns a foreground daemon child when it had to start one: this host's Job Object rules
 // refuse a detached start, so the daemon lives as long as the supervisor. With canStart false (a
 // one-shot tick) it only reports.
+// It keeps every child it started until that child exits, since a status read that times out under load
+// starts a second daemon that loses the bsk lock and exits at once; when the keeper held only the newest
+// child, that exit dropped the live daemon, stop() ended nothing and the daemon's handle kept the
+// supervisor alive after it said it was exiting for a restart (2026-10-26, pid 26920). Each supervisor
+// ends its daemons on the way out and the next one starts its own, as every handover did before.
 export function createBrowserKeeper({ instance, canStart = true, bin = BSK_BIN, status = bskStatus, notify = notifyOperator, settleMs = 5000 } = {}) {
-  let daemon = null;
+  const daemons = new Set();
   const startDaemon = () => {
     const logFile = join(ensureDir(instance.paths.logs), 'bsk-daemon.log');
     const fd = openSync(logFile, 'a');
+    let child;
     try {
-      daemon = spawn(bin, ['daemon', 'start', '--foreground'], { stdio: ['ignore', fd, fd], windowsHide: true, env: { ...process.env, BSK_AUTO_START: '0' } });
+      child = spawn(bin, ['daemon', 'start', '--foreground'], { stdio: ['ignore', fd, fd], windowsHide: true, env: { ...process.env, BSK_AUTO_START: '0' } });
     } finally {
       closeSync(fd);
     }
-    daemon.on('exit', () => (daemon = null));
-    return daemon.pid;
+    daemons.add(child);
+    child.on('exit', () => daemons.delete(child));
+    return child.pid;
   };
   return {
     get child() {
-      return daemon;
+      return [...daemons].at(-1) ?? null;
     },
     async check(now = new Date()) {
       let s = await status({ bin });
@@ -94,7 +113,10 @@ export function createBrowserKeeper({ instance, canStart = true, bin = BSK_BIN, 
       return { status: 'no browser', ...s, started, notified: notified.written };
     },
     stop() {
-      if (daemon && daemon.exitCode === null) daemon.kill();
+      for (const child of daemons) {
+        if (child.exitCode === null && child.signalCode === null) child.kill();
+        child.unref();
+      }
     },
   };
 }

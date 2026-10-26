@@ -34,7 +34,7 @@ test('the probe imports the real supervisor graph and fails on a tree whose run 
 });
 
 test('fsw run exits with the restart code only when the supervisor hands over', async () => {
-  const exitFor = (status) => run([], { runSupervisor: async () => ({ status }) });
+  const exitFor = (status) => run([], { runSupervisor: async () => ({ status }), exit: () => {} });
   // 75 is the code the scheduled task's launcher restarts on at once (scripts/task.ps1, rc <> 75).
   assert.equal(await exitFor('restart'), 75);
   assert.equal(await exitFor('stopped'), 0);

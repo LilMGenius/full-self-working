@@ -13,8 +13,9 @@ import { parseArgs } from 'node:util';
 const FULL = /^[0-9a-f]{40}$/;
 const short = (id) => String(id).slice(0, 7);
 
-// Pure: findings for a manifest against the live commits and two git predicates.
-export function check(manifest, { liveIds, isAncestor, existsAt, target }) {
+// Pure: findings for a manifest against the live commits and the git predicates. pathsOf(commit) lists
+// the paths a live commit added or changed, so an entry cannot drop one of them unnoticed.
+export function check(manifest, { liveIds, isAncestor, existsAt, target, pathsOf }) {
   const findings = [];
   const byId = new Map();
   for (const e of manifest.entries ?? []) {
@@ -30,6 +31,7 @@ export function check(manifest, { liveIds, isAncestor, existsAt, target }) {
   const moved = new Map((manifest.pathMap ?? []).map((m) => [m.old, m.v0]));
   for (const e of byId.values()) {
     if (!e.owner?.length) findings.push(short(e.commit) + ' names no owner doc');
+    for (const p of pathsOf?.(e.commit) ?? []) if (!(e.paths ?? []).includes(p)) findings.push(short(e.commit) + ' changed ' + p + ', which its entry does not list');
     if (!FULL.test(e.ownerCommit ?? '')) {
       findings.push(short(e.commit) + ' has no owner commit');
       continue;
@@ -67,7 +69,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   const liveIds = git(a.repo, 'rev-list', '--reverse', manifest.base + '..' + a.old).split(/\s+/).filter(Boolean);
   const isAncestor = (x, y) => spawnSync('git', ['-C', a.v0, 'merge-base', '--is-ancestor', x, y]).status === 0;
   const existsAt = (at, p) => spawnSync('git', ['-C', a.v0, 'cat-file', '-e', at + ':' + p]).status === 0;
-  const findings = check(manifest, { liveIds, isAncestor, existsAt, target });
+  // Deleted paths are left out: v0 carries nothing a live commit removed.
+  const pathsOf = (id) => git(a.repo, 'diff-tree', '--no-commit-id', '--name-only', '-r', '--diff-filter=d', id).split(/\r?\n/).filter(Boolean);
+  const findings = check(manifest, { liveIds, isAncestor, existsAt, target, pathsOf });
   for (const f of findings) console.log(f);
   console.log('verify-live-commits: ' + liveIds.length + ' live commits, ' + manifest.entries.length + ' entries, ' + findings.length + ' finding(s)');
   process.exit(findings.length ? 1 : 0);

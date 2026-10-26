@@ -49,6 +49,12 @@ test('fill sets the owner commit only where the last owner doc matches and none 
   assert.throws(() => fill(manifest, '010', '2222222'), RangeError);
 });
 
+test('an entry that leaves out a path its commit changed fails, whatever the rest of the entry says', () => {
+  const pathsOf = (c) => (c === A ? ['src/x.mjs', 'src/y.mjs'] : ['src/x.mjs']);
+  assert.deepEqual(run({ ...base, entries: [entry(A, { paths: [] }), entry(B)] }, { pathsOf }), [A.slice(0, 7) + ' changed src/x.mjs, which its entry does not list', A.slice(0, 7) + ' changed src/y.mjs, which its entry does not list']);
+  assert.deepEqual(run({ ...base, entries: [entry(A, { paths: ['src/x.mjs', 'src/y.mjs'] }), entry(B)] }, { pathsOf }), []);
+});
+
 test('an absolute --manifest path is read where it is, not under --v0', () => {
   const file = join(tempDir('fsw-live-'), 'manifest.json');
   writeFileSync(file, JSON.stringify({ ...base, entries: [entry(A, { ownerCommit: null })] }));

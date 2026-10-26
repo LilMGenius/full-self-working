@@ -66,6 +66,7 @@ function pageRequestDetail(id) {
   return {
     url: location.href,
     service: card?.__vue__?.$props?.request?.serviceInfo?.service?.name ?? null,
+    quoteCount: card?.__vue__?.$props?.request?.quoteCount ?? null,
     // The line soomgo shows instead of taking a quote on a request that already has its quota of quotes.
     full: document.body.innerText.match(/이미 \d+개 이상 견적을 받은 요청입니다\.?/)?.[0] ?? null,
     pairs: spans.map((s) => s.innerText),

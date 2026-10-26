@@ -112,7 +112,7 @@ test('sense maps soomgo chats and requests and kmong inbox rows to Inbound, open
   const soomgo = await openSurface('soomgo', { replay: fixture('soomgo') });
   const rows = await soomgo.sense();
   assert.deepEqual(rows.map((r) => [r.kind, r.ref, r.unread]), [['message', '501', true], ['message', '502', false], ['request', 'r-9002', true]]);
-  assert.deepEqual(Object.keys(rows[0]).sort(), ['at', 'customer', 'expiresAt', 'hired', 'kind', 'notice', 'platform', 'preview', 'quotable', 'quote', 'quoteCostKRW', 'ref', 'requestId', 'service', 'status', 'unread']);
+  assert.deepEqual(Object.keys(rows[0]).sort(), ['at', 'customer', 'expiresAt', 'hired', 'kind', 'notice', 'platform', 'preview', 'quotable', 'quote', 'quoteCostKRW', 'quoteCount', 'ref', 'requestId', 'service', 'status', 'unread']);
   assert.equal(rows[0].at, '2026-10-25T10:12:00.000+09:00');
   assert.deepEqual(rows[0].quote, { priceKRW: 300000, unit: 'total', opened: true });
   assert.match(rows[1].notice, /결제한 금액/);

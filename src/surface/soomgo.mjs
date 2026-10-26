@@ -5,7 +5,7 @@ import { AdapterRefusal } from '../platforms/kit.mjs';
 import { REQUEST_FULL, openSoomgo } from '../platforms/soomgo/adapter.mjs';
 import { authorizedSend, messageOf, readKind, receiptOf, unauthorized } from './shared.mjs';
 
-const base = { platform: 'soomgo', notice: null, status: null, hired: null, quotable: null, expiresAt: null, quoteCostKRW: null, requestId: null, quote: null };
+const base = { platform: 'soomgo', notice: null, status: null, hired: null, quotable: null, expiresAt: null, quoteCostKRW: null, requestId: null, quote: null, quoteCount: null };
 
 export const inboundOfChat = (c) => ({
   ...base, ref: String(c.id), kind: 'message', at: c.at ?? null, unread: c.unread === true, service: c.service ?? null, preview: c.preview ?? null,
@@ -14,7 +14,7 @@ export const inboundOfChat = (c) => ({
 
 export const inboundOfRequest = (r) => ({
   ...base, ref: String(r.id), kind: 'request', at: r.at ?? null, unread: r.unread === true, service: r.service ?? null, preview: r.preview ?? null,
-  quotable: r.quotable !== false, expiresAt: r.expiresAt ?? null, customer: r.customer ?? null,
+  quotable: r.quotable !== false, expiresAt: r.expiresAt ?? null, customer: r.customer ?? null, quoteCount: r.quoteCount ?? null,
 });
 
 export const threadOfChat = (t) => ({
@@ -23,7 +23,7 @@ export const threadOfChat = (t) => ({
 });
 
 export const threadOfRequest = (d) => ({
-  platform: 'soomgo', ref: String(d.id), kind: 'request', stage: 'pre_order', customer: null, title: d.service ?? null, language: null, quoteCostKRW: d.quoteCostKRW ?? null, budget: d.budget ?? null,
+  platform: 'soomgo', ref: String(d.id), kind: 'request', stage: 'pre_order', customer: null, title: d.service ?? null, language: null, quoteCostKRW: d.quoteCostKRW ?? null, budget: d.budget ?? null, quoteCount: d.quoteCount ?? null,
   messages: [{ direction: 'in', text: [d.service, ...(d.answers ?? []).map((x) => (x.q ? x.q + ': ' : '') + x.a)].filter(Boolean).join('\n'), at: null, externalId: 'request' }],
   notices: [],
 });

@@ -26,13 +26,16 @@ export function armWeight(allocation, platform, service) {
   return allocation.weights.find((w) => w.platform === platform && w.service === service)?.weight ?? 0;
 }
 
-// A request's weight is the best weight among the catalog services its platform label allows; a request
-// with no label or no allocation sorts as neutral, after weighted ones and before known zeros.
+// A request's weight is the best weight among the catalog services its platform label allows, times the
+// share of the customer's choice a new quote can expect among the quotes the request already has
+// (1 / (quotes + 1), every quote equally likely to win); a request with no label or no allocation sorts as
+// neutral, after weighted ones and before known zeros.
 export function itemWeight(item, { allocation, descriptor }) {
   if (!allocation) return null;
   const services = item.service ? catalogServicesFor(descriptor, item.service) : undefined;
   if (!services?.length) return null;
-  return Math.max(...services.map((s) => armWeight(allocation, descriptor.id, s)));
+  const share = Number.isInteger(item.quoteCount) && item.quoteCount >= 0 ? 1 / (item.quoteCount + 1) : 1;
+  return Math.max(...services.map((s) => armWeight(allocation, descriptor.id, s))) * share;
 }
 
 // Stable order: messages first in list order, then requests by weight (neutral after weighted, zero

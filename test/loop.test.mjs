@@ -247,6 +247,22 @@ test('a soomgo buyer request decided unsupported plans no outbox row; the same d
   assert.equal(c.ledger.listOutbox()[0].status, 'awaiting_operator');
 });
 
+
+test('a soomgo request at the most quotes it takes parks before the model, from its list row or from its page', async () => {
+  const s = setup();
+  const req = (quoteCount) => inbound('soomgo', 'r1', { kind: 'request', service: '웹 개발', quotable: true, quoteCostKRW: 990, quoteCount });
+  const page = (quoteCount) => (ref) => ({ ...chat('soomgo', ref, '웹 개발\n회사 소개 랜딩 페이지가 필요합니다.'), kind: 'request', quoteCostKRW: 990, quoteCount });
+  const codex = codexWith(decision({ intent: 'quote_request' }));
+  const surface = scriptedSurface({ sense: [req(3)], threads: page(10) });
+  const r = await s.run('soomgo', surface, { runCodex: codex });
+  assert.deepEqual([codex.calls, r.threads.parked, s.ledger.listOutbox().length], [0, 1, 0]);
+  assert.equal(s.events('thread.skipped').at(-1).reason, 'expired: the request already has 10 quotes and soomgo takes 10');
+  const t = setup();
+  const listed = scriptedSurface({ sense: [req(12)], threads: page(12) });
+  await t.run('soomgo', listed, { runCodex: codex });
+  assert.deepEqual([reads(listed).length, codex.calls], [0, 0]);
+});
+
 test('a buyer request is left unread with no model call while the day budget is spent, and read on the next day', async () => {
   const s = setup();
   const r0 = s.ledger.upsertThread({ platform: 'soomgo', externalId: 'old', kind: 'request' });

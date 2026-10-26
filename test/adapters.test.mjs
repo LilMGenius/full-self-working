@@ -8,7 +8,7 @@ import * as kmong from '../src/platforms/kmong/parse.mjs';
 import * as soomgo from '../src/platforms/soomgo/parse.mjs';
 import { openKmongConversation as openKmong } from '../src/platforms/kmong/conversation.mjs';
 import { openSoomgo } from '../src/platforms/soomgo/adapter.mjs';
-import { openSoomgoSurface } from '../src/surface/soomgo.mjs';
+import { inboundOfRequest, openSoomgoSurface, threadOfRequest } from '../src/surface/soomgo.mjs';
 import { tempDir } from './tmp.mjs';
 
 // A stand-in driver session: page extractors are answered by function name, and every action is logged
@@ -237,6 +237,14 @@ test('soomgo request detail pairs questions with answers and reads the cash cost
   assert.equal(d.quoteCostKRW, 2490);
   assert.equal(d.quoteForm.sendButton, true);
   assert.equal(soomgo.parseRequestDetail({ id: 'x', form: {} }).quoteCostKRW, null);
+});
+
+
+test('soomgo request list rows and the request page carry how many quotes a request already has', () => {
+  assert.equal(soomgo.parseRequestDetail({ id: 'x', quoteCount: 11, form: {} }).quoteCount, 11);
+  assert.equal(soomgo.parseRequestDetail({ id: 'x', form: {} }).quoteCount, null);
+  assert.equal(inboundOfRequest({ id: 'r', quoteCount: 7 }).quoteCount, 7);
+  assert.equal(threadOfRequest({ id: 'x', quoteCount: 11, answers: [] }).quoteCount, 11);
 });
 
 test('soomgo chats: unread from new_message_count, quotes and system rows flagged', () => {

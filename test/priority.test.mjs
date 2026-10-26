@@ -44,6 +44,16 @@ test('without an allocation the list order stands', () => {
   assert.deepEqual(prioritize(items, { allocation: null, descriptor: soomgo }).map((i) => i.id), ['c', 'a', 'b']);
 });
 
+
+test('the quotes a request already has divide its weight by the share of the choice a new quote can expect', () => {
+  const items = [
+    { id: 'r-ai-crowded', kind: 'request', service: '챗봇 개발', quoteCount: 9 },
+    { id: 'r-logo-fresh', kind: 'request', service: '로고 디자인', quoteCount: 0 },
+    { id: 'r-ai-one', kind: 'request', service: '챗봇 개발', quoteCount: 1 },
+  ];
+  assert.deepEqual(prioritize(items, { allocation, descriptor: soomgo }).map((i) => i.id), ['r-ai-one', 'r-logo-fresh', 'r-ai-crowded']);
+});
+
 test('the supervisor opens the highest-weight requests first when the per-tick cap binds', async () => {
   const { runTick, MAX_THREADS_PER_PLATFORM } = await import('../src/supervisor/run.mjs');
   const { exampleDir, loadInstance } = await import('../src/core/instance.mjs');

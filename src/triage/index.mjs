@@ -51,6 +51,15 @@ export function skipReason(inbound, now, settings) {
   return ageHours > windowHours ? 'stale: newest message is ' + Math.round(ageHours) + ' hours old, window ' + windowHours : null;
 }
 
+// A request that already holds the most quotes its platform takes (descriptor bidCost.maxPerRequest; soomgo
+// refused an eleventh with a notice and no charge on 2026-10-26) can take no quote from us, so it parks as
+// expired, read from the list row or, after a read, from the request page.
+export function fullReason(item, descriptor) {
+  const max = descriptor?.bidCost?.maxPerRequest;
+  if (item.kind !== 'request' || !Number.isInteger(max) || !Number.isInteger(item.quoteCount) || item.quoteCount < max) return null;
+  return 'expired: the request already has ' + item.quoteCount + ' quotes and ' + descriptor.id + ' takes ' + max;
+}
+
 export function triage(inbound, ledgerRow, { mode, now, settings, descriptor, openOutbox = [], parkKey = null }) {
   if (!needsWork(inbound, ledgerRow, parkKey, mode)) return { action: 'wait', reason: 'unchanged' };
   const holding = openOutbox.find((r) => HOLDING_KINDS.includes(r.kind) && HOLDING_STATUSES.includes(r.status));
@@ -60,6 +69,8 @@ export function triage(inbound, ledgerRow, { mode, now, settings, descriptor, op
   if (mode !== 'observe') {
     const skip = skipReason(inbound, now, settings);
     if (skip) return { action: 'park', reason: skip };
+    const full = fullReason(inbound, descriptor);
+    if (full) return { action: 'park', reason: full };
     const labelled = catalogServicesFor(descriptor, inbound.service);
     if (labelled?.length === 0) return { action: 'park', reason: 'catalog: service ' + inbound.service + ' is not in the catalog' };
     // A labelled item in a service this instance does not answer on the platform (config

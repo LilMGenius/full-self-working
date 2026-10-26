@@ -59,6 +59,9 @@ export function validateDescriptor(d, id = d?.id) {
   if (engine !== undefined && !MARKET_ENGINES.includes(engine)) throw invalid(id, 'market.engine', 'unexpected value ' + JSON.stringify(engine));
   const perRun = d.market?.categoriesPerRun;
   if (perRun !== undefined && !(Number.isInteger(perRun) && perRun > 0)) throw invalid(id, 'market.categoriesPerRun', 'unexpected value ' + JSON.stringify(perRun));
+  // The most quotes one request takes; a request at it parks before any read or model call (src/triage).
+  const perRequest = d.bidCost.maxPerRequest;
+  if (perRequest !== undefined && !(Number.isInteger(perRequest) && perRequest > 0)) throw invalid(id, 'bidCost.maxPerRequest', 'unexpected value ' + JSON.stringify(perRequest));
   const cadence = d.market?.cadence;
   if (cadence !== undefined && !MARKET_CADENCES.includes(cadence)) throw invalid(id, 'market.cadence', 'unexpected value ' + JSON.stringify(cadence));
   // identity "forbidden" makes the gate block the operator's names (src/policy/gate.mjs identityNames).

@@ -10,7 +10,7 @@ import { notifyOperator } from '../core/notify.mjs';
 import { chromeName, pipelineSettings } from '../core/settings.mjs';
 import { loadDescriptor } from '../platforms/registry.mjs';
 import { openSurface as defaultOpenSurface } from '../surface/index.mjs';
-import { parkEvent, triage } from '../triage/index.mjs';
+import { fullReason, parkEvent, triage } from '../triage/index.mjs';
 import { decide as defaultDecide, loadGateRules, pendingInbound } from '../brain/respond.mjs';
 import { authorize, budgetSpent, operatingMode, spendsCash } from '../policy/authorize.mjs';
 import { drain, plan, signalOf } from '../outbox/index.mjs';
@@ -180,6 +180,14 @@ export async function step(platform, ctx) {
           event('thread.observed', ref, { unread: false, messages: (thread.messages ?? []).length });
           ledger.upsertThread({ platform, externalId: ref, kind: ib.kind ?? 'message', meta: { ...(ledger.getThread(row.id).meta ?? {}), settled: settled('observe') } });
           bump('threads', 'observed');
+          continue;
+        }
+        // The request page can count more quotes than the list row did; a full request parks before the model.
+        const full = fullReason({ kind: ib.kind, quoteCount: thread.quoteCount ?? ib.quoteCount }, descriptor);
+        if (full) {
+          ledger.upsertThread({ platform, externalId: ref, kind: ib.kind ?? 'message', meta: { ...(ledger.getThread(row.id).meta ?? {}), skipped: { at: ib.at ?? null, reason: full, key } } });
+          event(parkEvent(full), ref, { reason: full, service: ib.service ?? null });
+          bump('threads', 'parked');
           continue;
         }
         const stage = stageOf({ page: thread.stage ?? ib.stage, kind: ib.kind }, ledger, platform, row.id);

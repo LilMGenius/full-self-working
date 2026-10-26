@@ -51,7 +51,7 @@ export function budgetFromAnswers(answers) {
 }
 
 // The request detail: questionnaire label/value pairs, customer block lines and the quote form.
-export function parseRequestDetail({ id, url, pairs = [], customerText = '', service = null, form = {} }) {
+export function parseRequestDetail({ id, url, pairs = [], customerText = '', service = null, quoteCount = null, form = {} }) {
   const answers = [];
   for (let i = 0; i + 1 < pairs.length; i += 2) answers.push({ q: squash(pairs[i]), a: redactDigits(squash(pairs[i + 1])) });
   const cl = lines(customerText);
@@ -62,6 +62,7 @@ export function parseRequestDetail({ id, url, pairs = [], customerText = '', ser
     id: String(id),
     url,
     service,
+    quoteCount: Number.isInteger(quoteCount) ? quoteCount : null,
     answers,
     budget: budgetFromAnswers(answers),
     customer: { joined, uses: used ? toInt(used.match(/(\d+)회/)[1]) : null },

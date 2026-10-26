@@ -45,6 +45,15 @@ test('an expired request parks without opening', () => {
   assert.equal(triage({ kind: 'request', ref: 'r3', unread: true, at: hoursAgo(1), expiresAt: hoursAgo(0.5) }, null, ctx()).reason, 'expired');
 });
 
+
+test('a request that already has the most quotes its platform takes parks as expired before anything opens', () => {
+  const req = (quoteCount) => ({ kind: 'request', ref: 'r4', unread: true, at: hoursAgo(1), service: '웹 개발', quoteCount });
+  const t = triage(req(10), null, ctx());
+  assert.deepEqual(t, { action: 'park', reason: 'expired: the request already has 10 quotes and soomgo takes 10' });
+  assert.equal(parkEvent(t.reason), 'thread.skipped');
+  assert.deepEqual([triage(req(9), null, ctx()).action, triage(req(null), null, ctx()).action], ['open', 'open']);
+});
+
 test('an unread notice parks once and returns only with a newer message', () => {
   const c = ctx();
   const ib = { kind: 'message', ref: 'c1', unread: true, at: hoursAgo(1), preview: '고객님이 견적을 조회하였습니다' };

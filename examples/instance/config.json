@@ -1,6 +1,7 @@
 {
   "timezone": "Asia/Seoul",
   "browser": {"instance": null, "chromeProfile": null},
+  "logins": null,
   "activeHours": {
     "outbound": [
       "08:00",

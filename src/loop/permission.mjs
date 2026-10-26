@@ -22,8 +22,9 @@ const NEGATION = /않|못|말아|말고|마세요|마시고|마십시오|싫|아
 // the work out, cover it or set a condition; timing words put the posting off. Timing words also close a
 // few common sign-offs, and only the shapes named in SIGNOFF are taken out of a sentence before it is read.
 const SCOPE = /빼고|빼서|빼주|빼\s+주|제외|만\s*올려|가려|가리|모자이크|\b(?:except|without|blur|hide|only if|as long as)\b/iu;
-const TIMING = /후에|이후|다음에|나서|까지|기다려|\b(?:after|once|until|wait)/iu;
-const SIGNOFF = /(?:다음에|이후로)도?\s*(?:또\s*|계속\s*)?잘\s*부탁|\bonce\s+again\b|후에\s*연락/giu;
+const TIMING = /후에|이후|다음에|나서|까지|기다려|\b(?:after|once|until|wait)\b/iu;
+// Thank-you and sign-off lines that carry a timing word (or, for can't wait, a negation) and set no condition.
+const SIGNOFF = /(?:다음에|이후로)도?\s*(?:또\s*|계속\s*)?잘\s*부탁|다음에\s*또|(?:지금|끝)까지|기다려\s*주셔서|보고\s*나서|\bonce\s+again\b|\bcan'?t\s+wait\b|후에\s*연락/giu;
 const conditional = (u) => SCOPE.test(u) || TIMING.test(u.replace(SIGNOFF, ' '));
 // A Korean question often drops its question mark: a sentence ending in 나요, 가요, 까요 or a 지요 after a
 // syllable closed by ㄴ (는지요, 인지요, 한지요) asks rather than answers.
@@ -75,7 +76,7 @@ export function permissionSignal({ thread, jobs, decision, at = new Date().toISO
   // every later one. Each sentence counts, the quoted ones included.
   const pos = inbound.indexOf(fresh[i]);
   const around = [...(pos > 0 ? [inbound[pos - 1]] : []), ...fresh.slice(i)];
-  if (around.some((m) => NEGATION.test(msgText(m)))) return none('grant quoted from a message that says no, or followed by one');
+  if (around.some((m) => NEGATION.test(msgText(m).replace(SIGNOFF, ' ')))) return none('grant quoted from a message that says no, or followed by one');
   if (around.some((m) => sentencesOf(msgText(m)).some(conditional))) return none('grant with a condition, for the operator to scope');
   return { signals: [signal('permission_granted', job, { quote: norm(decision.permissionQuote), quoteAt: fresh[i].at })], reason: null, jobId: job.id };
 }

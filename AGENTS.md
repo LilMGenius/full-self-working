@@ -29,6 +29,7 @@ docs/DESIGN.md holds the module map and the contracts between modules.
 - A platform timestamp without a zone is read in the zone the page's own relative time confirms, checked live before its parser ships; soomgo request times are Seoul time although nothing in them says so.
 - A portfolio item is public only after its payment is recorded and the client allowed portfolio use.
 - Customer-facing copy passes the slop gate: no em dashes, no middle-dot enumerations, no invented metrics, no claims the instance profile cannot back.
+- Module boundaries live in `scripts/check-imports.mjs`, part of `npm run check`: it fails a forbidden import between modules, a module with no row and a file-level import cycle, and a change that adds a module adds its row there and in docs/DESIGN.md.
 - Schedules start on round Seoul marks; each cron carries its Seoul time and reason.
-- Commands: `npm test`, `npm run check` (tests, privacy scan, slop lint on examples, descriptor validation, example keys).
+- Commands: `npm test`, `npm run check` (tests, privacy scan, slop lint on examples, descriptor validation, example keys, module boundaries).
 - Commits are English: `type(scope): problem` in at most 72 characters and a body of single-line `-` bullets. `hooks/commit-msg` checks every commit and `.github/workflows/commits.yml` every push, both copies of the vibeghost floor.

@@ -13,6 +13,12 @@ import { pageLogin, pageLoginForm, pageInboxRows, pageSelectTab, pageOpenRow, pa
 const BASE = 'https://kmong.com';
 const INBOX = `${BASE}/inboxes?inbox_group_id=&partner_id=`;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+// The dashboard renders its header in parts, and under load the profile link can show before the avatar
+// and the auth section do (2026-10-26 14:51Z read signed out with the nickname already on the page). login()
+// reads it again until it shows the signed-in markers or the 로그인 control, at most this many times.
+export const LOGIN_SETTLE_READS = 10;
+export const LOGIN_SETTLE_MS = 2000;
+const signedInMarkers = (p) => p.avatar && p.authSection && !p.loginButton;
 
 export async function openKmongConversation({ session, sleep = wait } = {}) {
   const s = session ?? (await openSession('kmong', { platform: 'kmong', pacing: loadDescriptor('kmong').pacing }));
@@ -44,15 +50,21 @@ export async function openKmongConversation({ session, sleep = wait } = {}) {
 
     async login() {
       await s.navigate(`${BASE}/seller/dashboard`);
-      const p = await s.evaluate(pageLogin);
+      let p = await s.evaluate(pageLogin);
+      for (let i = 1; i < LOGIN_SETTLE_READS && !signedInMarkers(p) && !p.loginButton; i++) {
+        await sleep(LOGIN_SETTLE_MS);
+        p = await s.evaluate(pageLogin);
+      }
       const nickname = p.profileHref ? decodeURIComponent(p.profileHref.slice(2)) : null;
-      return { loggedIn: p.avatar && p.authSection && !p.loginButton, sellerMode: p.sellerMode, nickname, url: p.url };
+      return { loggedIn: signedInMarkers(p), sellerMode: p.sellerMode, nickname, url: p.url };
     },
 
-    // Signs in through the email login; the values go only into the form and never into a return value.
+    // Signs in through the email login; the values go only into the form and never into a return value. A
+    // page without the form is read again as the dashboard, since a signed-in account gets no login modal:
+    // when it shows signed in, nothing was typed and alreadySignedIn says so.
     async signIn({ email, password }) {
       await s.navigate(`${BASE}/?open=login_modal&next_page=%2Fseller%2Fdashboard`);
-      if (!(await s.evaluate(pageLoginForm)).found) return { signedIn: false, reason: 'the login form was not found' };
+      if (!(await s.evaluate(pageLoginForm)).found) return (await adapter.login()).loggedIn ? { signedIn: true, alreadySignedIn: true } : { signedIn: false, reason: 'the login form was not found' };
       await s.fill('[data-fsw=login-email]', email);
       await s.fill('[data-fsw=login-password]', password);
       await s.click('[data-fsw=login-submit]');

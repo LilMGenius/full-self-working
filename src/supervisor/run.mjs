@@ -38,6 +38,10 @@ export { MAX_THREADS_PER_PLATFORM } from '../loop/index.mjs';
 // The attempt is recorded whether signIn returns or throws, since a throw after the form was sent (a
 // click or tool timeout) has already submitted the password; any text the page or tool returns has the
 // password cut out before it is stored or thrown on.
+// A sign-in that found the account already signed in (alreadySignedIn: the first read was a page still
+// rendering, as on 2026-10-26 14:50Z) typed nothing, so it is recorded as platform.login_reread and does
+// not hold the next real sign-in for an hour; one that found no form and still signed out counts, since
+// a page asking for a human check shows no form either.
 export const SIGN_IN_GAP_MS = 60 * 60_000;
 
 export async function signInAgain({ id, surface, instance, ledger, now }) {
@@ -56,6 +60,10 @@ export async function signInAgain({ id, surface, instance, ledger, now }) {
     const message = scrub(err.message);
     ledger.addEvent({ at: now.toISOString(), kind: 'platform.sign_in', platform: id, payload: { ok: false, code: err.code ?? null, reason: message } });
     throw Object.assign(new Error(message), { code: err.code ?? null });
+  }
+  if (r?.signedIn === true && r.alreadySignedIn === true) {
+    ledger.addEvent({ at: now.toISOString(), kind: 'platform.login_reread', platform: id, payload: { ok: true, reason: 'signed in already; nothing was typed' } });
+    return surface.login();
   }
   ledger.addEvent({ at: now.toISOString(), kind: 'platform.sign_in', platform: id, payload: { ok: r?.signedIn === true, reason: scrub(r?.reason) } });
   return r?.signedIn === true ? surface.login() : null;

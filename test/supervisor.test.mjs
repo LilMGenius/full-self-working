@@ -302,6 +302,34 @@ test('a signed-out platform is signed in again from the logins file at most once
   assert.equal(events.some((e) => String(e.payload ?? '').includes('not-a-real-password')), false);
 });
 
+// 크몽 at 14:50Z on 2026-10-26: the dashboard read signed out while it rendered, the sign-in found no form
+// because the account was signed in, and the attempt held every real sign-in for an hour.
+test('a sign-in that finds the account signed in already is no attempt and does not hold a real one for the hour', async () => {
+  const instance = makeInstance({ kmong: { enabled: true, mode: 'auto' } });
+  const file = join(tempDir('fsw-logins-'), 'logins.json');
+  writeFileSync(file, JSON.stringify({ kmong: { method: 'email', email: 'seller@example.invalid', password: 'not-a-real-password' } }));
+  instance.config.logins = file;
+  const ledger = openLedger(':memory:');
+  const reads = [false, true, false];
+  let typed = 0;
+  const surface = {
+    login: async () => ({ loggedIn: reads.length ? reads.shift() : false }),
+    signIn: async () => (typed ? { signedIn: false, reason: 'still signed out after the form was sent' } : ((typed = 1), { signedIn: true, alreadySignedIn: true })),
+    sense: async () => [],
+    stop: async () => {},
+  };
+  const calls = [];
+  const spy = { ...surface, signIn: async (l) => (calls.push(l.email), surface.signIn(l)) };
+  const state = { lastRuns: {} };
+  const tick = async (min) => (await runTick({ instance, ledger, now: new Date(Date.parse('2026-10-26T14:50:00Z') + min * 60_000), state, only: ['poll'], openSurface: async () => spy, notify: quiet, persist: false })).jobs[0].platforms[0];
+  const first = await tick(0);
+  assert.deepEqual([first.status, first.login.loggedIn], ['ok', true]);
+  const second = await tick(5);
+  assert.deepEqual([second.status, calls.length], ['failed', 2]);
+  const kinds = ledger.db.prepare("SELECT kind, payload FROM events WHERE kind LIKE 'platform.%' ORDER BY id").all().map((e) => [e.kind, JSON.parse(e.payload).ok]);
+  assert.deepEqual(kinds, [['platform.login_reread', true], ['platform.sign_in', false]]);
+});
+
 test('a sign-in that throws after the form went out counts against the hour, and its error never carries the password', async () => {
   const instance = makeInstance({ kmong: { enabled: true, mode: 'auto' } });
   const file = join(tempDir('fsw-logins-'), 'logins.json');

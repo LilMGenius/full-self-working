@@ -305,9 +305,42 @@ test('kmong signIn fills the email login and reports the dashboard check, and re
   const k = await openKmong({ session: s, sleep: async () => {} });
   assert.deepEqual(await k.signIn({ email: 'seller@example.invalid', password: 'not-a-real-password' }), { signedIn: true });
   assert.deepEqual(acted(s.log), ['fill [data-fsw=login-email]', 'fill [data-fsw=login-password]', 'click [data-fsw=login-submit]']);
-  const none = fakeSession({ pageLoginForm: { found: false } });
+  const none = fakeSession({ pageLoginForm: { found: false }, pageLogin: { url: 'u', avatar: false, authSection: false, loginButton: true, sellerMode: null, profileHref: null } });
   const r = await (await openKmong({ session: none, sleep: async () => {} })).signIn({ email: 'seller@example.invalid', password: 'not-a-real-password' });
-  assert.deepEqual([r.signedIn, acted(none.log)], [false, []]);
+  assert.deepEqual([r, acted(none.log)], [{ signedIn: false, reason: 'the login form was not found' }, []]);
+});
+
+// The dashboard as it rendered at 2026-10-26 14:51Z: the profile link before the avatar and auth section.
+const KMONG_DASH = { url: 'https://kmong.com/seller/dashboard', sellerMode: true, profileHref: '/@seller' };
+const kmongRendering = { ...KMONG_DASH, avatar: false, authSection: false, loginButton: false };
+const kmongSignedIn = { ...KMONG_DASH, avatar: true, authSection: true, loginButton: false };
+const kmongSignedOut = { ...KMONG_DASH, avatar: false, authSection: false, loginButton: true, profileHref: null };
+
+test('kmong login reads a dashboard still rendering again until it shows signed in or the login control, within a bound', async () => {
+  const pages = (list) => {
+    const s = fakeSession({ pageLogin: () => list.shift() ?? list.at(-1) ?? kmongRendering });
+    return s;
+  };
+  const slept = [];
+  const sleep = async (ms) => slept.push(ms);
+  const late = pages([kmongRendering, kmongRendering, kmongSignedIn]);
+  assert.deepEqual(await (await openKmong({ session: late, sleep })).login(), { loggedIn: true, sellerMode: true, nickname: 'seller', url: KMONG_DASH.url });
+  assert.equal(late.log.filter((l) => l === 'evaluate pageLogin').length, 3);
+  const out = pages([kmongSignedOut]);
+  assert.equal((await (await openKmong({ session: out, sleep })).login()).loggedIn, false);
+  assert.equal(out.log.filter((l) => l === 'evaluate pageLogin').length, 1);
+  const stuck = fakeSession({ pageLogin: kmongRendering });
+  slept.length = 0;
+  assert.equal((await (await openKmong({ session: stuck, sleep })).login()).loggedIn, false);
+  assert.equal(stuck.log.filter((l) => l === 'evaluate pageLogin').length, 10);
+  assert.equal(slept.length, 9);
+});
+
+test('kmong signIn with no login form reports signed in, typing nothing, when the dashboard shows the account signed in', async () => {
+  const s = fakeSession({ pageLoginForm: { found: false }, pageLogin: (() => { const list = [kmongRendering, kmongSignedIn]; return () => list.shift() ?? kmongSignedIn; })() });
+  const r = await (await openKmong({ session: s, sleep: async () => {} })).signIn({ email: 'seller@example.invalid', password: 'not-a-real-password' });
+  assert.deepEqual([r, acted(s.log)], [{ signedIn: true, alreadySignedIn: true }, []]);
+  assert.equal(JSON.stringify(r).includes('not-a-real-password'), false);
 });
 
 test('kmong readThread refuses an unread thread unless the caller will reply, before opening it', async () => {

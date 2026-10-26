@@ -189,6 +189,8 @@ function settleOrWrite(ledger, { platform, job, signal, key }) {
 }
 
 function moneyKey(ledger, signal, thread, live) {
+  // Parsed evidence (an order row, a review row) names its own key; a notice is keyed by its minute.
+  if (typeof signal.evidence?.key === 'string' && signal.evidence.key) return signal.evidence.key + (live ? '' : ':history');
   const base = signal.platform + ':' + thread.externalId + ':';
   if (signal.type === 'hired') return base + 'hired#' + ledger.listMoneyEvents({ threadId: thread.id, event: 'hire_cancelled' }).length + (live ? '' : ':history');
   if (signal.type === 'hire_cancelled') return base + 'hire_cancelled#' + ledger.listMoneyEvents({ threadId: thread.id, event: 'hired' }).length;

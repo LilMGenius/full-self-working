@@ -176,6 +176,20 @@ test('revision round 1 reopens with start_run and a case; a duplicate changes no
   assert.deepEqual([extra.transitions, effectTypes(extra)], [[], ['record_case:revision_request', 'notify']]);
 });
 
+test('a parsed review read on two ticks is one review, keyed by its evidence key; an operator entry keeps the minute key', () => {
+  const s = setup();
+  delivered(s);
+  const parsed = (hm) => s.step({ type: 'review', platform: 'soomgo', jobId: 'soomgo-c1', at: at(hm), evidence: { key: 'soomgo:review:r1', rating: 5, text: '좋았어요', liked: null, source: 'review-row' } });
+  assert.deepEqual(effectTypes(parsed('14:00')), ['sync_portfolio', 'record_case:review', 'notify']);
+  assert.deepEqual(parsed('14:05').effects, []);
+  const reviews = () => s.ledger.db.prepare("SELECT count(*) AS n FROM reviews WHERE job_id = 'soomgo-c1'").get().n;
+  assert.equal(reviews(), 1);
+  assert.deepEqual(s.ledger.listMoneyEvents({ event: 'review' }).map((e) => e.key), ['soomgo:review:r1']);
+  s.step({ type: 'review', platform: 'soomgo', jobId: 'soomgo-c1', at: at('14:10'), evidence: { source: 'operator', rating: 4, text: 'operator recorded a 4 star review', liked: null } });
+  assert.equal(reviews(), 2);
+  assert.match(s.ledger.listMoneyEvents({ event: 'review' }).at(-1).key, /^soomgo:c1:review:\d{4}-/);
+});
+
 test('permission granted on a delivered job syncs the portfolio; on an ordered job it is refused', () => {
   const s = setup();
   delivered(s);

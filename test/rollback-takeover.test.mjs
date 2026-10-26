@@ -4,10 +4,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { openLedger } from '../src/core/ledger.mjs';
-import { realIo, runRollback, steps } from '../scripts/rollback-takeover.mjs';
+import { realIo, removeLockOf, runRollback, steps } from '../scripts/rollback-takeover.mjs';
 import { tempDir } from './tmp.mjs';
 
 const A = 'a'.repeat(40);
@@ -145,6 +145,7 @@ function recording({ main = B, onMain = true, writebackStatus = 0, updateRefThro
     calls,
     io: {
       taskState: () => taskState,
+      removeLock: (pid) => (calls.push('removeLock ' + pid), true),
       ps: (cmd) => {
         calls.push('ps ' + cmd);
         if (stopThrows && cmd.startsWith('Stop-Process')) throw new Error('access denied');
@@ -236,4 +237,19 @@ test('a start that fails once is retried, and one that fails twice exits 2 with 
   assert.equal(await runRollback(args(), { ...twice.io, log: (m) => said.push(m) }), 2);
   assert.equal(twice.calls.filter((c) => c.startsWith('ps Start-ScheduledTask')).length, 2);
   assert.match(said.at(-1), /no supervisor runs: start the task: The task is disabled \(0x80041326\)/);
+});
+
+test('after Stop-Process the lock file goes only while it still names the stopped pid', async () => {
+  const r = recording();
+  assert.equal(await runRollback(args(), r.io), 0);
+  assert.deepEqual(r.calls.slice(r.calls.indexOf('ps Stop-Process -Id 1 -Force'), r.calls.indexOf('ps Stop-Process -Id 1 -Force') + 2), ['ps Stop-Process -Id 1 -Force', 'removeLock 1']);
+  const instance = tempDir('fsw-rollback-lock-');
+  mkdirSync(join(instance, 'run'));
+  const lock = join(instance, 'run', 'supervisor.pid');
+  writeFileSync(lock, '4242\n2026-10-26T14:00:00.000Z\n');
+  assert.equal(removeLockOf(instance, 777), false);
+  assert.equal(readFileSync(lock, 'utf8'), '4242\n2026-10-26T14:00:00.000Z\n');
+  assert.equal(removeLockOf(instance, 4242), true);
+  assert.equal(existsSync(lock), false);
+  assert.equal(removeLockOf(instance, 4242), false);
 });

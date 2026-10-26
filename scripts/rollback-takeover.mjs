@@ -23,7 +23,7 @@
 // which case nothing was stopped, since a stopped supervisor no task can start stays down.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -35,7 +35,7 @@ const ps = (cmd) => execFileSync('powershell', ['-NoProfile', '-NonInteractive',
 // Pure: the ordered steps, printed in a dry run and run in order under --apply.
 export const steps = ({ repo, code, instance, old, from, task }) => [
   ['stop the task', 'Stop-ScheduledTask -TaskName ' + task + ' (first checks that the task exists and is not Disabled; refuses with nothing stopped otherwise)'],
-  ['stop the lock holder', 'Stop-Process -Id <pid in ' + join(instance, 'run', 'supervisor.pid') + '> -Force'],
+  ['stop the lock holder', 'Stop-Process -Id <pid in ' + join(instance, 'run', 'supervisor.pid') + '> -Force, then remove that lock file while it still names the stopped pid'],
   ['write approval outcomes back', 'node scripts/approvals-writeback.mjs --instance ' + instance + ' --apply'],
   ['leave main in the main checkout', 'git -C ' + repo + ' switch --detach --quiet (only when step 5 runs and symbolic-ref -q HEAD is refs/heads/main)'],
   ['move main back', 'git -C ' + repo + ' update-ref -m rollback refs/heads/main ' + old + ' ' + from + ' (skipped when refs/heads/main already is ' + old + ', so a rerun changes nothing)'],
@@ -46,8 +46,18 @@ export const steps = ({ repo, code, instance, old, from, task }) => [
 ];
 
 // The real side effects; test/rollback-takeover.test.mjs passes its own task controller and clock.
+// Removes <instance>/run/supervisor.pid when its first line still names pid, so a pid Windows hands to
+// another node process cannot make the old acquireLock answer already running. Returns whether it did.
+export function removeLockOf(instance, pid) {
+  const file = join(instance, 'run', 'supervisor.pid');
+  if (!existsSync(file) || Number.parseInt(readFileSync(file, 'utf8'), 10) !== pid) return false;
+  unlinkSync(file);
+  return true;
+}
+
 export const realIo = (a) => ({
   ps,
+  removeLock: (pid) => removeLockOf(a.instance, pid),
   // The task's state, '' when it does not exist.
   taskState: (name) => ps('(Get-ScheduledTask -TaskName ' + "'" + name.replace(/'/g, "''") + "'" + ' -ErrorAction SilentlyContinue).State'),
   git: (args) => execFileSync('git', args, { encoding: 'utf8', windowsHide: true }).trim(),
@@ -99,8 +109,10 @@ export async function runRollback(a, io) {
   let switched = false;
   try {
     oldPid = io.pidNow();
-    if (io.alive(oldPid)) io.ps('Stop-Process -Id ' + oldPid + ' -Force');
-    say('lock holder ' + oldPid + ' stopped');
+    if (io.alive(oldPid)) {
+      io.ps('Stop-Process -Id ' + oldPid + ' -Force');
+      say('lock holder ' + oldPid + ' stopped' + (io.removeLock(oldPid) ? ', its lock file removed' : ''));
+    } else say('lock holder ' + oldPid + ' not running');
     const wb = io.writeback();
     if (wb.stdout) io.log(wb.stdout.trimEnd());
     if (wb.status !== 0) throw new Error('write approval outcomes back: ' + (wb.stderr || 'exit ' + wb.status));

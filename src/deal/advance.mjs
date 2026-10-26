@@ -192,6 +192,9 @@ function moneyKey(ledger, signal, thread, live) {
   // Parsed evidence (an order row, a review row) names its own key; a notice is keyed by its minute.
   if (typeof signal.evidence?.key === 'string' && signal.evidence.key) return signal.evidence.key + (live ? '' : ':history');
   const base = signal.platform + ':' + thread.externalId + ':';
+  // A client leaves one review per job, so the operator's hand entry of it is keyed by the job: entered
+  // again a minute later it is the same review (a correction, see correctReview), never a second one.
+  if (signal.type === 'review' && signal.evidence?.source === 'operator' && signal.jobId) return base + 'review:operator:' + signal.jobId;
   if (signal.type === 'hired') return base + 'hired#' + ledger.listMoneyEvents({ threadId: thread.id, event: 'hire_cancelled' }).length + (live ? '' : ':history');
   if (signal.type === 'hire_cancelled') return base + 'hire_cancelled#' + ledger.listMoneyEvents({ threadId: thread.id, event: 'hired' }).length;
   return base + signal.type + ':' + (minuteKey(signal.at) ?? 'undated');
@@ -260,6 +263,21 @@ function lose(ledger, out, { signal, thread, job, note }) {
   return note + (job ? ', job ' + job.id + (paid ? ' keeps its payments' : ' lost') : '');
 }
 
+// The operator entered the review of a job he already recorded. The same rating, text and liked change
+// nothing. Different ones correct that one row, since a client leaves one review and a second entry is
+// the operator fixing what he typed; keeping both would rank the job on two reviews. The old values stay
+// in the deal.review_corrected event.
+function correctReview(ledger, out, signal, prior) {
+  const ev = signal.evidence;
+  const id = JSON.parse(prior.evidence).reviewId;
+  const row = ledger.jobReviews(prior.jobId).find((r) => r.id === id);
+  const next = { rating: ev.rating ?? null, text: ev.text ?? null, liked: ev.liked ?? null };
+  if (row.rating === next.rating && row.text === next.text && row.liked === next.liked) return;
+  ledger.updateReview(id, next);
+  ledger.addEvent({ kind: 'deal.review_corrected', platform: signal.platform, ref: prior.jobId, payload: { jobId: prior.jobId, reviewId: id, from: { rating: row.rating, text: row.text, liked: row.liked }, to: next } });
+  out.effects.push({ type: 'sync_portfolio' });
+}
+
 function money(ledger, out, signal, thread, { instance, descriptor, now }) {
   const ev = signal.evidence ?? {};
   // A payment request the outbox observed is a fact of fsw's own send, not a platform notice: an event.
@@ -272,10 +290,15 @@ function money(ledger, out, signal, thread, { instance, descriptor, now }) {
   // hire is recorded, it is that hire repeated, never a past hire to record as history.
   if (signal.type === 'hired' && !live && ev.source === 'row-status' && ledger.getMoneyEvent(moneyKey(ledger, signal, thread, true))) return;
   const key = moneyKey(ledger, signal, thread, live);
-  if (ledger.getMoneyEvent(key)) return;
+  const prior = ledger.getMoneyEvent(key);
+  if (prior) {
+    if (signal.type === 'review' && ev.source === 'operator') correctReview(ledger, out, signal, prior);
+    return;
+  }
   let job = findJob(ledger, signal.platform, thread, ev.requestId);
   let applied = false;
   let paymentId = null;
+  let reviewId = null;
   let closes = false;
   let note = live ? null : 'history: older than ' + MONEY_LOOKBACK_DAYS + ' days or a hire fsw never quoted';
   if (live) {
@@ -321,18 +344,23 @@ function money(ledger, out, signal, thread, { instance, descriptor, now }) {
       closes = signal.type !== 'paid';
     } else if (signal.type === 'review') {
       if (job && ['delivered', 'closed'].includes(job.status)) {
-        ledger.addReview({ jobId: job.id, platform: signal.platform, rating: ev.rating ?? null, text: ev.text ?? null, liked: ev.liked ?? null, at: signal.at ?? undefined });
+        reviewId = ledger.addReview({ jobId: job.id, platform: signal.platform, rating: ev.rating ?? null, text: ev.text ?? null, liked: ev.liked ?? null, at: signal.at ?? undefined }).id;
         out.effects.push({ type: 'sync_portfolio' }, caseEffect({ kind: 'review', platform: signal.platform, service: job.service, threadRef: thread.externalId, jobId: job.id, text: String(ev.text ?? 'review'), ...(ev.rating != null ? { rating: ev.rating } : {}) }));
         applied = true;
         note = 'review recorded for job ' + job.id;
-      } else note = 'review without a delivered job; recorded for the operator';
+      } else {
+        note = 'review without a delivered job; recorded for the operator';
+        // The operator's own entry on a job not delivered yet is refused to him (fsw deal exits 1) and keeps
+        // no key, so his entry once the job is delivered is recorded.
+        if (ev.source === 'operator') return void ledger.addEvent({ kind: 'money.review', platform: signal.platform, ref: thread.externalId, payload: { key, applied: false, note, paymentId: null, amountKRW: null } });
+      }
     } else {
       // pay_requested from a notice and pay_cancelled: recorded and reported; a refund after
       // pay_cancelled is not modelled (no observed sample, src/orders/money.mjs:220-222).
       note = signal.type + ' recorded for the operator';
     }
   }
-  ledger.addMoneyEvent({ key, platform: signal.platform, threadId: thread.id, jobId: job?.id ?? null, event: signal.type, amountKRW: signal.amountKRW ?? null, at: signal.at, applied, note, paymentId, evidence: { text: ev.text ?? null, source: ev.source ?? null } });
+  ledger.addMoneyEvent({ key, platform: signal.platform, threadId: thread.id, jobId: job?.id ?? null, event: signal.type, amountKRW: signal.amountKRW ?? null, at: signal.at, applied, note, paymentId, evidence: { text: ev.text ?? null, source: ev.source ?? null, ...(reviewId != null ? { reviewId } : {}) } });
   ledger.addEvent({ kind: 'money.' + signal.type, platform: signal.platform, ref: thread.externalId, payload: { key, applied, note, paymentId, amountKRW: signal.amountKRW ?? null } });
   // A confirmation closes a settled job only once its own link is recorded above, since settled reads the
   // confirmed and remitted links from money_events.

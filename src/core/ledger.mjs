@@ -379,6 +379,10 @@ export function openLedger(path) {
     addPayment,
     jobPayments: (jobId) => list('payments', { jobId }),
     addReview,
+    updateReview: (id, patch) => {
+      update('reviews', id, patch);
+      return get('reviews', id);
+    },
     jobReviews: (jobId) => list('reviews', { jobId }),
     addEvent,
     addMoneyEvent,

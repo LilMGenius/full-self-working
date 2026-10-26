@@ -1,0 +1,116 @@
+{
+  "id": "soomgo",
+  "name": "숨고",
+  "region": "kr",
+  "currency": "KRW",
+  "model": "request_quote",
+  "fees": {
+    "seller": 0,
+    "paymentNetworkRate": 0,
+    "vatOnFees": 0,
+    "buyer": {
+      "rate": 0.035,
+      "notes": "숨고페이 payments only; matching is free"
+    },
+    "notes": "No commission on 숨고페이 deals; the seller pays per quote in 숨고캐시."
+  },
+  "bidCost": {
+    "unit": "숨고캐시 per quote",
+    "notes": "Varies by category, region and request density, shown on the send screen and charged only when sent; exact per-category values unknown. Up to 10 quotes per request. A quote unread after 48 hours is refunded as bonus cash. 자동견적 is free. Request-detail pricing pilot 2026-11-15 to 2026-11-30 in the Seoul metro."
+  },
+  "escrow": true,
+  "milestones": "multi_pay",
+  "splitMechanism": "숨고페이 takes 15,000 to 5,000,000 KRW per payment and up to 50 payments per chat room; from the 5th payment the previous one must be confirmed and 96 hours must have passed. Deposit and balance are separate payments. 숨고페이 is optional.",
+  "contactPolicy": {
+    "preOrder": [],
+    "postOrder": [
+      "email",
+      "url"
+    ],
+    "allowedHosts": [
+      "soomgo.com"
+    ],
+    "notes": "Contact details, SNS, blog or portal-search lures in the profile, quote or nickname are removed at once and three repeats restrict the account. Phone contact goes through 안심번호, valid 7 days from the quote. Phone or account numbers typed in chat are checked against a fraud DB."
+  },
+  "offPlatformPayment": true,
+  "payout": "숨고페이 settlement to a registered bank account whose holder matches the verified name or business; funds released after 거래확정, deposited within 1 hour.",
+  "automation": {
+    "officialAutoReply": "자동견적 and 스마트견적 (matching conditions, daily budget up to 5,000,000 cash, up to 20 campaigns per service).",
+    "forbidden": [
+      "duplicate or mass posting",
+      "requesting quotes as a fake customer",
+      "bug abuse",
+      "multiple accounts",
+      "luring outside customers in for reviews or 숨고페이",
+      "cashing out through refunds",
+      "re-registering after a ban"
+    ],
+    "notes": "No explicit bot or scraping clause was found (unknown). Terms change effective 2026-11-19."
+  },
+  "aiPolicy": "unknown",
+  "taxInvoice": "The seller issues 세금계산서 or 현금영수증 on the settled amount excluding the 숨고페이 fee; 숨고 files 판매대행자료 with the NTS but the seller files VAT and income.",
+  "pacing": {
+    "minGapMs": 8000,
+    "maxActionsPerHour": 60,
+    "maxMessagesPerHour": 20
+  },
+  "limits": {
+    "message": {
+      "maxChars": 1000
+    },
+    "quote": {
+      "maxChars": 1000
+    },
+    "listing": {
+      "maxChars": "unknown"
+    },
+    "profile": {
+      "maxChars": "unknown"
+    }
+  },
+  "limitsNotes": "message is the chat composer textarea maxLength and quote the 견적 설명 textarea maxLength, both 1000, read from the pages on 2026-10-25. Listing and profile caps were not observed.",
+  "rankingSignals": [
+    "matching favors higher activity and response rate",
+    "로켓응답 badge for replies within 10 minutes",
+    "사업자인증 badge",
+    "스마트견적 places the profile at the top of 고수찾기 as 바로 답변 가능",
+    "고수찾기 needs a photo and profile completeness of at least 50%",
+    "reviews"
+  ],
+  "serviceLabels": {
+    "웹 개발": [
+      "landing_page_web"
+    ],
+    "웹 디자인": [
+      "detail_page_design"
+    ],
+    "소프트웨어 개발": [
+      "web_app_dev",
+      "ai_automation_chatbot",
+      "data_crawling",
+      "excel_macro"
+    ],
+    "인공지능(AI) 개발": [
+      "ai_automation_chatbot"
+    ]
+  },
+  "sources": [
+    "https://help.soomgo.com/hc/ko/articles/360045385831",
+    "https://help.soomgo.com/hc/ko/articles/360046778211",
+    "https://help.soomgo.com/hc/ko/articles/4406221912985",
+    "https://help.soomgo.com/hc/ko/articles/4406220952089",
+    "https://help.soomgo.com/hc/ko/articles/360044939572",
+    "https://help.soomgo.com/hc/ko/articles/360053164232",
+    "https://help.soomgo.com/hc/ko/articles/17762862147993",
+    "https://help.soomgo.com/hc/ko/articles/4406227436825",
+    "https://help.soomgo.com/hc/ko/articles/4406422673561",
+    "https://help.soomgo.com/hc/ko/articles/360045845591",
+    "https://help.soomgo.com/hc/ko/articles/360048194691",
+    "https://help.soomgo.com/hc/ko/articles/4404015084557",
+    "https://help.soomgo.com/hc/ko/articles/360053165892",
+    "https://help.soomgo.com/hc/ko/articles/17645550643353",
+    "https://help.soomgo.com/hc/ko/articles/4412652550809",
+    "https://help.soomgo.com/hc/ko/articles/63393300063257",
+    "https://help.soomgo.com/hc/ko/articles/63271452138777"
+  ]
+}

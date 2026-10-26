@@ -1,0 +1,14 @@
+{
+  "name": "full-self-working",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node --test",
+    "check": "node --test && node scripts/check-privacy.mjs && node scripts/check-slop.mjs && node scripts/check-descriptors.mjs && node scripts/check-example.mjs",
+    "check:privacy": "node scripts/check-privacy.mjs"
+  }
+}

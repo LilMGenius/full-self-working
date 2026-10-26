@@ -1,0 +1,169 @@
+{
+  "timezone": "Asia/Seoul",
+  "browser": {"instance": null, "chromeProfile": null},
+  "activeHours": {
+    "outbound": [
+      "08:00",
+      "23:00"
+    ]
+  },
+  "pipeline": {
+    "replyWindowHours": {
+      "message": 72,
+      "request": 48
+    },
+    "minAutoConfidence": 0.7
+  },
+  "platforms": {
+    "kmong": {
+      "enabled": true,
+      "mode": "auto",
+      "profileEdits": "auto",
+      "proposals": {
+        "maxPerDay": 5,
+        "minFit": "strong",
+        "autoMaxKRW": 0,
+        "criticModel": "cpa/claude-opus-5-5",
+        "minCriticScore": 0.75,
+        "pages": 3
+      }
+    },
+    "soomgo": {
+      "enabled": true,
+      "mode": "draft",
+      "profileEdits": "approval",
+      "maxQuotesPerDay": 5,
+      "maxCashPerDay": 0,
+      "services": null
+    },
+    "wishket": {
+      "enabled": false,
+      "mode": "observe"
+    },
+    "fiverr": {
+      "enabled": false,
+      "mode": "observe"
+    },
+    "upwork": {
+      "enabled": false,
+      "mode": "draft"
+    },
+    "freelancer": {
+      "enabled": false,
+      "mode": "observe"
+    }
+  },
+  "payment": {
+    "depositRatio": 0.5,
+    "milestoneThresholdKRW": 1000000,
+    "milestones": [
+      0.3,
+      0.4,
+      0.3
+    ]
+  },
+  "market": {
+    "engines": {
+      "kmong": null,
+      "soomgo": null,
+      "freelancer": null,
+      "wishket": null,
+      "fiverr": null
+    },
+    "categoriesPerRun": {
+      "kmong": null,
+      "soomgo": null,
+      "freelancer": null,
+      "wishket": null,
+      "fiverr": null
+    },
+    "cadence": {
+      "kmong": null,
+      "soomgo": null,
+      "freelancer": null,
+      "wishket": null,
+      "fiverr": null
+    }
+  },
+  "yield": {
+    "agentHourCostKRW": 3000,
+    "humanHourValueKRW": 30000,
+    "humanHourWeight": 4,
+    "explorationFloor": 0.05,
+    "explorationShare": 0.3,
+    "exploreUntilLeads": 10
+  },
+  "notify": {
+    "toast": true,
+    "webhookUrl": null
+  },
+  "brain": {
+    "model": "gpt-6.1-sol",
+    "effort": "medium",
+    "timeoutMs": 240000
+  },
+  "jobs": {
+    "maxParallel": 3,
+    "timeoutMs": null,
+    "model": null,
+    "effort": null,
+    "jwc": {
+      "model": null,
+      "thinking": null
+    }
+  },
+  "orders": {
+    "watched": false
+  },
+  "listings": {
+    "studio": null
+  },
+  "site": {
+    "domain": null,
+    "vercelTeam": null,
+    "project": null
+  },
+  "onboarding": {
+    "photo": null,
+    "identity": null,
+    "wishket": {
+      "certificate": null,
+      "directSkills": null,
+      "writeGapMs": null,
+      "writesPerRun": null
+    },
+    "fiverr": {
+      "title": null,
+      "skillLevel": null
+    },
+    "upwork": {
+      "experience": "FREELANCED_BEFORE",
+      "goal": "MONEY_ON_SIDE",
+      "workPreferences": [
+        "talentMarketplace"
+      ],
+      "contractToHire": false,
+      "title": "Web developer for landing pages and web apps",
+      "overview": null,
+      "skills": [
+        "Web Development",
+        "JavaScript"
+      ],
+      "languages": [
+        {
+          "language": "English",
+          "level": "Conversational"
+        }
+      ],
+      "hourlyRateUSD": null
+    },
+    "freelancer": {
+      "headline": "Web developer for landing pages and web apps",
+      "summary": null,
+      "skills": [
+        "Web Development",
+        "JavaScript"
+      ]
+    }
+  }
+}

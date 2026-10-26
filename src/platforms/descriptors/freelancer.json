@@ -1,0 +1,86 @@
+{
+  "id": "freelancer",
+  "name": "Freelancer.com",
+  "region": "global",
+  "currency": "USD",
+  "model": [
+    "bidding",
+    "contest"
+  ],
+  "fees": {
+    "seller": 0.1,
+    "paymentNetworkRate": 0,
+    "vatOnFees": 0,
+    "buyer": {
+      "rate": 0.03,
+      "notes": "on projects (secondary and the official fees page snippet)"
+    },
+    "notes": "Fixed-price projects pay 10% or 5 USD, whichever is greater, and hourly projects 10% (official fees page, read 2026-10-25). The 5 USD minimum is not modeled, so a project under 50 USD nets less than the price table says. Taxes on fees apply only to residents of the countries the page lists (Australia, Chile, the EU, India, Mexico, the Philippines, Russia, Switzerland), and Korea is not one of them. Withdrawals cost 1 USD (express, PayPal, Skrill, Payoneer) or 25 USD (wire) each with a 50 USD minimum, outside any one project. Payments beyond the winning bid add 3% client and 10% freelancer."
+  },
+  "bidCost": {
+    "unit": "bids",
+    "notes": "Free with a monthly limit: Free 6, Basic 50, Plus 100, Professional 300, Premier 1500 (official FAQ). Placing any bid needs an available account balance of at least 20 USD (official fees page)."
+  },
+  "escrow": true,
+  "milestones": "native",
+  "splitMechanism": "Milestone payments.",
+  "contactPolicy": {
+    "preOrder": [],
+    "postOrder": [],
+    "allowedHosts": [
+      "freelancer.com"
+    ],
+    "notes": "unknown; kept closed until a source is read"
+  },
+  "offPlatformPayment": false,
+  "automation": {
+    "officialAutoReply": "unknown",
+    "forbidden": [],
+    "notes": "unknown"
+  },
+  "aiPolicy": "unknown",
+  "taxInvoice": "unknown",
+  "pacing": {
+    "minGapMs": 10000,
+    "maxActionsPerHour": 30,
+    "maxMessagesPerHour": 10
+  },
+  "onboardingPacing": {
+    "minGapMs": 20000,
+    "maxActionsPerHour": 120,
+    "maxMessagesPerHour": 0,
+    "actionGapMs": [
+      2500,
+      6000
+    ],
+    "keyGapMs": [
+      80,
+      220
+    ],
+    "cooldownMs": 1800000,
+    "notes": "fsw onboard walks the signup wizard once at a person's pace: a 2.5 to 6 s gap before each action, keys typed 80 to 220 ms apart, page loads 20 s apart and at most one run per 30 minutes. On 2026-10-26 the site signed the operator out after scripts drove its wizard at machine speed. No message is sent."
+  },
+  "limits": {
+    "message": {
+      "maxChars": "unknown"
+    },
+    "quote": {
+      "maxChars": "unknown"
+    },
+    "listing": {
+      "maxChars": "unknown"
+    },
+    "profile": {
+      "maxChars": "unknown"
+    }
+  },
+  "rankingSignals": [
+    "membership tier",
+    "highlighted and sponsored bids"
+  ],
+  "sources": [
+    "https://www.freelancer.com/feesandcharges",
+    "https://www.freelancer.com/faq/question.php?code=bid-limit",
+    "https://www.hireinsouth.com/post/freelancer-pricing"
+  ]
+}

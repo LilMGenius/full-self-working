@@ -1,0 +1,452 @@
+{
+  "_notes": {
+    "_": "agentHours are wall-clock hours of agent work per package (brief reading, building, self QA, one revision round) with a human reviewer; humanMinutes.standard is reviewer time on the standard package. Estimates, refined by yield data from closed jobs.",
+    "landing_page_web": "One responsive page with copy, built and checked at 390, 768 and 1440 px plus one revision; deluxe adds sections and a form, premium multi-page.",
+    "web_app_dev": "A small CRUD app with auth and deploy needs design, tests and integration; review of data model and security keeps the reviewer longest.",
+    "ai_automation_chatbot": "Prompting, tool wiring, evaluation on sample conversations and deployment; the evaluation set is most of the time.",
+    "data_crawling": "One site scraper with pagination, export and a rerun guide; anti-bot handling pushes deluxe and premium.",
+    "excel_macro": "One workbook macro or script with test data and usage notes; the client's file quirks dominate.",
+    "detail_page_design": "One long product page image from supplied copy and photos, rendered and checked at mobile width; taste review by the human.",
+    "logo_brand": "Several concepts, one refined set and source files; the human picks and critiques, so reviewer time is high for the price.",
+    "thumbnail_banner": "One image at fixed sizes from a template; fast to make, the human checks text and taste.",
+    "photo_editing": "Background removal or retouch on a few images with local tools; minutes per image.",
+    "ppt_card_news": "About 10 slides or cards from supplied content, layout and export; deluxe and premium scale with slide count.",
+    "video_editing": "Cuts, captions and music on a short clip with render and review passes; render and review time dominate.",
+    "translation_ko_en": "About one page of Korean to English with a human proofread for tone and terms.",
+    "copywriting": "One page of sales or landing copy with two variants and the slop gate; the human checks claims.",
+    "blog_writing": "One researched post of about 2,000 Korean characters with sources and the slop gate.",
+    "kmongGig": "Category labels the kmong /my-gigs/new form shows for a listed service: root (1st level) and sub (2nd level), plus third when the form asks for a 3rd level.",
+    "kmongForm": "Values for the kmong gig edit form of that category, read from the live form 2026-10-25: meta is the 주요 특징 selects by label, packageSelects and packageChecks are package rows by label with one value per STANDARD, DELUXE, PREMIUM column (작업 기간 and 수정 횟수 come from the listing), scope is what each package covers and is handed to the copy writer so the package text and the form agree.",
+    "freelancerJob": "The Freelancer.com job (skill) whose active fixed-price projects are the service's market, matched by its exact name through the public jobs API; a service without one has no job there that sells the same deliverable.",
+    "upworkSpecialty": "The Upwork profile category and specialty (create-profile categories step, read from the live wizard 2026-10-25) that sells the same deliverable; Upwork takes one category and one to three specialties, so a service without one is not offered there.",
+    "wishketField": "The 위시켓 project field (the pf filter label on /project/) whose 외주 projects are the service's market; only fields that sell the service's deliverable are mapped, so broad buckets such as 그래픽ㆍ영상 등 and 기획서ㆍ제안서 등 stay out.",
+    "fiverrQuery": "The Fiverr gig search whose first 30 gigs are the service's market; detail_page_design has none, since Fiverr sells no long Korean product detail page.",
+    "delivery": "Who delivers the service: agent (the default when absent) runs its recipe in a job; operator means the operator does the work, so the service has no recipe and no job run, and a paid job is handed to the operator (src/orders/run.mjs). An operator service is answered only on platforms whose config platforms.<id>.services lists it.",
+    "questions": "What a reply asks before quoting an operator-delivered service, read into the decision prompt.",
+    "game_dev": "A small 2D web game: one core loop with menus, checked on a phone and a desktop; deluxe adds levels and saves, premium a backend or a store build. The reviewer plays every build, so reviewer time is the highest in the catalog. 숨고's 게임 개발 guide prices a whole job.",
+    "lesson_tutoring": "A subject lesson the operator teaches in sessions, online or in person. humanMinutes.standard is one 60-minute session and agentHours are zero, since the agent only answers and quotes. 숨고's 프로그래밍/코딩 레슨 guide publishes only an hourly average, which prices one session."
+  },
+  "landing_page_web": {
+    "ko": "랜딩페이지 제작",
+    "en": "Landing page",
+    "kmongCategory": "랜딩페이지 홈페이지 제작",
+    "kmongGig": { "root": "IT·프로그래밍", "sub": "랜딩페이지" },
+    "kmongForm": {
+      "meta": { "기술 수준": "중급:설계 / 코딩", "개발 언어": "JavaScript", "팀 규모": "1인", "상주 여부": "상주 불가능" },
+      "packageSelects": { "섹션 수": ["5섹션", "8섹션", "10섹션"], "기능 추가": ["0개", "1개", "3개"] },
+      "packageChecks": { "맞춤 디자인 제공": [true, true, true], "반응형 웹": [true, true, true], "크로스 브라우징": [true, true, true], "옵트인폼": [false, true, true], "소스 코드 제공": [true, true, true], "코드 구조 주석": [false, true, true] },
+      "scope": ["한 페이지, 5개 섹션 이내", "한 페이지, 8개 섹션 이내, 문의 폼 연결", "여러 페이지 구성, 페이지마다 10개 섹션 이내, 기능 3개까지"]
+    },
+    "soomgoGuide": "웹 디자인",
+    "freelancerJob": "Landing Pages",
+    "upworkSpecialty": { "category": "Web, Mobile & Software Dev", "specialty": "Web Development" },
+    "wishketField": "랜딩ㆍ소개 페이지",
+    "fiverrQuery": "landing page design",
+    "agentHours": {
+      "standard": 6,
+      "deluxe": 14,
+      "premium": 28
+    },
+    "humanMinutes": {
+      "standard": 60
+    },
+    "deliverables": [
+      "responsive HTML page",
+      "source files",
+      "deploy or hosting guide"
+    ]
+  },
+  "web_app_dev": {
+    "ko": "웹 앱 개발",
+    "en": "Web app development",
+    "kmongCategory": "풀스택 웹 개발",
+    "kmongCategoryId": 654,
+    "kmongGig": { "root": "IT·프로그래밍", "sub": "풀스택" },
+    "kmongForm": {
+      "meta": { "기술 수준": "중급:설계 / 코딩", "개발 언어": "JavaScript", "팀 규모": "1인", "상주 여부": "상주 불가능" },
+      "packageSelects": {},
+      "packageChecks": {},
+      "scope": ["화면 5개 이내, 로그인과 데이터 저장이 있는 웹 앱, 테스트와 설치 안내", "화면 10개 이내, 권한 구분과 관리자 화면, 테스트와 배포 안내", "화면 20개 이내, 외부 서비스 연동 1개, 테스트와 운영 안내"]
+    },
+    "soomgoGuide": "웹 개발",
+    "freelancerJob": "Web Development",
+    "upworkSpecialty": { "category": "Web, Mobile & Software Dev", "specialty": "Web Development" },
+    "wishketField": "기타(IT 서비스 구축)",
+    "fiverrQuery": "full stack web app development",
+    "agentHours": {
+      "standard": 30,
+      "deluxe": 70,
+      "premium": 140
+    },
+    "humanMinutes": {
+      "standard": 240
+    },
+    "deliverables": [
+      "source repository",
+      "deployed app",
+      "setup and handover notes"
+    ]
+  },
+  "ai_automation_chatbot": {
+    "ko": "AI 자동화 및 챗봇 개발",
+    "en": "AI automation and chatbot",
+    "kmongCategory": "챗봇 AI 개발",
+    "kmongGig": { "root": "IT·프로그래밍", "sub": "맞춤형 챗봇·GPT" },
+    "kmongForm": {
+      "meta": { "기술 수준": "고급:최적화 설계", "사용하는 AI 툴": "ChatGPT", "활용 목적": "사내 문서 검색용 GPT", "팀 규모": "1인", "상주 여부": "상주 불가능" },
+      "packageSelects": {},
+      "packageChecks": { "대화 스크립트": [true, true, true], "소스 코드 제공": [true, true, true], "설치 파일": [false, true, true], "코드 구조 주석": [false, true, true] },
+      "scope": ["문서 하나 묶음에 답하는 챗봇 또는 반복 업무 하나의 자동화", "여러 문서와 도구 하나를 연결한 챗봇이나 자동화, 평가 대화 묶음 포함", "여러 도구와 업무 흐름을 잇는 자동화, 평가 보고서와 운영 안내 포함"]
+    },
+    "soomgoGuide": "챗봇 개발",
+    "freelancerJob": "AI Chatbot Development",
+    "upworkSpecialty": { "category": "Web, Mobile & Software Dev", "specialty": "AI Apps & Integration" },
+    "wishketField": "ChatGPTㆍ챗봇",
+    "fiverrQuery": "ai chatbot development",
+    "agentHours": {
+      "standard": 12,
+      "deluxe": 30,
+      "premium": 60
+    },
+    "humanMinutes": {
+      "standard": 120
+    },
+    "deliverables": [
+      "working bot or automation",
+      "prompt and tool configuration",
+      "evaluation report"
+    ]
+  },
+  "data_crawling": {
+    "ko": "데이터 크롤링",
+    "en": "Data crawling",
+    "kmongCategory": "데이터 크롤링",
+    "kmongGig": { "root": "IT·프로그래밍", "sub": "크롤링·스크래핑" },
+    "kmongForm": {
+      "meta": { "기술 수준": "중급:설계 / 코딩", "개발 언어": "JavaScript", "팀 규모": "1인", "상주 여부": "상주 불가능" },
+      "packageSelects": {},
+      "packageChecks": { "소스 코드 제공": [true, true, true], "설치 파일": [false, false, true], "코드 구조 주석": [false, true, true] },
+      "scope": ["공개된 사이트 하나, 목록과 상세 수집, CSV 또는 엑셀 파일", "사이트 하나, 로그인 없는 동적 페이지와 페이지 넘김 처리, 재실행 안내", "사이트 여러 곳 또는 정기 실행 구성, 실행 파일과 재실행 안내"]
+    },
+    "soomgoGuide": "데이터 크롤링",
+    "freelancerJob": "Web Scraping",
+    "upworkSpecialty": { "category": "Web, Mobile & Software Dev", "specialty": "Scripts & Utilities" },
+    "wishketField": "스크래핑ㆍAPI",
+    "fiverrQuery": "web scraping",
+    "agentHours": {
+      "standard": 4,
+      "deluxe": 10,
+      "premium": 20
+    },
+    "humanMinutes": {
+      "standard": 30
+    },
+    "deliverables": [
+      "scraper source",
+      "data export (CSV or XLSX)",
+      "rerun guide"
+    ]
+  },
+  "excel_macro": {
+    "ko": "엑셀 매크로 및 업무 자동화",
+    "en": "Excel macro and office automation",
+    "kmongCategory": "업무 자동화 엑셀 매크로",
+    "kmongGig": { "root": "IT·프로그래밍", "sub": "업무 자동화" },
+    "kmongForm": {
+      "meta": { "기술 수준": "중급:설계 / 코딩", "팀 규모": "1인", "상주 여부": "상주 불가능" },
+      "packageSelects": {},
+      "packageChecks": { "소스 코드 제공": [true, true, true], "설치 파일": [false, false, true], "코드 구조 주석": [false, true, true] },
+      "scope": ["엑셀 파일 하나의 반복 작업 하나를 매크로나 스크립트로 자동화", "파일 여러 개를 합치거나 나누는 작업 묶음 자동화, 사용 안내 포함", "여러 단계 업무 흐름 자동화, 실행 파일과 사용 안내 포함"]
+    },
+    "soomgoGuide": "매크로/VBA 개발",
+    "freelancerJob": "Excel VBA",
+    "upworkSpecialty": { "category": "Web, Mobile & Software Dev", "specialty": "Scripts & Utilities" },
+    "wishketField": "엑셀 VBAㆍ매크로",
+    "fiverrQuery": "excel vba macro",
+    "agentHours": {
+      "standard": 3,
+      "deluxe": 8,
+      "premium": 16
+    },
+    "humanMinutes": {
+      "standard": 30
+    },
+    "deliverables": [
+      "macro-enabled workbook or script",
+      "usage notes"
+    ]
+  },
+  "detail_page_design": {
+    "ko": "상세페이지 디자인",
+    "en": "Product detail page design",
+    "kmongCategory": "상세페이지 디자인",
+    "kmongGig": { "root": "디자인", "sub": "상세페이지", "third": "상세페이지 디자인" },
+    "kmongForm": {
+      "meta": { "주말 작업 가능여부": "주말 상담가능", "작업유형": "상세페이지", "전문분야": "식품", "추가옵션": "원본파일제공" },
+      "packageSelects": { "시안개수": ["1개", "1개", "1개"] },
+      "packageChecks": { "원본파일 제공": [true, true, true], "보정작업": [false, true, true], "상업적 이용 가능": [true, true, true] },
+      "scope": ["보내 주신 문구와 사진으로 상세페이지 1종, 섹션 5개 이내", "상세페이지 1종, 섹션 8개 이내, 사진 밝기와 배경 보정 포함", "상세페이지 1종, 섹션 12개 이내, 사진 보정과 구성 제안 포함"]
+    },
+    "kmongCategoryId": 113,
+    "soomgoGuide": "상세페이지 제작",
+    "agentHours": {
+      "standard": 5,
+      "deluxe": 12,
+      "premium": 24
+    },
+    "humanMinutes": {
+      "standard": 60
+    },
+    "deliverables": [
+      "detail page image (JPG or PNG)",
+      "source HTML"
+    ]
+  },
+  "logo_brand": {
+    "ko": "로고 및 브랜드 디자인",
+    "en": "Logo and brand design",
+    "kmongCategory": "로고 디자인",
+    "kmongGig": { "root": "디자인", "sub": "로고 디자인" },
+    "kmongForm": {
+      "meta": { "주말 작업 가능여부": "주말 상담가능", "로고타입": "심볼+워드마크형", "분위기유형": "심플한", "작업유형": "CI/BI" },
+      "packageSelects": { "시안개수": ["2개", "3개", "5개"] },
+      "packageChecks": { "원본파일 제공": [true, true, true], "고해상도 파일 제공": [true, true, true], "응용 디자인": [false, false, true], "상업적 이용 가능": [true, true, true] },
+      "scope": ["로고 시안 2종, SVG와 PNG 파일", "로고 시안 3종, 색상과 서체 안내 1장", "로고 시안 5종, 색상과 서체 안내, 명함이나 SNS 응용 예시"]
+    },
+    "kmongCategoryId": 101,
+    "soomgoGuide": "로고 디자인",
+    "freelancerJob": "Logo Design",
+    "fiverrQuery": "logo design",
+    "agentHours": {
+      "standard": 4,
+      "deluxe": 9,
+      "premium": 18
+    },
+    "humanMinutes": {
+      "standard": 60
+    },
+    "deliverables": [
+      "logo files (SVG, PNG)",
+      "color and type sheet"
+    ]
+  },
+  "thumbnail_banner": {
+    "ko": "썸네일 및 배너 디자인",
+    "en": "Thumbnail and banner design",
+    "kmongCategory": "썸네일 배너 디자인",
+    "kmongGig": { "root": "디자인", "sub": "SNS·광고소재·썸네일", "third": "유튜브 썸네일" },
+    "kmongForm": {
+      "meta": { "주말 작업 가능여부": "주말 상담가능", "매체": "유튜브" },
+      "packageSelects": { "시안개수": ["1개", "1개", "2개"], "이미지 장 수": ["1장", "2장", "4장"] },
+      "packageChecks": { "원본파일 제공": [true, true, true], "고해상도 파일 제공": [true, true, true], "상업적 이용 가능": [true, true, true] },
+      "scope": ["썸네일이나 배너 1장", "규격 2종 각 1장, 예: 유튜브 썸네일과 인스타그램 피드", "규격 4장까지, 시안 2종 중 선택"]
+    },
+    "kmongCategoryId": 142,
+    "soomgoGuide": "썸네일 제작",
+    "freelancerJob": "Banner Design",
+    "fiverrQuery": "youtube thumbnail design",
+    "agentHours": {
+      "standard": 1,
+      "deluxe": 2.5,
+      "premium": 5
+    },
+    "humanMinutes": {
+      "standard": 15
+    },
+    "deliverables": [
+      "images at requested sizes",
+      "source file"
+    ]
+  },
+  "photo_editing": {
+    "ko": "사진 보정 및 누끼",
+    "en": "Photo editing and background removal",
+    "kmongCategory": "사진 보정 누끼 배경제거",
+    "kmongGig": { "root": "영상·사진·음향", "sub": "AI 이미지", "third": "AI 이미지 제작·누끼·보정" },
+    "kmongForm": {
+      "meta": { "주말 작업 가능여부": "주말 상담가능" },
+      "packageSelects": { "제공 개수": ["3개", "10개", "20개"] },
+      "packageChecks": {},
+      "scope": ["사진 3장까지 배경 제거 또는 밝기와 색 보정", "사진 10장까지 배경 제거와 보정, 흰 배경 정사각 파일", "사진 20장까지 배경 제거와 보정, 그림자와 규격 맞춤"]
+    },
+    "kmongCategoryId": 104,
+    "soomgoGuide": "사진 편집 및 보정",
+    "freelancerJob": "Photo Editing",
+    "fiverrQuery": "photo background removal",
+    "agentHours": {
+      "standard": 0.5,
+      "deluxe": 1.5,
+      "premium": 3
+    },
+    "humanMinutes": {
+      "standard": 10
+    },
+    "deliverables": [
+      "edited images"
+    ]
+  },
+  "ppt_card_news": {
+    "ko": "PPT 및 카드뉴스 디자인",
+    "en": "Presentation and card news design",
+    "kmongCategory": "PPT 디자인",
+    "kmongGig": { "root": "디자인", "sub": "PPT·인포그래픽", "third": "PPT" },
+    "kmongForm": {
+      "meta": { "주말 작업 가능여부": "주말 상담가능", "작업유형": "발표자료", "작업스타일": "프레젠테이션", "추가옵션": "원본파일제공" },
+      "packageSelects": { "시안개수": ["1개", "1개", "1개"] },
+      "packageChecks": { "원본파일 제공": [true, true, true], "상업적 이용 가능": [true, true, true], "리서치": [false, false, false] },
+      "scope": ["보내 주신 내용으로 PPT 8장 또는 카드뉴스 6장 이내", "PPT 15장 또는 카드뉴스 10장 이내", "PPT 25장 또는 카드뉴스 16장 이내, 도표와 아이콘 구성 포함"]
+    },
+    "kmongCategoryId": 106,
+    "soomgoGuide": "프레젠테이션 디자인",
+    "freelancerJob": "Presentations",
+    "fiverrQuery": "powerpoint presentation design",
+    "agentHours": {
+      "standard": 3,
+      "deluxe": 7,
+      "premium": 14
+    },
+    "humanMinutes": {
+      "standard": 30
+    },
+    "deliverables": [
+      "PPTX or PDF",
+      "per-slide PNG"
+    ]
+  },
+  "video_editing": {
+    "ko": "영상 편집",
+    "en": "Video editing",
+    "kmongCategory": "영상 편집",
+    "kmongGig": { "root": "영상·사진·음향", "sub": "AI 영상", "third": "AI 영상 편집·보정·자막" },
+    "kmongForm": {
+      "meta": { "주말 작업 가능여부": "주말 상담가능" },
+      "packageSelects": { "제공 개수": ["1개", "1개", "2개"] },
+      "packageChecks": {},
+      "scope": ["보내 주신 사진이나 영상으로 30초 이내 세로 숏폼 1편과 자막 파일", "보내 주신 영상으로 60초 이내 1편, 컷 편집과 자막, 화면 문구", "60초 이내 2편 또는 3분 이내 1편, 컷 편집과 자막, 화면 문구"]
+    },
+    "soomgoGuide": "영상 편집",
+    "freelancerJob": "Video Editing",
+    "fiverrQuery": "video editing",
+    "agentHours": {
+      "standard": 4,
+      "deluxe": 10,
+      "premium": 20
+    },
+    "humanMinutes": {
+      "standard": 45
+    },
+    "deliverables": [
+      "edited video (MP4)",
+      "caption file"
+    ]
+  },
+  "translation_ko_en": {
+    "ko": "한영 번역",
+    "en": "Korean to English translation",
+    "kmongCategory": "번역 한영",
+    "soomgoGuide": "영어 번역",
+    "freelancerJob": "Korean Translator",
+    "fiverrQuery": "korean to english translation",
+    "agentHours": {
+      "standard": 1.5,
+      "deluxe": 4,
+      "premium": 8
+    },
+    "humanMinutes": {
+      "standard": 30
+    },
+    "deliverables": [
+      "translated document",
+      "term list"
+    ]
+  },
+  "copywriting": {
+    "ko": "카피라이팅",
+    "en": "Copywriting",
+    "kmongCategory": null,
+    "soomgoGuide": "문서/글 작성",
+    "freelancerJob": "Copywriting",
+    "fiverrQuery": "copywriting",
+    "agentHours": {
+      "standard": 2,
+      "deluxe": 5,
+      "premium": 10
+    },
+    "humanMinutes": {
+      "standard": 30
+    },
+    "deliverables": [
+      "copy document with variants"
+    ]
+  },
+  "blog_writing": {
+    "ko": "블로그 원고 작성",
+    "en": "Blog writing",
+    "kmongCategory": "블로그 원고",
+    "kmongGig": { "root": "문서·글쓰기", "sub": "AI 콘텐츠 생산" },
+    "kmongForm": {
+      "meta": { "전문 작업 분야": "블로그" },
+      "packageSelects": { "시안개수": ["1개", "1개", "3개"] },
+      "packageChecks": { "프롬프트 제공": [false, false, false] },
+      "scope": ["정보성 원고 1편, 2,000자 안팎, 출처 목록", "원고 1편, 3,500자 안팎, 소제목 구성과 출처 목록", "원고 3편, 편당 2,000자 안팎, 출처 목록"]
+    },
+    "soomgoGuide": null,
+    "freelancerJob": "Blog Writing",
+    "fiverrQuery": "blog post writing",
+    "agentHours": {
+      "standard": 1.5,
+      "deluxe": 4,
+      "premium": 8
+    },
+    "humanMinutes": {
+      "standard": 20
+    },
+    "deliverables": [
+      "blog post document",
+      "source list"
+    ]
+  },
+  "game_dev": {
+    "ko": "게임 개발",
+    "en": "Game development",
+    "kmongCategory": null,
+    "soomgoGuide": "게임 개발",
+    "agentHours": {
+      "standard": 24,
+      "deluxe": 60,
+      "premium": 120
+    },
+    "humanMinutes": {
+      "standard": 180
+    },
+    "deliverables": [
+      "playable web build",
+      "source repository",
+      "build and handover notes"
+    ]
+  },
+  "lesson_tutoring": {
+    "ko": "과외 및 레슨",
+    "en": "Lessons and tutoring",
+    "delivery": "operator",
+    "kmongCategory": null,
+    "soomgoGuide": "프로그래밍/코딩 레슨",
+    "agentHours": {
+      "standard": 0,
+      "deluxe": 0,
+      "premium": 0
+    },
+    "humanMinutes": {
+      "standard": 60
+    },
+    "questions": [
+      "the subject and what the learner wants to be able to do",
+      "the learner's current level",
+      "the schedule: days, times, session length and how many sessions",
+      "online or in person, and the area when in person"
+    ],
+    "deliverables": [
+      "sessions taught by the operator"
+    ]
+  }
+}

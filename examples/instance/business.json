@@ -1,0 +1,13 @@
+{
+  "company": "예시상사",
+  "bizRegNo": "000-00-00000",
+  "email": "seller@example.com",
+  "taxInvoice": true,
+  "taxInvoiceNote": "일반과세자, 요청 시 홈택스로 세금계산서 발행",
+  "payout": {
+    "bank": "예시은행",
+    "account": "000-000-000000",
+    "holder": "홍길동",
+    "note": "사업자 명의 계좌"
+  }
+}

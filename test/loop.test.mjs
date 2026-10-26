@@ -191,17 +191,15 @@ test('an undated posted-review notice keeps no lasting key: a later one notifies
   assert.equal(written(), 1, 'one open entry stops the repeats');
   assert.match(readFileSync(requests, 'utf8'), /for job first/);
   writeFileSync(requests, readFileSync(requests, 'utf8').replace('- status: open', '- status: resolved'));
-  s.ledger.addReview({ jobId: 'first', platform: 'soomgo', rating: 5, text: 'x', liked: null, at: hoursBefore(NOON, -24) });
+  s.ledger.addReview({ jobId: 'first', platform: 'soomgo', rating: 5, text: 'x', liked: null });
   s.ledger.upsertJob({ id: 'second', threadId: t.id, platform: 'soomgo', service: 'landing_page_web', status: 'delivered', priceKRW: 100000, deliveredAt: hoursBefore(NOON, -48) });
-  // The client wrote again after that review was recorded, so the notice on the row may be a new review.
-  s.ledger.addMessage({ threadId: t.id, direction: 'in', body: '두 번째 작업도 잘 받았어요', externalId: 'later', at: hoursBefore(NOON, -60) });
   await s.run('soomgo', surface, { notify, now: new Date(NOON.getTime() + 3 * 86_400_000) });
   assert.equal(written(), 2);
   assert.match(readFileSync(requests, 'utf8').split('## ').at(-1), /for job second/);
   assert.equal(s.events('review.posted').length, 0, 'an undated notice is never recorded under a lasting key');
 });
 
-test('an undated posted-review notice still on the page asks nothing once its review is recorded and the client has not written since', async () => {
+test('an undated posted-review notice still on the page asks nothing once every delivered job of the thread has its review', async () => {
   const s = setup();
   const requests = join(s.instance.paths.operator, 'requests.md');
   const notify = async (i, n) => (s.notes.push(n), notifyOperator(i, n));
@@ -216,6 +214,21 @@ test('an undated posted-review notice still on the page asks nothing once its re
   s.ledger.addReview({ jobId: 'only', platform: 'soomgo', rating: 5, text: '좋아요', liked: null, at: hoursBefore(NOON, -1) });
   await s.run('soomgo', surface, { notify, now: new Date(NOON.getTime() + 2 * 3_600_000) });
   assert.equal(written(), 1, 'the recorded review answers the notice still on the page');
+});
+
+test('a second real review on another job of the thread is told although an earlier review was recorded after the last chat message', async () => {
+  const s = setup();
+  const requests = join(s.instance.paths.operator, 'requests.md');
+  const notify = async (i, n) => (s.notes.push(n), notifyOperator(i, n));
+  const t = s.ledger.upsertThread({ platform: 'soomgo', externalId: 'rv', kind: 'message' });
+  s.ledger.upsertJob({ id: 'j1', threadId: t.id, platform: 'soomgo', service: 'landing_page_web', status: 'closed', priceKRW: 100000, deliveredAt: hoursBefore(NOON, 200) });
+  s.ledger.addMessage({ threadId: t.id, direction: 'in', body: '감사합니다', externalId: 'm1', at: hoursBefore(NOON, 150) });
+  s.ledger.addReview({ jobId: 'j1', platform: 'soomgo', rating: 5, text: '좋아요', liked: null, at: hoursBefore(NOON, 100) });
+  s.ledger.upsertJob({ id: 'j2', threadId: t.id, platform: 'soomgo', service: 'landing_page_web', status: 'delivered', priceKRW: 100000, deliveredAt: hoursBefore(NOON, 20) });
+  const surface = scriptedSurface({ sense: [inbound('soomgo', 'rv', { preview: REVIEW_POSTED, notice: REVIEW_POSTED, at: null })] });
+  await s.run('soomgo', surface, { notify });
+  const entries = readFileSync(requests, 'utf8').match(/^## .*a client posted a review on rv.*$/gm) ?? [];
+  assert.deepEqual(entries.map((l) => l.replace(/^## \S+ \S+ /, '')), ['[order] soomgo: a client posted a review on rv for job j2']);
 });
 
 test('a revision decision on a delivered thread reopens its job', async () => {

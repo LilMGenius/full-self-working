@@ -147,6 +147,7 @@ export function buildDecisionPrompt({ thread, instance, descriptor, priceRows = 
     '7. Set needsOperator only for a decision the profile, the price rows and the reply cannot make: a price outside the allowed range, a legal, refund or dispute question, a call or visit asked for before any order, or a commitment the profile does not back. Scope, volume, schedule, location and materials the customer has not given yet are not such a decision: price the typical job from the rows, state the assumption in the scope, and ask for the missing facts in the reply. Set reply null for spam or when no reply is due.',
     '8. Plain text only: no markdown, no em dash, no middle-dot lists, no hype words, no emoji bullets.',
     '9. After a delivery I asked whether the work may be shown in my portfolio. When the customer answers, set portfolioPermission to granted or refused and copy their answering sentence verbatim into permissionQuote; otherwise both are null. Never infer a yes from thanks alone.',
+    '10. A request to change delivered work is intent "revision"; restate what changes in the reply. Only one revision round is included; do not promise a further round as free.',
     '',
     '# Playbook',
     playbook || '(none)',

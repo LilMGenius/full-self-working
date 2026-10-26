@@ -362,3 +362,25 @@ test('an approved cash quote of unknown cost goes back to the operator without h
   assert.ok(s.notes.some((n) => n.dedupeKey === 'outbox-unpayable:' + unknown.id));
   assert.equal(resolve(s.ledger, s.ledger.getOutbox(unknown.id).approvalId, { approve: false, reason: 'cost unknown' }).status, 'rejected');
 });
+
+test('a cash quote left in sending stays counted against the cap once reconciled, and so does one whose surface threw', async () => {
+  const s = setup('soomgo');
+  const left = plan(s.ledger, { platform: 'soomgo', threadId: s.thread('r1', 'request').id, kind: 'quote', payload: quotePayload({ costKRW: 600, text: TEXT + ' left' }) });
+  setStatus(s.ledger, left.id, { from: 'planned', to: 'sending' });
+  // The claim happened on the test's day: the press is dated by it.
+  s.ledger.updateOutbox(left.id, { updatedAt: NOON.toISOString() });
+  const next = plan(s.ledger, { platform: 'soomgo', threadId: s.thread('r2', 'request').id, kind: 'quote', payload: quotePayload({ costKRW: 600, text: TEXT + ' next' }) });
+  const surface = scriptedSurface();
+  const out = await s.run(surface);
+  assert.deepEqual(out.map((x) => [x.id, x.action]), [[left.id, 'unobserved'], [next.id, 'held']]);
+  const row = s.ledger.getOutbox(left.id);
+  assert.deepEqual([row.receipt.pressed, row.receipt.costKRW], [true, 600]);
+  assert.deepEqual(quotaUsage(s.ledger, 'soomgo', NOON), { quotes: 1, cashKRW: 600 });
+  assert.equal(surface.count('quote'), 0);
+  const t = setup('soomgo');
+  const thrown = plan(t.ledger, { platform: 'soomgo', threadId: t.thread('r3', 'request').id, kind: 'quote', payload: quotePayload({ costKRW: 600 }) });
+  await t.run(scriptedSurface({ receipts: { quote: [new Error('the page closed after the click')] } }));
+  assert.deepEqual([t.ledger.getOutbox(thrown.id).status, t.ledger.getOutbox(thrown.id).receipt.pressed], ['unobserved', true]);
+  assert.deepEqual(quotaUsage(t.ledger, 'soomgo', NOON), { quotes: 1, cashKRW: 600 });
+});
+

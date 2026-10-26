@@ -100,12 +100,16 @@ export async function drain(ledger, { platform, surface, authorize, ctx }) {
   const out = [];
   const moved = (row) => out.push({ id: row.id, kind: row.kind, action: 'moved' });
   const cashQuote = (row) => row.kind === 'quote' && spendsCash(ctx.descriptor, row.payload.thread?.kind);
+  // A cash quote that reached sending may have spent its cash although nothing confirmed it (an interrupted
+  // drain, a surface that threw after the click), so it counts as pressed at its planned cost until the
+  // operator settles it.
+  const mayHaveSpent = (row, receipt, at) => (cashQuote(row) && !receipt?.pressed ? { ...(receipt ?? {}), pressed: true, costKRW: receipt?.costKRW ?? row.payload.costKRW ?? null, pressedAt: at } : receipt);
   // An unobserved row gets an approval id when it has none, so the operator can settle it by name
   // (fsw approve <id> --sent or --reject is the only way out of unobserved, 7b9524e); a pressed quote keeps
   // the press time, which quotaUsage counts against the day's caps.
   const unobserved = async (row, reason, receipt) => {
     const approvalId = row.approvalId ?? newApprovalId(platform, now);
-    const kept = receipt?.pressed ? { ...receipt, pressedAt: now.toISOString() } : receipt;
+    const kept = receipt?.pressed ? { ...receipt, pressedAt: receipt.pressedAt ?? now.toISOString() } : receipt;
     if (!setStatus(ledger, row.id, { from: 'sending', to: 'unobserved', reason, receipt: kept, approvalId })) {
       moved(row);
       return;
@@ -127,7 +131,7 @@ export async function drain(ledger, { platform, surface, authorize, ctx }) {
     if (back.observed) {
       if (observe(ledger, row, back, row.verdict)) out.push({ id: row.id, kind: row.kind, action: 'observed', reconciled: true, signal: signalOf(row, back, now) });
       else moved(row);
-    } else await unobserved(row, back.reason, back);
+    } else await unobserved(row, back.reason, mayHaveSpent(row, back, row.updatedAt));
   }
   // 2. Screen and send, oldest first.
   let cashHeld = null;
@@ -212,7 +216,7 @@ export async function drain(ledger, { platform, surface, authorize, ctx }) {
         out.push({ id: row.id, kind: row.kind, action: 'deferred', code: err.code, reason: err.message });
         break;
       }
-      receipt = { observed: false, reason: (err.code ? err.code + ' ' : '') + err.message };
+      receipt = mayHaveSpent(row, { observed: false, reason: (err.code ? err.code + ' ' : '') + err.message }, now.toISOString());
     }
     if (receipt?.observed === true) {
       if (observe(ledger, row, receipt, verdict)) {

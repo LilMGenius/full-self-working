@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { createPacingGuard } from '../src/browser/driver.mjs';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
-import { matchReview, recordReviewCounts, recordReviews, reviewSignals } from '../src/loop/reviews.mjs';
+import { matchReview, recordReviewCounts, recordReviews, reviewSignals, staleReviews } from '../src/loop/reviews.mjs';
 import { openKmongSurface } from '../src/surface/kmong.mjs';
 import { openSoomgoSurface } from '../src/surface/soomgo.mjs';
 import { runTick } from '../src/supervisor/run.mjs';
@@ -197,6 +197,45 @@ test('kmong reviews() reads the public profile the dashboard names, and no count
   assert.deepEqual(await (await openKmongSurface({ session: noNick })).reviews(), { counts: null, rows: null, gap: 'no nickname on the dashboard, so the public profile was not read' });
   const out = fakeSession({ answers: { pageLogin: () => ({ url: 'https://kmong.com/', avatar: false, authSection: false, loginButton: true, sellerMode: null, profileHref: null }) } });
   assert.deepEqual(await (await openKmongSurface({ session: out })).reviews(), { counts: null, rows: null, gap: 'kmong is not signed in, so the public profile was not read' });
+});
+
+// A surface whose session has spent the hour's read share, as busy polls leave it before a :00 mark.
+const spentShare = () => ({ session: { guard: { readRoom: () => 0, reading: (fn) => fn() } }, reviews: async () => { throw new Error('read with no share'); }, stop: async () => {}, login: async () => ({ loggedIn: true }), supply: async () => ({ platform: 'soomgo', listings: null, services: [] }) });
+
+test('a deferred pass writes a reviews.deferred event each hour', async () => {
+  const instance = makeInstance({ soomgo: { enabled: true } });
+  const ledger = openLedger(':memory:');
+  for (const iso of ['2026-10-27T01:00:00Z', '2026-10-27T02:00:00Z']) {
+    const out = await recordReviews({ instance, ledger, now: new Date(iso), openSurface: async () => spentShare(), notify: async () => ({ written: false }) });
+    assert.deepEqual(out.map((e) => [e.status, e.stale]), [['deferred', undefined]]);
+  }
+  assert.equal(kinds(ledger, 'reviews.deferred').length, 2);
+});
+
+test('counts unread for 24 hours make the hourly job partial and tell the operator once a Seoul day', async () => {
+  const instance = makeInstance({ soomgo: { enabled: true } });
+  const ledger = openLedger(':memory:');
+  ledger.addEvent({ kind: 'reviews.read', platform: 'soomgo', payload: { counts: { reviews: 3, rating: 5 } }, at: '2026-10-26T02:00:00.000Z' });
+  const notes = [];
+  const notify = async (_i, n) => (notes.push(n), { written: true });
+  const tick = (iso) => runTick({ instance, ledger, now: new Date(iso), state: { lastRuns: {} }, only: ['hourly'], openSurface: async () => spentShare(), notify, persist: false });
+  const early = await tick('2026-10-27T01:00:00Z');
+  assert.deepEqual([early.jobs[0].status, early.jobs[0].reviews[0].stale], ['ok', undefined]);
+  const late = await tick('2026-10-27T03:00:00Z');
+  assert.deepEqual([late.jobs[0].status, late.jobs[0].reviews[0].stale], ['partial', { lastRead: '2026-10-26T02:00:00.000Z' }]);
+  await tick('2026-10-27T04:00:00Z');
+  await tick('2026-10-27T16:00:00Z');
+  const stale = notes.filter((n) => n.dedupeKey.startsWith('reviews-stale:'));
+  assert.deepEqual(stale.map((n) => n.dedupeKey), ['reviews-stale:soomgo:20261027', 'reviews-stale:soomgo:20261027', 'reviews-stale:soomgo:20261028']);
+  assert.match(stale[0].body, /last soomgo review count was read at 2026-10-26T02:00:00.000Z/);
+});
+
+test('a platform never read counts its 24 hours from the first deferral', async () => {
+  const ledger = openLedger(':memory:');
+  assert.equal(staleReviews(ledger, 'soomgo', new Date('2026-10-27T03:00:00Z')), null);
+  ledger.addEvent({ kind: 'reviews.deferred', platform: 'soomgo', payload: {}, at: '2026-10-26T03:00:00.000Z' });
+  assert.deepEqual(staleReviews(ledger, 'soomgo', new Date('2026-10-27T03:00:00Z')), { lastRead: null });
+  assert.equal(staleReviews(ledger, 'soomgo', new Date('2026-10-27T02:59:00Z')), null);
 });
 
 test('the probe reads reviews as a read op and prints counts without words', async () => {

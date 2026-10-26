@@ -1,6 +1,7 @@
 // Reviews from platform evidence. A count rise on the seller profile is an event the operator must see
 // until the platform's review rows parse; a parsed row becomes one review signal for the job it belongs
 // to, keyed so a row read twice acts once (the money-key rule of src/deal/advance.mjs moneyKey).
+import { dayKey } from '../core/clock.mjs';
 import { notifyOperator } from '../core/notify.mjs';
 import { advance } from '../deal/index.mjs';
 import { loadDescriptor } from '../platforms/registry.mjs';
@@ -54,13 +55,27 @@ export function reviewSignals(rows, { jobs, threadOf, at = new Date().toISOStrin
   return { signals, unmatched };
 }
 
+// A platform whose counts have not been read for this long makes the hourly job partial and tells the
+// operator once a Seoul day, since the read share is a rolling hour that busy polls can spend before every
+// hourly mark, which would leave the counts deferred for good.
+export const REVIEWS_STALE_MS = 24 * 3_600_000;
+
+// {lastRead} when the platform's newest reviews.read is older than REVIEWS_STALE_MS, or when it was never
+// read and its first deferral is that old; null otherwise.
+export function staleReviews(ledger, platform, now) {
+  const lastRead = ledger.db.prepare("SELECT at FROM events WHERE kind = 'reviews.read' AND platform = ? ORDER BY id DESC LIMIT 1").get(platform)?.at ?? null;
+  const since = lastRead ?? ledger.db.prepare("SELECT at FROM events WHERE kind = 'reviews.deferred' AND platform = ? ORDER BY id LIMIT 1").get(platform)?.at ?? null;
+  return since && now.getTime() - Date.parse(since) >= REVIEWS_STALE_MS ? { lastRead } : null;
+}
+
 // The hourly job's review pass: one surface session per enabled platform whose surface has reviews?().
 // reviews() is its own sign-in check (a signed-out account reads no counts), so the pass loads no login
 // page. The read counts toward the session's hourly read share (descriptor pacing.readActionsPerHour) and
 // waits for the next hour when the share is spent, so it never takes the room the hour keeps for sends.
-// Entries: ok; deferred (share spent); unread (no count, with the surface's gap, so a parser that broke
-// for good is seen); failed (a throw). A stop that fails is kept on the entry instead of ending the job.
-// Parsed rows (U6.6) become review signals.
+// Entries: ok; deferred (share spent, written as a reviews.deferred event); unread (no count, with the
+// surface's gap, so a parser that broke for good is seen); failed (a throw). A stop that fails is kept on
+// the entry instead of ending the job. An entry other than ok on a platform unread for REVIEWS_STALE_MS
+// carries stale. Parsed rows (U6.6) become review signals.
 export async function recordReviews({ instance, ledger, now = new Date(), openSurface = defaultOpenSurface, notify = notifyOperator }) {
   const out = [];
   for (const [platform, cfg] of Object.entries(instance.config.platforms ?? {})) {
@@ -73,6 +88,7 @@ export async function recordReviews({ instance, ledger, now = new Date(), openSu
       const guard = surface.session?.guard;
       if (typeof guard?.readRoom === 'function' && guard.readRoom() <= 0) {
         entry = { platform, status: 'deferred', reason: "the hour's read share is spent; the next hourly pass reads the counts" };
+        ledger.addEvent({ kind: 'reviews.deferred', platform, payload: { reason: entry.reason } });
         continue;
       }
       const reviews = typeof guard?.reading === 'function' ? await guard.reading(() => surface.reviews()) : await surface.reviews();
@@ -98,6 +114,16 @@ export async function recordReviews({ instance, ledger, now = new Date(), openSu
       if (surface?.stop) {
         await surface.stop().catch((err) => {
           entry = { ...(entry ?? { platform, status: 'failed' }), stop: (err.code ? err.code + ' ' : '') + err.message };
+        });
+      }
+      const stale = entry && entry.status !== 'ok' ? staleReviews(ledger, platform, now) : null;
+      if (stale) {
+        entry = { ...entry, stale };
+        await notify(instance, {
+          kind: 'operator',
+          title: platform + ' review counts were not read for 24 hours',
+          body: (stale.lastRead ? 'The last ' + platform + ' review count was read at ' + stale.lastRead + '.' : platform + ' review counts were never read.') + ' The hourly review pass ' + (entry.status === 'deferred' ? 'waited each hour because the polls spent the hour\'s read share (descriptor pacing.readActionsPerHour)' : 'ended ' + entry.status + ': ' + (entry.gap ?? entry.reason ?? entry.stop)) + ', so a new review would go unseen. Check the platform\'s reviews by hand and record one with fsw deal <jobId> review --rating <1-5>.',
+          dedupeKey: 'reviews-stale:' + platform + ':' + dayKey(now),
         });
       }
       if (entry) out.push(entry);

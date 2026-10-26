@@ -10,8 +10,9 @@ import { isSystemNotice } from '../core/notices.mjs';
 
 // Outbox rows that hold a conversation: a reply or quote still in play. Payment requests and deliveries
 // do not hold it, since the customer may write while one waits (src/brain/approvals.mjs:55-56).
+// An unobserved row may already have gone out, so it holds its thread until the operator settles it.
 export const HOLDING_KINDS = ['message', 'quote'];
-export const HOLDING_STATUSES = ['planned', 'awaiting_operator', 'approved', 'sending'];
+export const HOLDING_STATUSES = ['planned', 'awaiting_operator', 'approved', 'sending', 'unobserved'];
 
 // The ledger event each park reason is counted under; the digest and the supply report read these kinds.
 const PARK_EVENTS = [['notice:', 'thread.system'], ['expired', 'thread.skipped'], ['stale:', 'thread.skipped'], ['catalog:', 'thread.operator']];

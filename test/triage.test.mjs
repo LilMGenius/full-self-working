@@ -124,7 +124,7 @@ test('observe mode returns observe for unread and read items', () => {
 
 test('an open message or quote row holds the thread; a pay_request or delivery row does not', () => {
   const ib = { kind: 'message', ref: 'h1', unread: true, at: hoursAgo(1) };
-  for (const status of ['planned', 'awaiting_operator', 'approved', 'sending']) {
+  for (const status of ['planned', 'awaiting_operator', 'approved', 'sending', 'unobserved']) {
     assert.deepEqual(triage(ib, null, ctx({ openOutbox: [{ id: 7, kind: 'quote', status }] })), { action: 'wait', reason: 'outbox item 7 is ' + status });
   }
   assert.equal(triage(ib, null, ctx({ openOutbox: [{ id: 8, kind: 'message', status: 'observed' }] })).action, 'open');

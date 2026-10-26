@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Adapted from DaedalGames/coggs-ai scripts/commit-range.mjs: retain its range and push
+// Adapted from an earlier private commit-range script: retain its range and push
 // fallback rules, resolving the canonical hook beside this installed file instead.
 import fs from 'node:fs';
 import os from 'node:os';

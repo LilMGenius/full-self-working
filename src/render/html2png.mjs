@@ -123,8 +123,16 @@ export async function openRenderer({ chrome = process.env.FSW_CHROME ?? DEFAULT_
     ws = await connect('ws://127.0.0.1:' + port + path);
     cdp = cdpClient(ws);
   } catch (err) {
-    proc.kill();
-    rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    // Chrome holds its profile files until it has exited, so the folder is removed after the exit, and a
+    // removal that still fails is attached to the startup error instead of replacing it.
+    if (proc.exitCode === null) proc.kill();
+    const deadline = Date.now() + 5000;
+    while (proc.exitCode === null && proc.signalCode === null && Date.now() < deadline) await sleep(50);
+    try {
+      rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    } catch (cleanup) {
+      err.cleanup = (cleanup.code ? cleanup.code + ' ' : '') + cleanup.message;
+    }
     throw err;
   }
 

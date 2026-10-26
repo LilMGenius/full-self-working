@@ -1,0 +1,177 @@
+{
+ "evaluate pageChats": [
+  {
+   "t": "array",
+   "of": [
+    {
+     "t": "object",
+     "k": {
+      "customer": {
+       "t": "string"
+      },
+      "hireStatus": {
+       "t": "null"
+      },
+      "id": {
+       "t": "number"
+      },
+      "lastMessage": {
+       "t": "string"
+      },
+      "lastType": {
+       "t": "string"
+      },
+      "newMessages": {
+       "t": "number"
+      },
+      "otherProHireStatus": {
+       "t": "null"
+      },
+      "quoteOpened": {
+       "t": "boolean"
+      },
+      "quotePrice": {
+       "t": "number"
+      },
+      "quoteUnit": {
+       "t": "string"
+      },
+      "region": {
+       "t": "string"
+      },
+      "requestObjectId": {
+       "t": "string"
+      },
+      "safePaymentId": {
+       "t": "null"
+      },
+      "safePaymentStatus": {
+       "t": "null"
+      },
+      "service": {
+       "t": "string"
+      },
+      "status": {
+       "t": "string"
+      },
+      "updatedAt": {
+       "t": "string"
+      }
+     }
+    },
+    {
+     "t": "object",
+     "k": {
+      "customer": {
+       "t": "string"
+      },
+      "hireStatus": {
+       "t": "string"
+      },
+      "id": {
+       "t": "number"
+      },
+      "lastMessage": {
+       "t": "string"
+      },
+      "lastType": {
+       "t": "string"
+      },
+      "newMessages": {
+       "t": "number"
+      },
+      "otherProHireStatus": {
+       "t": "null"
+      },
+      "quoteOpened": {
+       "t": "null"
+      },
+      "quotePrice": {
+       "t": "null"
+      },
+      "quoteUnit": {
+       "t": "null"
+      },
+      "region": {
+       "t": "null"
+      },
+      "requestObjectId": {
+       "t": "null"
+      },
+      "safePaymentId": {
+       "t": "number"
+      },
+      "safePaymentStatus": {
+       "t": "string"
+      },
+      "service": {
+       "t": "string"
+      },
+      "status": {
+       "t": "string"
+      },
+      "updatedAt": {
+       "t": "string"
+      }
+     }
+    }
+   ]
+  }
+ ],
+ "evaluate pageRequests": [
+  {
+   "t": "array",
+   "of": [
+    {
+     "t": "object",
+     "k": {
+      "address": {
+       "t": "string"
+      },
+      "category": {
+       "t": "array",
+       "of": [
+        {
+         "t": "string"
+        }
+       ]
+      },
+      "createdAt": {
+       "t": "string"
+      },
+      "customer": {
+       "t": "string"
+      },
+      "customerRequestCount": {
+       "t": "number"
+      },
+      "expiredAt": {
+       "t": "string"
+      },
+      "id": {
+       "t": "string"
+      },
+      "isQuotable": {
+       "t": "boolean"
+      },
+      "isRead": {
+       "t": "boolean"
+      },
+      "quoteCount": {
+       "t": "number"
+      },
+      "service": {
+       "t": "string"
+      },
+      "serviceId": {
+       "t": "number"
+      },
+      "summary": {
+       "t": "string"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

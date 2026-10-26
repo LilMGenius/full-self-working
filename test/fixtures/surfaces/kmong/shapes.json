@@ -1,0 +1,39 @@
+{
+ "evaluate pageInboxRows": [
+  {
+   "t": "array",
+   "of": [
+    {
+     "t": "object",
+     "k": {
+      "href": {
+       "t": "string"
+      },
+      "nickname": {
+       "t": "string"
+      },
+      "preview": {
+       "t": "string"
+      },
+      "time": {
+       "t": "string"
+      }
+     }
+    }
+   ]
+  }
+ ],
+ "evaluate pageSelectTab": [
+  {
+   "t": "object",
+   "k": {
+    "empty": {
+     "t": "boolean"
+    },
+    "ok": {
+     "t": "boolean"
+    }
+   }
+  }
+ ]
+}

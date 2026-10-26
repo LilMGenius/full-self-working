@@ -93,6 +93,7 @@ test('surface writes refuse without an authorize verdict of send and never touch
     }
     const q = await surface.quote('1', { amountKRW: 50000, text: '견적', authorized: { verdict: 'refuse' }, allowSpendCash: true });
     assert.equal(q.observed, false);
+    if (surface.payRequest) assert.deepEqual(await surface.payRequest('1', { amountKRW: 50000, approved: true, authorized: { verdict: 'operator' } }), { observed: false, reason: 'not authorized: a write needs the authorize() verdict send' });
     assert.deepEqual(s.log, []);
   }
 });

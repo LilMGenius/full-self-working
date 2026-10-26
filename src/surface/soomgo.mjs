@@ -38,7 +38,8 @@ export async function openSoomgoSurface({ session } = {}) {
     read: async (ref, { willReply = false, kind } = {}) => (readKind(kind) === 'request' ? threadOfRequest(await a.readRequest(ref)) : threadOfChat(await a.readThread(ref, { willReply }))),
     send: async (ref, { text, files = [], authorized } = {}) => (authorizedSend(authorized) ? receiptOf(await a.send(ref, { text, files, gate: { ok: true } })) : unauthorized()),
     quote: async (ref, { amountKRW, priceType = 'fixed', text, authorized, allowSpendCash = false, customer = null } = {}) => (authorizedSend(authorized) ? receiptOf(await a.quote(ref, { amountKRW, priceType, text, gate: { ok: true }, allowSpendCash, customer })) : unauthorized()),
-    payRequest: async (ref, { amountKRW, approved = false } = {}) => receiptOf(await a.payRequest(ref, { amountKRW, approved })),
+    // A payment request is operator only (approved) and, like every surface write, needs the authorize verdict.
+    payRequest: async (ref, { amountKRW, approved = false, authorized } = {}) => (authorizedSend(authorized) ? receiptOf(await a.payRequest(ref, { amountKRW, approved })) : unauthorized()),
     // soomgo has no order list: a hire is a chat row (Inbound.hired, from sense) and its 숨고페이 notices, so
     // orders gives the hired chat count without rows or counters, which raises no counter alert.
     orders: async () => ({ counts: null, total: (await a.orders()).length, gap: 'soomgo has no order list; hires are chat rows from sense', orders: null }),

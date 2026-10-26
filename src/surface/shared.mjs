@@ -11,11 +11,13 @@ export const receiptOf = (r) => ({
   ...(r?.reason ? { reason: r.reason } : {}),
 });
 
-// A write goes to the page only with authorize()'s verdict send; the 2c77326 adapters keep refusing
-// without gate.ok, which the surface sets only here.
+// Every surface write (send, quote, payRequest, propose) goes to the page only with authorize()'s verdict
+// send; the 2c77326 adapters keep refusing without gate.ok, which the surface sets only here, and payRequest
+// also needs approved.
 // Known gap: the token is the authorize() result itself and is bound to no outbox row or payload, so
-// in-process code could build one by hand; wp9 closes it with src/core/authz.mjs, whose {key, digest, mac}
-// over the row key and the text the drain sends is checked here.
+// in-process code could build one by hand for any of these writes, payRequest included; wp9 closes it with
+// src/core/authz.mjs, whose {key, digest, mac} over the row key and the text or amount the drain sends is
+// checked here.
 export const authorizedSend = (authorized) => authorized?.verdict === 'send';
 export const unauthorized = () => ({ observed: false, reason: 'not authorized: a write needs the authorize() verdict send' });
 

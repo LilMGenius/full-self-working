@@ -75,7 +75,7 @@ function callSurface(surface, row, verdict, approved, descriptor) {
   const text = textOf(row);
   // customer: soomgo observes the quote from its charge for this customer (e8ea6a6, 7b9524e; 003 Surface).
   if (row.kind === 'quote') return surface.quote(p.threadRef, { amountKRW: p.amountKRW, priceType: p.priceType ?? 'fixed', text, authorized: verdict, allowSpendCash: spendsCash(descriptor, p.thread?.kind), customer: p.customer ?? null });
-  if (row.kind === 'pay_request') return surface.payRequest(p.threadRef, { amountKRW: p.amountKRW, approved });
+  if (row.kind === 'pay_request') return surface.payRequest(p.threadRef, { amountKRW: p.amountKRW, approved, authorized: verdict });
   if (row.kind === 'proposal') return surface.propose(p.threadRef, { text, amountKRW: p.amountKRW, phases: p.proposal?.phases ?? [], files: p.files ?? [], authorized: verdict });
   return surface.send(p.threadRef, { text, files: row.kind === 'delivery' ? p.files ?? [] : [], authorized: verdict });
 }

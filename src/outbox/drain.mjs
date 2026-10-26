@@ -163,6 +163,14 @@ export async function drain(ledger, { platform, surface, authorize, ctx }) {
       continue;
     }
     if (verdict.verdict === 'operator') {
+      // An approved row comes back here only when no day's budget can pay it (budget.unpayable): it stays
+      // approved without holding newer quotes, and the operator rejects it or changes the caps.
+      if (approved) {
+        const reason = verdict.reasons.map((r) => r.detail).join('; ');
+        await notify({ kind: 'approval', title: platform + ' approved ' + row.kind + ' cannot be sent', body: reason + '\nreject: fsw approve ' + row.approvalId + ' --reject, or change the cash caps', dedupeKey: 'outbox-unpayable:' + row.id });
+        out.push({ id: row.id, kind: row.kind, action: 'operator', approvalId: row.approvalId, reason });
+        continue;
+      }
       const approvalId = newApprovalId(platform, now);
       const reason = verdict.reasons.filter((r) => !HOLD_RULES.includes(r.rule)).map((r) => r.detail).join('; ');
       if (!setStatus(ledger, row.id, { from: 'planned', to: 'awaiting_operator', verdict, reason, approvalId })) {

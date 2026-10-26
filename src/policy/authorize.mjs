@@ -98,10 +98,11 @@ export function authorize(item, ctx) {
     if (!approved && typeof stated === 'number' && typeof priceRow?.costFloorKRW === 'number' && stated < priceRow.costFloorKRW) operator.push(rule('budget.below_floor', 'the customer states ' + stated + ' KRW, under the ' + priceRow.costFloorKRW + ' KRW cost floor of ' + (d.service ?? 'the service')));
     if (spendsCash(descriptor, item.thread?.kind)) {
       const check = cashBudgetCheck({ budget: instance.config?.platforms?.[item.platform], usage, costKRW: item.costKRW });
-      // Refused only by the day's caps, the quote waits for a later day's budget with nobody asked (b223ed7);
-      // an approved quote always waits; anything else (no caps, an unread cost, a cost over the cap) is the
-      // operator's.
-      if (!check.ok) (approved || check.spent ? holds : operator).push(rule('budget.cash', 'cash quote refused: ' + check.reason));
+      // Only a refusal the day's caps alone caused waits, approved or not, for a later day's budget (b223ed7).
+      // No caps, an unread cost or one quote costing more than a whole day's cash can never be paid, so it is
+      // the operator's even after an approval; holding it would hold every newer cash quote with it.
+      if (!check.ok && check.spent) holds.push(rule('budget.cash', 'cash quote refused: ' + check.reason));
+      else if (!check.ok) operator.push(rule('budget.unpayable', 'cash quote refused: ' + check.reason));
     }
   }
   return { verdict: operator.length ? 'operator' : 'send', violations, warnings: g.warnings, reasons: [...operator, ...holds] };

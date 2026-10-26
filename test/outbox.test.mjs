@@ -345,3 +345,20 @@ test('a deferred quote whose service the instance stopped answering is left for 
   assert.match(out[0].reason, /landing_page_web is no longer answered on soomgo/);
   assert.equal(surface.count('quote'), 0);
 });
+
+test('an approved cash quote of unknown cost goes back to the operator without holding newer quotes, and can be rejected', async () => {
+  const s = setup('soomgo');
+  const unknown = plan(s.ledger, { platform: 'soomgo', threadId: s.thread('r1', 'request').id, kind: 'quote', payload: quotePayload({ costKRW: null, text: TEXT + ' unknown' }) });
+  const first = await s.run(scriptedSurface());
+  assert.equal(first[0].action, 'awaiting_operator');
+  assert.match(first[0].reason, /the quote cost was not read from the page/);
+  resolve(s.ledger, s.ledger.getOutbox(unknown.id).approvalId, { approve: true });
+  const known = plan(s.ledger, { platform: 'soomgo', threadId: s.thread('r2', 'request').id, kind: 'quote', payload: quotePayload({ costKRW: 300, text: TEXT + ' known' }) });
+  const surface = scriptedSurface({ receipts: { quote: [{ observed: true, cashSpentKRW: 300 }] } });
+  const out = await s.run(surface);
+  assert.deepEqual(out.map((x) => [x.id, x.action]), [[unknown.id, 'operator'], [known.id, 'observed']]);
+  assert.deepEqual(surface.calls.filter((c) => c.name === 'quote').map((c) => c.args.text), [TEXT + ' known']);
+  assert.equal(s.ledger.getOutbox(unknown.id).status, 'approved');
+  assert.ok(s.notes.some((n) => n.dedupeKey === 'outbox-unpayable:' + unknown.id));
+  assert.equal(resolve(s.ledger, s.ledger.getOutbox(unknown.id).approvalId, { approve: false, reason: 'cost unknown' }).status, 'rejected');
+});

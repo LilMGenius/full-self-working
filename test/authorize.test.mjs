@@ -86,11 +86,13 @@ test('cash caps: an approved quote over budget waits, one inside it sends, an un
   assert.equal(authorize(quote(), sctx(i, { usage: { quotes: 1, cashKRW: 1000 } })).verdict, 'send');
   const unknown = authorize(quote({ costKRW: null }), sctx(i));
   assert.equal(unknown.verdict, 'operator');
-  assert.match(unknown.reasons.find((r) => r.rule === 'budget.cash').detail, /the quote cost was not read from the page/);
+  assert.match(unknown.reasons.find((r) => r.rule === 'budget.unpayable').detail, /the quote cost was not read from the page/);
+  // An approval does not make an unknown cost payable.
+  assert.equal(authorize(quote({ costKRW: null }), sctx(i, { approved: true })).verdict, 'operator');
   const none = makeInstance((c) => ({ ...c, platforms: { ...c.platforms, soomgo: { ...c.platforms.soomgo, maxCashPerDay: undefined } } }));
   const nob = authorize(quote(), sctx(none));
   assert.equal(nob.verdict, 'operator');
-  assert.match(nob.reasons.find((r) => r.rule === 'budget.cash').detail, /no cash budget configured/);
+  assert.match(nob.reasons.find((r) => r.rule === 'budget.unpayable').detail, /no cash budget configured/);
 });
 
 test('a quote refused only by the daily caps is held for a later day with nobody asked, and one no day can pay asks the operator', () => {

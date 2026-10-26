@@ -11,7 +11,8 @@ import { transaction } from '../core/tx.mjs';
 export const TRANSITIONS = {
   planned: ['awaiting_operator', 'sending', 'blocked', 'stale'],
   awaiting_operator: ['approved', 'rejected', 'stale'],
-  approved: ['sending', 'blocked', 'stale'],
+  // An approved row nobody claimed yet can still be rejected (a cash quote no day can pay).
+  approved: ['sending', 'blocked', 'stale', 'rejected'],
   sending: ['observed', 'unobserved', 'planned', 'approved'],
   // unobserved leaves only by the operator's word (settleSent or resolve reject, fsw approve; 7b9524e).
   unobserved: ['observed', 'rejected'],

@@ -2,8 +2,9 @@
 // awaiting item (fsw approve). An edit stays on the same row as operator.finalText with operator.edited
 // true (003 Outbox), and drain authorizes and sends that text, as flushApprovals did
 // (src/pipeline/thread.mjs:215-224). Replaces resolveApproval (src/brain/approvals.mjs:61-76 at 2c77326).
-// A reject also closes a send the surface could not observe and the operator found not sent; settleSent
-// closes one the operator saw go out (fsw approve <id> --sent, settleSent of src/cli/approvals.mjs at 7b9524e).
+// A reject also closes a send the surface could not observe and the operator found not sent, and an
+// approved row the drain has not claimed (an approved cash quote no day can pay); settleSent closes one
+// the operator saw go out (fsw approve <id> --sent, settleSent of src/cli/approvals.mjs at 7b9524e).
 import { transaction } from '../core/tx.mjs';
 import { setStatus } from './plan.mjs';
 
@@ -16,7 +17,7 @@ export function resolve(ledger, approvalId, { approve, editedText, reason } = {}
   if (!row) throw Object.assign(new Error('no outbox item has approval id ' + approvalId), { code: 'FSW_OUTBOX_NO_APPROVAL' });
   const resolved = () => Object.assign(new Error('approval ' + approvalId + ' is already ' + ledger.getOutbox(row.id).status), { code: 'FSW_OUTBOX_RESOLVED' });
   const from = row.status;
-  if (from !== 'awaiting_operator' && !(from === 'unobserved' && approve === false)) throw resolved();
+  if (from !== 'awaiting_operator' && !(['unobserved', 'approved'].includes(from) && approve === false)) throw resolved();
   const edited = typeof editedText === 'string' && editedText.trim() ? editedText.trim() : null;
   const draft = row.payload.text ?? null;
   const operator = { resolvedAt: new Date().toISOString(), finalText: approve ? edited ?? draft : null, edited: approve && edited !== null && edited !== draft, resolutionReason: reason ?? null };

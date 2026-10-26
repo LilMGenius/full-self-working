@@ -218,6 +218,9 @@ export const REQUEST_FULL = 'FSW_SOOMGO_REQUEST_FULL';
 
 export async function openSoomgo({ session, sleep = wait } = {}) {
   const s = session ?? (await openSession('soomgo', { platform: 'soomgo', pacing: loadDescriptor('soomgo').pacing }));
+  // The chat rows inbox() listed in this session: orders() reads hires from them instead of loading the list
+  // again, since every page load counts against the account's hourly action cap (descriptor pacing).
+  let listed = null;
 
   const listChats = async ({ pages = 0, until } = {}) => {
     await s.navigate(`${BASE}/pro/chats`);
@@ -332,7 +335,8 @@ export async function openSoomgo({ session, sleep = wait } = {}) {
     },
 
     async inbox({ pages = 0 } = {}) {
-      return parseChats(await listChats({ pages }));
+      listed = parseChats(await listChats({ pages }));
+      return listed;
     },
 
     async readThread(id, { willReply = false } = {}) {
@@ -366,9 +370,10 @@ export async function openSoomgo({ session, sleep = wait } = {}) {
       return observed ? { sent: true, observed: true, observedSnippet: snip, text } : { sent: false, observed: false, reason: 'the sent text was not observed in the chat', observedSnippet: snip };
     },
 
-    // 숨고 has no order list; a hire shows as the chat's status.
+    // 숨고 has no order list; a hire shows as the chat's status, read from the rows this session's inbox()
+    // listed when it listed any (the poll senses first), else from a fresh list.
     async orders({ pages = 0 } = {}) {
-      return (await adapter.inbox({ pages })).filter((c) => c.status === 'hired' || c.hired);
+      return (listed ?? (await adapter.inbox({ pages }))).filter((c) => c.status === 'hired' || c.hired);
     },
 
     // 숨고페이 요청: opens the dialog from the chat header, types the amount and checks that the dialog holds

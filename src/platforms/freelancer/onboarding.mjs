@@ -26,6 +26,7 @@ export const STEPS = [
   { id: 'payment-verification', detect: { path: BASE + 'payment-verification', heading: /verify payment method/i } },
   { id: 'membership-offer', detect: { path: BASE + 'membership-offer', heading: /get plus membership today/i } },
   { id: 'experiences', detect: { path: BASE + 'experiences', heading: /add your experience/i } },
+  { id: 'references', detect: { path: BASE + 'references', heading: /add your references/i } },
 ];
 
 // A step is the wizard path after /new-freelancer/, since profile-details holds several pages.
@@ -228,6 +229,16 @@ HANDLERS['payment-verification'] = paymentVerification;
 
 // Mapped 2026-10-26: "Get Plus Membership today" offers a free month that bills $9.99 a month after;
 // onboarding takes no paid plan, so the step leaves by Skip.
+// Mapped 2026-10-26: "Add your references" sends an invitation e-mail to each address typed, with Back
+// and Finish. Writing to other people is never the script's, so the field stays empty and Finish
+// ends the wizard; the operator can request references later from the profile.
+HANDLERS.references = {
+  read: (s) => s.evaluate(() => document.querySelector('main input[type=text]')?.value ?? ''),
+  want: () => '',
+  same: (cur, want) => cur === want,
+  next: (s) => clickMatch(s, 'button, fl-button', /^Finish$/),
+};
+
 HANDLERS['membership-offer'] = {
   read: async () => 'declined',
   want: () => 'declined',

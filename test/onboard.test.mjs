@@ -190,6 +190,18 @@ test('freelancer experiences enters the newest current role that is not teaching
   assert.equal(page.end, '');
 });
 
+test('freelancer references invites nobody and leaves by Finish', async () => {
+  const h = FREELANCER.references;
+  assert.ok(FREELANCER_STEPS.some((s) => s.id === 'references'));
+  assert.ok(h.same('', h.want()));
+  assert.ok(!h.same('someone@example.com', h.want()));
+  assert.equal(h.write, undefined);
+  let spec;
+  await h.next({ evaluate: async (_fn, arg) => ((spec = arg.spec), true), click: async () => {} });
+  const re = new RegExp(spec.re, spec.flags);
+  assert.ok(re.test('Finish') && !re.test('Back'));
+});
+
 test('freelancer linked-accounts links nothing and leaves by Skip', async () => {
   const h = FREELANCER['linked-accounts'];
   assert.ok(FREELANCER_STEPS.some((s) => s.id === 'linked-accounts'));

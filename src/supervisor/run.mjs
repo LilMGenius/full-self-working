@@ -135,7 +135,11 @@ export function writeState(instance, state) {
 // The process holding pid now: {image, startedAt} or null when none does. On Windows the image is the
 // process name (node) and startedAt its start time as Windows reports it, '' when Windows will not say
 // (another user's elevated process); elsewhere only process.kill(pid, 0) answers, so both are null.
-export function processInfo(pid) {
+// A powershell.exe read that fails (a missing or blocked shell, a timeout) gives no start time, and the
+// image comes from tasklist, the 2c77326 rule; if that fails too the image is unknown (null), which
+// pidAlive counts as live, so acquireLock answers already running rather than taking a lock a live
+// supervisor may hold. exec is execFileSync, passed by tests.
+export function processInfo(pid, exec = execFileSync) {
   try {
     process.kill(pid, 0);
   } catch (err) {
@@ -143,10 +147,26 @@ export function processInfo(pid) {
   }
   if (process.platform !== 'win32') return { image: null, startedAt: null };
   const script = '$p = Get-Process -Id ' + pid + ' -ErrorAction SilentlyContinue; if ($p) { $p.ProcessName + "|" + $(if ($p.StartTime) { $p.StartTime.ToUniversalTime().ToString("o") } else { "" }) }';
-  const out = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', windowsHide: true }).trim();
+  let out;
+  try {
+    out = exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', windowsHide: true }).trim();
+  } catch {
+    return imageFromTasklist(pid, exec);
+  }
   if (!out) return null;
   const [image, startedAt] = out.split('|');
   return { image, startedAt: startedAt || null };
+}
+
+function imageFromTasklist(pid, exec) {
+  let out;
+  try {
+    out = exec('tasklist', ['/FI', 'PID eq ' + pid, '/FO', 'CSV', '/NH'], { encoding: 'utf8', windowsHide: true });
+  } catch {
+    return { image: null, startedAt: null };
+  }
+  const m = /^"([^"]+)","(\d+)"/m.exec(String(out));
+  return m && Number(m[2]) === pid ? { image: m[1], startedAt: null } : null;
 }
 
 // A lock holder is live while a node process holds its pid. Windows recycles pids quickly and this

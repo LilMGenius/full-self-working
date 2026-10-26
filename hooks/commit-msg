@@ -1,8 +1,11 @@
 #!/bin/sh
-# type(scope): problem, at most 72 ASCII characters; body lines are "- " bullets.
+# type(scope): problem, at most 72 ASCII characters; body lines are "- " bullets, and a final paragraph may hold
+# Co-authored-by trailers crediting a human whose pull request was squashed or carried, never a tool.
 # re0-git's commit-economy owns the form. Adapted from DaedalGames/coggs-ai hooks/commit-msg.
 # Measured 2026-10-18: three repositories enforced different subsets; 35/200 daedal-games
 # subjects and 113/200 on feat/gtg exceeded 72 characters. One floor copy prevents drift.
+# Measured 2026-10-27: a squash merge crediting a teammate's carried pull request turned
+# daedal-intro main red, because this hook rejected every trailer the form allows.
 msg=$1
 # git commit -v appends the diff under a scissors line; nothing below it is the message.
 text=$(sed '/^# -* >8 -*$/,$d' "$msg" | grep -v '^#')
@@ -31,7 +34,29 @@ if printf '%s\n' "$text" | LC_ALL=C grep -q '[^[:print:][:blank:]]'; then
   echo 'commit-msg: the message carries a non-ASCII byte; subject and body are English'
   exit 1
 fi
-stray=$(printf '%s\n' "$text" | sed '1d' | grep -v '^$' | grep -v '^- ' | sed -n '1p')
+body=$(printf '%s\n' "$text" | sed '1d')
+trailer='^[Cc]o-[Aa]uthored-[Bb]y: [^<>]+ <[^<> ]+@[^<> ]+>$'
+first=$(printf '%s\n' "$body" | grep -nE "$trailer" | sed -n '1s/:.*//p')
+if [ -n "$first" ]; then
+  after=$(printf '%s\n' "$body" | sed -n "$first,\$p" | grep -v '^$' | grep -vE "$trailer" | sed -n '1p')
+  if [ -n "$after" ]; then
+    echo 'commit-msg: trailers close the message; this line follows them'
+    echo "  $after"
+    exit 1
+  fi
+  before=$(printf '%s\n' "$body" | sed -n "$((first - 1))p")
+  if [ -n "$before" ]; then
+    echo 'commit-msg: a blank line separates the trailers from the bullets'
+    exit 1
+  fi
+  tool=$(printf '%s\n' "$body" | grep -E "$trailer" | grep -Ei 'noreply@anthropic\.com|\[bot\]|by: (claude|codex|copilot|chatgpt|gemini|cursor|devin)( |<)' | sed -n '1p')
+  if [ -n "$tool" ]; then
+    echo 'commit-msg: a co-author trailer credits a tool; only a human whose pull request was squashed or carried is credited'
+    echo "  $tool"
+    exit 1
+  fi
+fi
+stray=$(printf '%s\n' "$body" | grep -v '^$' | grep -v '^- ' | grep -vE "$trailer" | sed -n '1p')
 if [ -n "$stray" ]; then
   echo 'commit-msg: every body line is one "- " bullet; this one is a wrapped line or a trailer'
   echo "  $stray"

@@ -3,7 +3,7 @@
 // to, keyed so a row read twice acts once (the money-key rule of src/deal/advance.mjs moneyKey).
 import { dayKey } from '../core/clock.mjs';
 import { notifyOperator } from '../core/notify.mjs';
-import { advance } from '../deal/index.mjs';
+import { advance, jobsOfThread, minuteKey } from '../deal/index.mjs';
 import { loadDescriptor } from '../platforms/registry.mjs';
 import { hasSurface, openSurface as defaultOpenSurface } from '../surface/index.mjs';
 import { applyEffects } from './effects.mjs';
@@ -38,6 +38,27 @@ export function matchReview(row, jobs, threadOf) {
   if (!fits.length) return null;
   if (fits.length > 1 && fits[0].deliveredAt === fits[1].deliveredAt) return null;
   return fits[0];
+}
+
+// The chat notice that a client posted a review (src/core/notices.mjs, event review) names no job and
+// carries no rating or text, so it is no review signal: the deal refuses a review without a job id. It is
+// recorded once under its own key, keyed like the money notices by thread and minute so every later poll
+// of the same row does nothing, and the operator is told once which job to record it on: the delivered or
+// closed jobs of the thread that have no review yet. Returns the notify effects for the loop to carry out.
+export function reviewPosted(ledger, { platform, thread, signal }) {
+  const key = platform + ':' + thread.externalId + ':review_posted:' + (minuteKey(signal.at) ?? 'undated');
+  if (ledger.db.prepare("SELECT 1 FROM events WHERE kind = 'review.posted' AND ref = ?").get(key)) return [];
+  const candidates = jobsOfThread(ledger, platform, thread.id).filter((j) => ['delivered', 'closed'].includes(j.status) && !ledger.jobReviews(j.id).length);
+  ledger.addEvent({ kind: 'review.posted', platform, ref: key, payload: { thread: thread.externalId, at: signal.at ?? null, candidates: candidates.map((j) => j.id) } });
+  const verb = (id) => 'fsw deal ' + id + ' review --rating <1-5> --text "..."';
+  const where = 'a client posted a review on ' + thread.externalId;
+  const [one] = candidates;
+  const note = candidates.length === 1
+    ? { title: platform + ': ' + where + ' for job ' + one.id, body: where + ' for job ' + one.id + '; record it with ' + verb(one.id) + '\nThe notice carries no rating or text, so no review was recorded.' }
+    : candidates.length
+      ? { title: platform + ': ' + where + '; ' + candidates.length + ' jobs could be the one reviewed', body: where + '. Read the review on the platform and record it on the job it rates:\n' + candidates.map((j) => '- ' + verb(j.id) + ' (' + j.status + ', delivered ' + (j.deliveredAt ?? 'unknown') + ')').join('\n') }
+      : { title: platform + ': ' + where + '; no delivered job there lacks a review', body: where + ', and no delivered or closed job of that thread is without a review. Read it on the platform; if it rates a job fsw knows, record it with ' + verb('<jobId>') + '.' };
+  return [{ type: 'notify', note: { kind: 'order', ...note, dedupeKey: key } }];
 }
 
 // ReviewRow[] -> review signals for advance, plus the rows no job matched.

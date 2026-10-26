@@ -124,6 +124,48 @@ test('an unread chat whose row carries a money notice is recorded from the row a
   assert.equal(s.ledger.listOutbox({ kinds: ['pay_request'] })[0].status, 'awaiting_operator');
 });
 
+// The chat notice that a client posted a review carries no rating or text and names no job, so the step
+// records it once and asks the operator to enter the review with fsw deal.
+const REVIEW_POSTED = '고객님의 리뷰가 등록되었습니다';
+function reviewThread(s, jobs) {
+  const t = s.ledger.upsertThread({ platform: 'soomgo', externalId: 'rv', kind: 'message' });
+  for (const [id, status, deliveredAt] of jobs) s.ledger.upsertJob({ id, threadId: t.id, platform: 'soomgo', service: 'landing_page_web', status, priceKRW: 100000, deliveredAt });
+  return scriptedSurface({ sense: [inbound('soomgo', 'rv', { preview: REVIEW_POSTED, notice: REVIEW_POSTED, at: hoursBefore(NOON, 1) })] });
+}
+const reviewNotes = (s) => s.notes.filter((n) => n.dedupeKey?.includes(':review_posted:'));
+
+test('a posted-review notice read on three polls is recorded once, tells the operator once and writes no review', async () => {
+  const s = setup();
+  const surface = reviewThread(s, [['soomgo-rv', 'delivered', hoursBefore(NOON, 30)]]);
+  for (let i = 0; i < 3; i++) await s.run('soomgo', surface);
+  assert.equal(s.events('review.posted').length, 1);
+  assert.equal(reviewNotes(s).length, 1);
+  assert.deepEqual([s.ledger.jobReviews('soomgo-rv').length, s.events('deal.refused').length, s.ledger.listMoneyEvents({ event: 'review' }).length], [0, 0, 0]);
+});
+
+test('a posted-review notice names the one delivered job without a review', async () => {
+  const s = setup();
+  const surface = reviewThread(s, [['old', 'closed', hoursBefore(NOON, 300)], ['new', 'delivered', hoursBefore(NOON, 30)]]);
+  s.ledger.addReview({ jobId: 'old', platform: 'soomgo', rating: 5, text: 'x', liked: null });
+  await s.run('soomgo', surface);
+  const [n] = reviewNotes(s);
+  assert.equal(n.title, 'soomgo: a client posted a review on rv for job new');
+  assert.match(n.body, /^a client posted a review on rv for job new; record it with fsw deal new review --rating <1-5> --text "\.\.\."/);
+});
+
+test('a posted-review notice lists every candidate when two jobs could be the one reviewed, and says so when none is', async () => {
+  const s = setup();
+  const surface = reviewThread(s, [['old', 'closed', hoursBefore(NOON, 300)], ['new', 'delivered', hoursBefore(NOON, 30)]]);
+  await s.run('soomgo', surface);
+  const [n] = reviewNotes(s);
+  assert.equal(n.title, 'soomgo: a client posted a review on rv; 2 jobs could be the one reviewed');
+  assert.match(n.body, /fsw deal old review --rating <1-5>/);
+  assert.match(n.body, /fsw deal new review --rating <1-5>/);
+  const none = setup();
+  await none.run('soomgo', reviewThread(none, []));
+  assert.equal(reviewNotes(none)[0].title, 'soomgo: a client posted a review on rv; no delivered job there lacks a review');
+});
+
 test('a revision decision on a delivered thread reopens its job', async () => {
   const s = setup();
   const t = s.ledger.upsertThread({ platform: 'kmong', externalId: 'k1', kind: 'message' });

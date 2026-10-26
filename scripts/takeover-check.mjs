@@ -8,7 +8,8 @@
 // command line runs bin/fsw.mjs run, or runs from the deploy worktree); no gap between supervisor.tick events since --since, the
 // newest tick before --since and the trailing gap to now included (so the gap a handover opens right at
 // --since counts), exceeds --gap-min; the newest tick ran --expect (its code field, or for a
-// 2c77326 tick, which has none, the newest handover or the deploy HEAD); and supervisor.log since --since
+// 2c77326 tick, which has none, the newest handover or the deploy HEAD); at least one tick the expected code
+// ran answered its poll in full or in part; and supervisor.log since --since
 // parses into exactly --moves ordered handover transactions, --restarts restarts and --imports approval
 // import lines. Writes nothing. Exit 1 names each failure; 2 is a usage error.
 import { DatabaseSync } from 'node:sqlite';
@@ -128,6 +129,11 @@ export function evaluate(s, o) {
   if (!newest) f.push('no supervisor.tick event since ' + o.since);
   if (worst != null && worst > o.gapMin) f.push('a ' + worst.toFixed(1) + ' min gap between supervisor ticks (the last gap runs to now)');
   if (newest && !s.expect.startsWith(ranBy)) f.push('the newest tick ran ' + short(ranBy) + ', expected ' + short(s.expect));
+  // Ticks keep coming while every poll fails (2026-10-27: no_browser_connected after the move), so the
+  // ticks the expected code ran must include one whose poll answered, in full or in part.
+  const ran = s.ticks.filter((t) => t.code && s.expect.startsWith(t.code));
+  const pollFailed = (t) => Array.isArray(t.jobs) && t.jobs.includes('poll:failed');
+  if (ran.length && ran.every(pollFailed)) f.push('every tick since the handover failed its poll (' + ran.length + ' of ' + ran.length + ')');
   if (parsed.moves.length !== o.moves) f.push(parsed.moves.length + ' handovers since ' + o.since + ', expected ' + o.moves);
   if (o.moves > 0 && parsed.moves.length && !parsed.restartAfterMove && !s.expect.startsWith(parsed.moves.at(-1).to)) f.push('the newest handover moved to ' + parsed.moves.at(-1).to + ', expected ' + short(s.expect));
   if (s.from && parsed.moves.length && !s.from.startsWith(parsed.moves[0].from)) f.push('the first handover started at ' + parsed.moves[0].from + ', expected ' + short(s.from));
@@ -135,7 +141,7 @@ export function evaluate(s, o) {
   if (parsed.imports !== o.imports) f.push(parsed.imports + ' approval import lines since ' + o.since + ', expected ' + o.imports);
   if (o.takeovers != null && s.takeovers.length !== o.takeovers) f.push(s.takeovers.length + ' takeover events, expected ' + o.takeovers);
   if (o.takeovers != null && o.takeovers > 0 && s.takeovers.length && s.takeovers.at(-1).to !== s.expect) f.push('the newest takeover event names ' + s.takeovers.at(-1).to + ', expected ' + s.expect);
-  const report = { main: short(s.main), deploy: short(s.deploy), expect: short(s.expect), lockPid: s.lockPid, lockAlive: s.lockAlive, taskState: s.taskState, version: s.version, takeovers: s.takeovers, tickBeforeSince: s.before != null ? new Date(s.before).toISOString() : null, ticks: s.ticks.length, worstGapMin: worst, trailingGapMin: tickGaps.at(-1) ?? null, ranBy: short(ranBy), moves: parsed.moves, restarts: parsed.restarts, imports: parsed.imports, logLinesSince: s.lines.slice(-12) };
+  const report = { main: short(s.main), deploy: short(s.deploy), expect: short(s.expect), lockPid: s.lockPid, lockAlive: s.lockAlive, taskState: s.taskState, version: s.version, takeovers: s.takeovers, tickBeforeSince: s.before != null ? new Date(s.before).toISOString() : null, ticks: s.ticks.length, newestJobs: newest?.jobs ?? null, worstGapMin: worst, trailingGapMin: tickGaps.at(-1) ?? null, ranBy: short(ranBy), moves: parsed.moves, restarts: parsed.restarts, imports: parsed.imports, logLinesSince: s.lines.slice(-12) };
   return { report, failures: f };
 }
 
@@ -177,7 +183,10 @@ export function read(a, now = Date.now(), { commandLine = commandLineOf } = {}) 
     db.exec('PRAGMA busy_timeout = 5000');
     version = db.prepare('PRAGMA user_version').get().user_version;
     takeovers = db.prepare("SELECT at, payload FROM events WHERE kind = 'takeover' ORDER BY id").all().map((r) => ({ at: r.at, ...JSON.parse(r.payload ?? '{}') }));
-    ticks = db.prepare("SELECT at, payload FROM events WHERE kind = 'supervisor.tick' AND at >= ? ORDER BY at").all(new Date(since).toISOString()).map((r) => ({ at: Date.parse(r.at), code: JSON.parse(r.payload ?? '{}')?.code ?? null }));
+    ticks = db.prepare("SELECT at, payload FROM events WHERE kind = 'supervisor.tick' AND at >= ? ORDER BY at").all(new Date(since).toISOString()).map((r) => {
+      const p = JSON.parse(r.payload ?? '{}') ?? {};
+      return { at: Date.parse(r.at), code: p.code ?? null, jobs: Array.isArray(p.jobs) ? p.jobs : null };
+    });
     const prior = db.prepare("SELECT at FROM events WHERE kind = 'supervisor.tick' AND at < ? ORDER BY at DESC LIMIT 1").get(new Date(since).toISOString());
     before = prior ? Date.parse(prior.at) : null;
   } finally {

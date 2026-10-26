@@ -267,3 +267,16 @@ test('--since handover resolves to the tick before the newest handover and that 
   // A line shaped like a tick but carrying no time (a wrapped or pasted line) is never the window's start.
   assert.equal(newestHandover([at(1) + ' tick poll:ok failures=0', 'pasted tick poll:ok failures=0', ...handover(A, B, 3).slice(1)]).since, at(1));
 });
+
+
+test('a handover whose ticks all failed their poll fails the check, and one poll that answered passes it', () => {
+  // 2026-10-27: every poll after the move failed on no_browser_connected while the ticks kept coming.
+  const failed = { jobs: ['poll:failed', 'orders:ok'] };
+  const ticks = [{ at: T0, code: A, jobs: ['poll:ok'] }, { at: T0 + 5 * 60_000, code: B, ...failed }, { at: T0 + 10 * 60_000, code: B, ...failed }];
+  assert.deepEqual(failuresOf({ ticks }), ['every tick since the handover failed its poll (2 of 2)']);
+  // The tick before the move is the old code's; only ticks the new code ran are counted.
+  const answered = [ticks[0], ticks[1], { at: T0 + 10 * 60_000, code: B, jobs: ['poll:partial', 'orders:ok'] }];
+  assert.deepEqual(failuresOf({ ticks: answered }), []);
+  // A tick written before ticks carried jobs counts as answered rather than as a failure.
+  assert.deepEqual(failuresOf({ ticks: [ticks[0], { at: T0 + 5 * 60_000, code: B }] }), []);
+});

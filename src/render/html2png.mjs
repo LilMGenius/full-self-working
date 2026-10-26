@@ -422,6 +422,13 @@ export async function openRenderer({ chrome = process.env.FSW_CHROME ?? DEFAULT_
       await exitWithin(left());
     }
     ws?.close();
+    // A browser still alive past the deadline still holds its profile, and removing the folder now could only
+    // strip files out from under it, so the folder is left to a later sweep and the leftover names the live pid.
+    if (!exited(proc)) {
+      const kept = { removed: false, profile, error: 'browser pid ' + proc.pid + ' did not exit within the close deadline; its profile is left for the next sweep', ended: [] };
+      onLeftover(kept);
+      return kept;
+    }
     return release({ waited: true, treeWaitMs: Math.min(TREE_WAIT_MS, left()) });
   }
 

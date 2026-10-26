@@ -5,15 +5,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { basename } from 'node:path';
 import { DEFAULT_CHROME, openRenderer, releaseProfile } from '../src/render/html2png.mjs';
 import { tempDir } from './tmp.mjs';
 
 const GRACE_MS = 500;
 const EXIT_WAIT_MS = 1500;
-// The release after the deadline tries a held folder three times, 500 ms apart. The slack covers timer
-// lag and the removal attempts themselves: under two concurrent full suites one close took 4,506 ms
+// A close past its deadline leaves the live browser's folder alone and returns. The slack covers timer
+// lag and the warnings around the waits: under two concurrent full suites one close took 4,506 ms
 // against grace, exit wait and retries of 3,000 ms. 6507383 never returned here, and running the second
 // kill pass again costs 5 s more, so the slack still tells both apart.
 const CEILING_MS = GRACE_MS + EXIT_WAIT_MS + 1000 + 3000;
@@ -47,11 +47,17 @@ function endTree(pid) {
 test('close returns within its deadline when the browser never answers and survives every kill', { skip: !existsSync(process.env.FSW_CHROME ?? DEFAULT_CHROME) && 'Chrome not installed', timeout: 180000 }, async () => {
   const root = tempDir('fsw-renderroot-');
   const warned = [];
+  const removals = [];
+  const leftovers = [];
   const renderer = await openRenderer({
     tempRoot: root,
     kill: async () => {},
     processes: async () => [],
-    onLeftover: () => {},
+    remove: (dir) => {
+      removals.push(dir);
+      rmSync(dir, { recursive: true, force: true });
+    },
+    onLeftover: (left) => leftovers.push(left),
     warn: (what, err) => warned.push(what + ': ' + err.message),
     closeGraceMs: GRACE_MS,
     exitWaitMs: EXIT_WAIT_MS,
@@ -72,6 +78,11 @@ test('close returns within its deadline when the browser never answers and survi
   }
   assert.ok(closed && elapsed < CEILING_MS, 'close took ' + elapsed + ' ms against a ' + CEILING_MS + ' ms ceiling' + (closed ? '' : ' and never returned'));
   assert.ok(warned.some((w) => /^closing browser pid \d+ of .*: the browser exit did not answer within \d+ ms$/.test(w)), warned.join(' | '));
+  // The live browser's profile is left alone, and the leftover names the pid instead of a bare EPERM.
+  assert.equal(closed.removed, false);
+  assert.match(closed.error, /^browser pid \d+ did not exit within the close deadline/);
+  assert.deepEqual(removals, [], 'close removed nothing while the browser was alive');
+  assert.deepEqual(leftovers.map((l) => l.error), [closed.error]);
   assert.equal((await releaseProfile(renderer.profile)).removed, true);
   assert.equal(existsSync(renderer.profile), false);
 });

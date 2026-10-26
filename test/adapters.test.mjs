@@ -373,6 +373,15 @@ test('soomgo quote is observed from its 견적 발송 charge in 충전/사용 �
   assert.deepEqual([q.observed, q.cashSpentKRW], [true, 4490]);
 });
 
+test('a smart quote charge never passes for the press of fsw\'s own quote, with or without a customer', () => {
+  const text = ['스마트견적 발송 - 고객B', '2026-10-26 21:00:05', '-1,990캐시', '견적 발송 - 고객A', '2026-10-26 20:59:40', '-4,490캐시', '스마트견적 발송 - 고객A', '2026-10-26 20:59:10', '-2,990캐시'].join('\n');
+  const rows = soomgo.parseCashHistory(text);
+  const since = Date.parse('2026-10-26T20:59:00+09:00');
+  assert.deepEqual(soomgo.quoteCharge(rows, { since }), { what: '견적 발송', customer: '고객A', at: '2026-10-26T20:59:40+09:00', amountKRW: -4490 });
+  assert.equal(soomgo.quoteCharge(rows, { since: Date.parse('2026-10-26T21:05:00+09:00') }), null);
+  assert.equal(soomgo.quoteCharge(rows.filter((r) => r.what !== '견적 발송'), { since, customer: '고객A' }), null);
+});
+
 test('soomgo quote is not observed from another customer\'s charge or one older than the press, and stays counted as pressed', async () => {
   const other = sentQuoteSession(['견적 발송 - 고객B', seoulStamp(), '-5,890캐시'].join('\n'));
   const q = await (await openSoomgo({ session: other, sleep: async () => {} })).quote('req1', quoteArgs);

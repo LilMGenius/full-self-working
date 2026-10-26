@@ -191,9 +191,10 @@ export function parseCashHistory(text) {
 }
 
 // The charge a quote press made: the newest 견적 발송 row at or after the press, less a margin for clock
-// drift, and for the customer when the caller names one.
+// drift, and for the customer when the caller names one. The label is matched whole, since the smart quote
+// campaign's own charges read 스마트견적 발송 and are never fsw's press.
 export function quoteCharge(rows, { since, customer = null, marginMs = 180_000 }) {
-  return rows.find((r) => /견적 발송$/.test(r.what) && Date.parse(r.at) >= since - marginMs && (!customer || r.customer === squash(customer))) ?? null;
+  return rows.find((r) => r.what === '견적 발송' && Date.parse(r.at) >= since - marginMs && (!customer || r.customer === squash(customer))) ?? null;
 }
 
 // /mypage body text: the cash balance sits after 스토어, the payback after 이번 달 페이백.

@@ -12,6 +12,7 @@ const VERBS = {
   approve: 'approve [list] | approve <id> [--text "..."] | approve <id> --reject [--reason "..."] | approve <id> --sent [--cost <KRW>] | approve show <id>: answer an outbound item waiting for you, or settle a send the surface could not observe',
   deal: 'deal list | deal <jobId> permission granted|denied | deal <jobId> review --rating <1-5>: record what the client said on the platform',
   job: 'job run|check <id>: run a paid job through its recipe, or re-run its acceptance checks; job handoff <id> <step> [file ...]: record an operator step with its files',
+  evidence: 'evidence first-outbound [--since <iso>]: the first item v0 sent and read back on a real thread',
   probe: 'probe <platform> <op>: one read operation of a platform surface (login, sense, read, orders, supply)',
   market: 'market [platform...]: refresh market samples',
   price: 'rebuild the price table',
@@ -24,7 +25,7 @@ const VERBS = {
   help: 'show this help',
 };
 
-const HANDLERS = { init: 'init', profile: 'profile', doctor: 'doctor', settings: 'settings', status: 'status', tick: 'tick', run: 'run', schedule: 'schedule', approve: 'approvals', deal: 'deal', job: 'job', probe: 'probe', market: 'market', price: 'price', publish: 'publish', listings: 'listings', projects: 'projects', services: 'services', edits: 'edits', onboard: 'onboard' };
+const HANDLERS = { init: 'init', profile: 'profile', doctor: 'doctor', settings: 'settings', status: 'status', tick: 'tick', run: 'run', schedule: 'schedule', approve: 'approvals', deal: 'deal', job: 'job', evidence: 'evidence', probe: 'probe', market: 'market', price: 'price', publish: 'publish', listings: 'listings', projects: 'projects', services: 'services', edits: 'edits', onboard: 'onboard' };
 
 function help() {
   console.log('usage: fsw <verb> [args]\n');

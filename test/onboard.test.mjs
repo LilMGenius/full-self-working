@@ -168,13 +168,17 @@ test('freelancer experiences enters the newest current role that is not teaching
   const h = FREELANCER.experiences;
   const page = { title: '', company: '', start: '', end: '', current: false };
   const ids = { '#TitleInputId': 'title', '#CompanyInputId': 'company', '#StartDateInputId': 'start', '#EndDateInputId': 'end' };
+  // The inputs refuse the focus call and take focus from a click; keys go to the focused field.
+  let active = null;
   const session = {
     evaluate: async (fn, arg) => {
       if (arg?.spec) { if (/currently working/.test(arg.spec.re ?? '')) page.current = true; return true; }
+      if (typeof arg === 'string' && arg.endsWith('InputId')) return /value\.length/.test(String(fn)) ? page[ids['#' + arg]].length : active === '#' + arg;
       return arg?.selector ? true : { ...page };
     },
-    click: async () => {},
-    typeKeys: async (sel, text) => { page[ids[sel]] = text; },
+    click: async (sel) => { if (ids[sel]) active = sel; },
+    typeKeys: async () => { throw new Error('Element is not focusable'); },
+    session: { press: async (key) => { const k = ids[active]; if (key === 'Backspace') page[k] = page[k].slice(0, -1); else if (key !== 'End') page[k] += key === 'Space' ? ' ' : key; } },
   };
   await h.write(session, want, await h.read(session));
   assert.ok(h.same(await h.read(session), want));

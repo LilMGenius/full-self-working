@@ -251,6 +251,23 @@ export function firstExperience(profile) {
 
 // Mapped 2026-10-26: #TitleInputId, #CompanyInputId, #StartDateInputId and #EndDateInputId (MM/DD/YYYY)
 // and an "I'm currently working in this role" checkbox, with Add another role, Skip and Next.
+// The inputs carry tabindex -1, so the engine's focus call refuses them ("Element is not focusable")
+// while a click focuses them; each is clicked and its keys go to the focused field, counted as one
+// action and paced like typing.
+export async function typeIntoClicked(s, selector, text, { keyGapMs = [80, 220], wait = sleep } = {}) {
+  const id = selector.replace(/^#/, '');
+  await s.click(selector);
+  if (!(await waitFor(s, (id) => document.activeElement?.id === id, id, { timeoutMs: 5000 }))) throw new Error(selector + ' took no focus from a click');
+  s.guard?.beforeAction();
+  const keys = s.session;
+  const len = await s.evaluate((id) => document.getElementById(id)?.value.length ?? 0, id);
+  await keys.press('End');
+  for (let i = 0; i < len; i++) await keys.press('Backspace');
+  for (const ch of String(text)) {
+    await keys.press(ch === ' ' ? 'Space' : ch);
+    await wait(keyGapMs[0] + Math.random() * (keyGapMs[1] - keyGapMs[0]));
+  }
+}
 HANDLERS.experiences = {
   read: (s) => s.evaluate(() => {
     const v = (id) => document.querySelector('#' + id)?.value ?? '';
@@ -264,11 +281,11 @@ HANDLERS.experiences = {
   },
   same: (cur, want) => norm(cur.title) === norm(want.title) && norm(cur.company) === norm(want.company) && cur.start === want.start && cur.current === want.current && (want.current || cur.end === want.end),
   write: async (s, want, cur) => {
-    if (norm(cur.title) !== norm(want.title)) await typeInto(s, '#TitleInputId', want.title);
-    if (norm(cur.company) !== norm(want.company)) await typeInto(s, '#CompanyInputId', want.company);
-    if (cur.start !== want.start) await typeInto(s, '#StartDateInputId', want.start);
+    if (norm(cur.title) !== norm(want.title)) await typeIntoClicked(s, '#TitleInputId', want.title);
+    if (norm(cur.company) !== norm(want.company)) await typeIntoClicked(s, '#CompanyInputId', want.company);
+    if (cur.start !== want.start) await typeIntoClicked(s, '#StartDateInputId', want.start);
     if (cur.current !== want.current) await clickMatch(s, 'fl-checkbox label, label', /^I'm currently working in this role$/);
-    if (!want.current && cur.end !== want.end) await typeInto(s, '#EndDateInputId', want.end);
+    if (!want.current && cur.end !== want.end) await typeIntoClicked(s, '#EndDateInputId', want.end);
   },
 };
 

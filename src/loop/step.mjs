@@ -89,7 +89,13 @@ export async function step(platform, ctx) {
     for (const ib of inbound) {
       const row = ledger.upsertThread({ platform, externalId: String(ib.ref), kind: ib.kind ?? 'message', customer: ib.customer ?? undefined });
       rows.set(String(ib.ref), row);
-      for (const s of moneyToSignals({ platform, threadId: row.id, inbound: ib, now })) applyAdvance(s);
+      // One row whose money signal throws is that row's error, never the whole platform's every tick.
+      try {
+        for (const s of moneyToSignals({ platform, threadId: row.id, inbound: ib, now })) applyAdvance(s);
+      } catch (err) {
+        result.errors.push({ ref: String(ib.ref), code: err.code ?? null, message: err.message });
+        event('thread.error', String(ib.ref), { code: err.code ?? null, message: err.message, stage: 'money' });
+      }
     }
     // The settings every park of this pass is decided under (22fbb4b): a park holds only while they do.
     const key = parkKey(instance.config, descriptor);

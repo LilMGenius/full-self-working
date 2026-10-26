@@ -275,3 +275,22 @@ test('an expired request whose thread has a quoted job loses the job', async () 
   assert.equal(s.ledger.listQuotes()[0].status, 'expired');
   assert.equal(s.events('thread.skipped').length, 1);
 });
+
+test('a list row whose money signal throws is recorded as that row\'s error and the other rows still run', async () => {
+  const s = setup();
+  const t = s.ledger.upsertThread({ platform: 'soomgo', externalId: 'bad', kind: 'message' });
+  advance(s.ledger, { type: 'quote_observed', platform: 'soomgo', threadId: t.id, at: hoursBefore(NOON, 3), amountKRW: 300000, evidence: { service: 'landing_page_web' } }, { instance: s.instance, descriptor: loadDescriptor('soomgo'), now: NOON });
+  const real = s.ledger.addMoneyEvent;
+  s.ledger.addMoneyEvent = (e) => {
+    if (e.threadId === t.id) throw Object.assign(new Error('disk I/O error'), { code: 'ERR_SQLITE_ERROR' });
+    return real(e);
+  };
+  const surface = scriptedSurface({ sense: [inbound('soomgo', 'bad', { preview: NOTICE.hired, notice: NOTICE.hired }), inbound('soomgo', 'ok', { service: '웹 개발' })], threads: (ref) => chat('soomgo', ref, '웹 개발 문의드립니다') });
+  const r = await s.run('soomgo', surface);
+  assert.equal(r.status, 'partial');
+  assert.deepEqual(r.errors.map((e) => [e.ref, e.code]), [['bad', 'ERR_SQLITE_ERROR']]);
+  assert.equal(s.ledger.getJob('soomgo-bad').status, 'quoted');
+  assert.equal(r.outbox.observed, 1);
+  assert.equal(s.events('thread.error').at(-1).stage, 'money');
+});
+

@@ -9,7 +9,7 @@
 // newest tick before --since and the trailing gap to now included (so the gap a handover opens right at
 // --since counts), exceeds --gap-min; the newest tick ran --expect (its code field, or for a
 // 2c77326 tick, which has none, the newest handover or the deploy HEAD); at least one tick the expected code
-// ran answered its poll in full or in part; and supervisor.log since --since
+// ran answered its poll in full or in part, and so did one of its newest STUCK_POLLS ticks; and supervisor.log since --since
 // parses into exactly --moves ordered handover transactions, --restarts restarts and --imports approval
 // import lines. Writes nothing. Exit 1 names each failure; 2 is a usage error.
 import { DatabaseSync } from 'node:sqlite';
@@ -18,7 +18,7 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
-import { pidAlive } from '../src/supervisor/run.mjs';
+import { STUCK_POLLS, pidAlive } from '../src/supervisor/run.mjs';
 
 // 003 "supervisor.log lines and the tick event": the lines runSupervisor logs at 2c77326 and at v0.
 export const FORMATS = {
@@ -134,6 +134,10 @@ export function evaluate(s, o) {
   const ran = s.ticks.filter((t) => t.code && s.expect.startsWith(t.code));
   const pollFailed = (t) => Array.isArray(t.jobs) && t.jobs.includes('poll:failed');
   if (ran.length && ran.every(pollFailed)) f.push('every tick since the handover failed its poll (' + ran.length + ' of ' + ran.length + ')');
+  // One early answer does not cover a total failure that starts hours later. The newest STUCK_POLLS
+  // ticks all failing is the run the supervisor itself reports as stuck (half an hour of 5 minute
+  // ticks), so a short stall the extension recovers from on its own (three ticks on 2026-10-26) passes.
+  else if (ran.length >= STUCK_POLLS && ran.slice(-STUCK_POLLS).every(pollFailed)) f.push('the newest ' + STUCK_POLLS + ' ticks failed their poll, the first at ' + new Date(ran.at(-STUCK_POLLS).at).toISOString());
   if (parsed.moves.length !== o.moves) f.push(parsed.moves.length + ' handovers since ' + o.since + ', expected ' + o.moves);
   if (o.moves > 0 && parsed.moves.length && !parsed.restartAfterMove && !s.expect.startsWith(parsed.moves.at(-1).to)) f.push('the newest handover moved to ' + parsed.moves.at(-1).to + ', expected ' + short(s.expect));
   if (s.from && parsed.moves.length && !s.from.startsWith(parsed.moves[0].from)) f.push('the first handover started at ' + parsed.moves[0].from + ', expected ' + short(s.from));

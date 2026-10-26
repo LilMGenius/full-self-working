@@ -280,3 +280,18 @@ test('a handover whose ticks all failed their poll fails the check, and one poll
   // A tick written before ticks carried jobs counts as answered rather than as a failure.
   assert.deepEqual(failuresOf({ ticks: [ticks[0], { at: T0 + 5 * 60_000, code: B }] }), []);
 });
+
+test('a poll failure that starts after one early answer fails the check once the newest six ticks all failed', () => {
+  const tick = (min, jobs) => ({ at: T0 + min * 60_000, code: B, jobs });
+  const failed = (n, from) => Array.from({ length: n }, (_, i) => tick(from + 5 * i, ['poll:failed', 'orders:ok']));
+  const early = [{ at: T0, code: A, jobs: ['poll:ok'] }, tick(5, ['poll:ok', 'orders:ok'])];
+  const now = (ticks) => ({ now: ticks.at(-1).at + 60_000 });
+  const hoursLater = [...early, ...Array.from({ length: 30 }, (_, i) => tick(10 + 5 * i, ['poll:ok'])), ...failed(6, 160)];
+  assert.deepEqual(failuresOf({ ticks: hoursLater, ...now(hoursLater) }), ['the newest 6 ticks failed their poll, the first at ' + new Date(T0 + 160 * 60_000).toISOString()]);
+  // Five failed ticks after an answer is a stall the supervisor does not call stuck yet.
+  const stall = [...early, ...failed(5, 10)];
+  assert.deepEqual(failuresOf({ ticks: stall, ...now(stall) }), []);
+  // One answered tick among the newest six passes.
+  const recovered = [...early, ...failed(5, 10), tick(35, ['poll:partial'])];
+  assert.deepEqual(failuresOf({ ticks: recovered, ...now(recovered) }), []);
+});

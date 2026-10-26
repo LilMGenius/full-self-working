@@ -247,6 +247,9 @@ function money(ledger, out, signal, thread, { instance, descriptor, now }) {
     return;
   }
   const live = isLive(ledger, signal, thread, now);
+  // A chat row keeps status hired after the hire notice scrolls out of it; read again once this round's
+  // hire is recorded, it is that hire repeated, never a past hire to record as history.
+  if (signal.type === 'hired' && !live && ev.source === 'row-status' && ledger.getMoneyEvent(moneyKey(ledger, signal, thread, true))) return;
   const key = moneyKey(ledger, signal, thread, live);
   if (ledger.getMoneyEvent(key)) return;
   let job = findJob(ledger, signal.platform, thread, ev.requestId);

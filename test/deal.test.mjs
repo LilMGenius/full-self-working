@@ -63,6 +63,16 @@ test('money older than the lookback is recorded as history and changes nothing',
   assert.equal(s.ledger.listJobs()[0].status, 'quoted');
 });
 
+test('a chat row still showing status hired after its hire was recorded adds no money event', () => {
+  const s = setup();
+  const t = s.thread('c1');
+  s.step(s.quoteSignal(t));
+  for (const sig of s.notices(t, [], { notice: NOTICE.hired, at: at('10:58'), status: 'hired' })) s.step(sig);
+  // The next read: the row's newest line is the payment, the status still hired.
+  for (const sig of s.notices(t, [], { notice: NOTICE.paid('150,000'), at: at('11:58'), status: 'hired' })) s.step(sig);
+  assert.deepEqual(s.ledger.listMoneyEvents().map((e) => [e.event, e.applied]), [['hired', true], ['paid', true]]);
+});
+
 test('quote, hire, pay, run, deliver and two confirmations move the job through the table with its effects', () => {
   const s = setup();
   const t = s.thread('c1');

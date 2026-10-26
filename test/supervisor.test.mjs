@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { closeSync, copyFileSync, linkSync, openSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
 import { acquireLock, effectiveMode, pidAlive, readLock, releaseLock, runSupervisor, runTick, STUCK_POLLS } from '../src/supervisor/run.mjs';
@@ -84,6 +84,24 @@ test('the pid lock refuses a second live supervisor and takes over a stale one',
   assert.equal(readLock(instance).pid, 333);
   releaseLock(instance, 333);
   assert.equal(readLock(instance), null);
+});
+
+test('two contenders that read the same dead pid in a stale lock leave exactly one holder', () => {
+  const instance = makeInstance();
+  acquireLock(instance, { pid: 111, alive: () => true });
+  const alive = (p) => p !== 111;
+  const real = { openSync, writeFileSync, closeSync, readFileSync, renameSync, linkSync, unlinkSync };
+  // B has read the dead pid 111 and is paused at its first change to the lock file while A takes the lock whole.
+  let a = null;
+  const pauseB = (fn) => (...args) => {
+    if (!a) a = acquireLock(instance, { pid: 222, alive });
+    return fn(...args);
+  };
+  const b = acquireLock(instance, { pid: 333, alive, fs: { ...real, renameSync: pauseB(renameSync), unlinkSync: pauseB(unlinkSync) } });
+  assert.deepEqual(a, { acquired: true, pid: 222, tookOverFrom: 111 });
+  assert.deepEqual(b, { acquired: false, heldBy: 222 });
+  assert.equal(readLock(instance).pid, 222);
+  assert.deepEqual(readdirSync(dirname(readLock(instance).file)).filter((f) => f.startsWith('supervisor.pid')), ['supervisor.pid']);
 });
 
 test('the real liveness check sees this process alive and a finished one dead', () => {

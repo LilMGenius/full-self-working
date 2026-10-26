@@ -3,7 +3,7 @@
 // 5-minute Seoul mark. A platform's pass is the loop step (src/loop/step.mjs); every job and platform
 // result, failures included, goes to the ledger events and logs/events-*.jsonl.
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, openSync, closeSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, mkdirSync, openSync, closeSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -154,27 +154,61 @@ export function readLock(instance) {
   return { file, pid: Number.isInteger(pid) ? pid : null };
 }
 
-// Takes the lock for pid, or reports who holds it. A lock whose pid is not alive is stale and taken over.
-export function acquireLock(instance, { pid = process.pid, alive = pidAlive } = {}) {
+const LOCK_FS = { openSync, writeFileSync, closeSync, readFileSync, renameSync, linkSync, unlinkSync };
+const pidIn = (fs, file) => {
+  try {
+    const n = Number.parseInt(fs.readFileSync(file, 'utf8'), 10);
+    return Number.isInteger(n) ? n : null;
+  } catch (err) {
+    if (err.code === 'ENOENT') return undefined;
+    throw err;
+  }
+};
+
+// Takes the lock for pid, or reports who holds it. A lock whose pid is not alive is stale and taken over:
+// the stale file is renamed to a name only this pid uses, so of two contenders that read the same dead pid
+// only one moves that file. The one whose renamed file turns out to hold another pid (a contender already
+// took the lock between the read and the rename) links it back, which fails rather than overwrite a newer
+// lock, and tries again. Every lock is then created exclusively. fs is injectable so a test can interleave
+// two contenders.
+export function acquireLock(instance, { pid = process.pid, alive = pidAlive, fs = LOCK_FS } = {}) {
   const file = lockFile(instance);
   mkdirSync(runDir(instance), { recursive: true });
+  const aside = file + '.' + pid + '.stale';
   let stale = null;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const fd = openSync(file, 'wx');
-      writeFileSync(fd, pid + '\n');
-      closeSync(fd);
+      const fd = fs.openSync(file, 'wx');
+      fs.writeFileSync(fd, pid + '\n');
+      fs.closeSync(fd);
       return { acquired: true, pid, tookOverFrom: stale };
     } catch (err) {
       if (err.code !== 'EEXIST') throw err;
-      const held = readLock(instance);
-      if (held?.pid === pid) return { acquired: true, pid, tookOverFrom: null };
-      if (held?.pid && alive(held.pid)) return { acquired: false, heldBy: held.pid };
-      stale = held?.pid ?? null;
-      unlinkSync(file);
     }
+    const held = pidIn(fs, file);
+    if (held === undefined) continue;
+    if (held === pid) return { acquired: true, pid, tookOverFrom: null };
+    if (held && alive(held)) return { acquired: false, heldBy: held };
+    try {
+      fs.renameSync(file, aside);
+    } catch (err) {
+      if (err.code === 'ENOENT') continue;
+      throw err;
+    }
+    const moved = pidIn(fs, aside);
+    if (moved === held) {
+      fs.unlinkSync(aside);
+      stale = held;
+      continue;
+    }
+    try {
+      fs.linkSync(aside, file);
+    } catch (err) {
+      if (err.code !== 'EEXIST') throw err;
+    }
+    fs.unlinkSync(aside);
   }
-  return { acquired: false, heldBy: readLock(instance)?.pid ?? null };
+  return { acquired: false, heldBy: pidIn(fs, file) ?? null };
 }
 
 export function releaseLock(instance, pid = process.pid) {

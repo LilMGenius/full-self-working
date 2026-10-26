@@ -61,7 +61,7 @@ function runSupervisorProcess({ dir, work }) {
   const started = Date.now();
   const r = spawnSync(process.execPath, [join(work, 'supervisor.mjs'), dir, work], { encoding: 'utf8', timeout: 20_000, windowsHide: true });
   const pids = existsSync(join(work, 'pids')) ? readFileSync(join(work, 'pids'), 'utf8').split(/\s+/).filter(Boolean).map(Number) : [];
-  return { status: r.status, seconds: (Date.now() - started) / 1000, stderr: r.stderr, pids };
+  return { status: r.status, seconds: (Date.now() - started) / 1000, stdout: r.stdout, stderr: r.stderr, pids };
 }
 
 function killAll(pids) {
@@ -96,7 +96,7 @@ test('a supervisor whose child outlives its stop still exits with its code withi
   const paths = setup([
     "const child = spawn(process.execPath, ['daemon.js'], { stdio: ['ignore', 'pipe', 'pipe'] });",
     'const argv = ["--once"];',
-    'const ctx = { ...base, codeState: () => ({ head: "a", detached: true, target: "a" }),',
+    'const ctx = { ...base, log: (line) => console.log(line), codeState: () => ({ head: "a", detached: true, target: "a" }),',
     '  createBrowserKeeper: () => ({ stop() {}, check: async () => ({ status: "test" }) }),',
     '  runTick: async () => ({ jobs: [], failures: 0 }) };',
   ].join('\n'));
@@ -105,6 +105,7 @@ test('a supervisor whose child outlives its stop still exits with its code withi
     assert.equal(r.pids.length, 1, r.stderr);
     assert.equal(r.status, 0, 'a stopped supervisor exits 0 in time: ' + r.seconds + ' s, ' + r.stderr);
     assert.ok(r.seconds < 15, 'exited after ' + r.seconds + ' s');
+    assert.match(r.stdout, /a handle was still open 5000 ms after the supervisor returned \(.*ProcessWrap.*\); exiting with 0/, 'the forced exit names what held the loop');
   } finally {
     killAll(r.pids);
   }

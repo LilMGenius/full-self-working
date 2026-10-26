@@ -13,6 +13,13 @@ export async function run(argv, ctx = {}) {
   const r = await (ctx.runSupervisor ?? runSupervisor)({ ...ctx, once: argv.includes('--once') });
   const code = r.status === 'restart' ? RESTART_EXIT : r.status === 'already running' || r.status === 'stopped' ? 0 : 1;
   const exit = ctx.exit ?? ((c) => process.exit(c));
-  setTimeout(() => exit(code), ctx.exitGraceMs ?? EXIT_GRACE_MS).unref();
+  const graceMs = ctx.exitGraceMs ?? EXIT_GRACE_MS;
+  const log = ctx.log ?? ((line) => console.log(new Date().toISOString() + ' ' + line));
+  setTimeout(() => {
+    // Names what still held the event loop, so the next hang has a lead in supervisor.log.
+    const open = process.getActiveResourcesInfo().filter((kind) => kind !== 'Timeout');
+    log('a handle was still open ' + graceMs + ' ms after the supervisor returned (' + (open.join(', ') || 'unknown') + '); exiting with ' + code);
+    exit(code);
+  }, graceMs).unref();
   return code;
 }

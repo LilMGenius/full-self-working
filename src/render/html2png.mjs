@@ -20,10 +20,16 @@ export const DEFAULT_CHROME = 'C:/Program Files/Google/Chrome/Application/chrome
 const PROFILE_PREFIX = 'fsw-render-';
 // Ending a process tree is a local system call; one that has not answered by then is reported, not awaited.
 const KILL_TIMEOUT_MS = 10000;
-// How long close waits for the browser process to finish exiting once it was told to close or killed.
-// Exit normally comes within a second; at 93% memory it took 43 s (2026-10-27), during which taskkill
-// refuses the terminating process and its profile cannot be removed.
+// How long close gives the browser to exit after Browser.close before ending its tree.
+const CLOSE_GRACE_MS = 5000;
+// How long close then waits for the killed browser to finish exiting, the kill included. Exit normally
+// comes within a second; at 93% memory it took 43 s (2026-10-27), during which taskkill refuses the
+// terminating process and its profile cannot be removed. Grace and exit wait are close's whole deadline:
+// the profile release after them skips its own kill and gets only the time left, so a close that meets a
+// browser which never exits returns within about 65 s.
 const EXIT_WAIT_MS = 60000;
+// How long a release waits for the processes still naming a profile to go.
+const TREE_WAIT_MS = 20000;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const exited = (proc) => proc.exitCode !== null || proc.signalCode !== null;
@@ -120,7 +126,7 @@ function killTree(pid, { timeoutMs = KILL_TIMEOUT_MS } = {}) {
 // GPUPersistentCache, DIPS-wal and first_party_sets.db-journal), so the processes naming the folder are
 // ended and awaited before the folder is removed again. treeWaitMs is a deadline on the clock: every
 // process list and kill inside it gets only the time left, so a slow list cannot stretch the wait.
-export async function releaseProfile(profile, { proc = null, processes = profileProcesses, kill = killTree, remove = removeDir, wait = sleep, warn = reportWait, exitWaitMs = 5000, treeWaitMs = 20000, pollMs = 250 } = {}) {
+export async function releaseProfile(profile, { proc = null, processes = profileProcesses, kill = killTree, remove = removeDir, wait = sleep, warn = reportWait, exitWaitMs = 5000, treeWaitMs = TREE_WAIT_MS, pollMs = 250 } = {}) {
   if (proc && !exited(proc)) {
     await within(kill(proc.pid, { timeoutMs: KILL_TIMEOUT_MS }), KILL_TIMEOUT_MS, 'taskkill').catch((err) => warn('ending browser pid ' + proc.pid + ' of ' + profile, err));
     const exitBy = Date.now() + exitWaitMs;
@@ -277,8 +283,9 @@ const SETTLE = '(async () => {' +
   'return { fonts: document.fonts.status, broken: [...document.images].filter((i) => !i.naturalWidth).map((i) => i.currentSrc || i.src) };' +
   '})()';
 
-// tempRoot, processes, kill, remove and onLeftover are the seams the cleanup runs through (tests replace them).
-export async function openRenderer({ chrome = process.env.FSW_CHROME ?? DEFAULT_CHROME, timeoutMs = 30000, tempRoot = tmpdir(), processes = profileProcesses, kill = killTree, remove = removeDir, onLeftover = reportLeftover, warn = reportWait } = {}) {
+// tempRoot, processes, kill, remove, onLeftover and warn are the seams the cleanup runs through, and
+// closeGraceMs and exitWaitMs set close's deadline (tests replace them).
+export async function openRenderer({ chrome = process.env.FSW_CHROME ?? DEFAULT_CHROME, timeoutMs = 30000, tempRoot = tmpdir(), processes = profileProcesses, kill = killTree, remove = removeDir, onLeftover = reportLeftover, warn = reportWait, closeGraceMs = CLOSE_GRACE_MS, exitWaitMs = EXIT_WAIT_MS } = {}) {
   if (!existsSync(chrome)) throw new RenderError('FSW_RENDER_NO_CHROME', 'Chrome not found at ' + chrome);
   try {
     for (const left of (await sweepLeftovers({ dir: tempRoot, processes, remove })).failed) onLeftover(left);
@@ -300,8 +307,10 @@ export async function openRenderer({ chrome = process.env.FSW_CHROME ?? DEFAULT_
     proc.once('exit', () => ok());
     proc.once('error', () => ok());
   });
-  const release = async () => {
-    const r = await releaseProfile(profile, { proc, processes, kill, remove, warn });
+  // A close has already ended the browser and waited for it, so its release skips that pass (proc null)
+  // and gets only what is left of close's deadline.
+  const release = async ({ waited = false, treeWaitMs = TREE_WAIT_MS } = {}) => {
+    const r = await releaseProfile(profile, { proc: waited ? null : proc, processes, kill, remove, warn, treeWaitMs });
     if (!r.removed) onLeftover(r);
     return r;
   };
@@ -380,20 +389,24 @@ export async function openRenderer({ chrome = process.env.FSW_CHROME ?? DEFAULT_
   }
 
   async function close() {
-    // Browser.close usually loses its reply to the connection it closes; any other answer is recorded.
-    await cdp.send('Browser.close').catch((err) => {
+    const deadline = Date.now() + closeGraceMs + exitWaitMs;
+    const left = () => Math.max(0, deadline - Date.now());
+    // The reply to Browser.close is not awaited, since a hung browser never sends it and a closing one
+    // usually loses it with the connection; any other answer is recorded.
+    Promise.resolve().then(() => cdp.send('Browser.close')).catch((err) => {
       if (!/connection closed$/.test(err.message)) warn('Browser.close', err);
     });
     // The profile is released only after the browser's real exit (the exit event, not a poll that gives up),
-    // and a browser that ignores Browser.close for 5 s is ended with its tree first.
+    // and a browser that ignores Browser.close through the grace is ended with its tree first.
     const exitWithin = (ms) => within(browserExit, ms, 'the browser exit').catch((err) => warn('closing browser pid ' + proc.pid + ' of ' + profile, err));
-    await exitWithin(5000);
+    await exitWithin(closeGraceMs);
     if (!exited(proc)) {
-      await within(kill(proc.pid, { timeoutMs: KILL_TIMEOUT_MS }), KILL_TIMEOUT_MS, 'taskkill').catch((err) => warn('ending browser pid ' + proc.pid + ' of ' + profile, err));
-      await exitWithin(EXIT_WAIT_MS);
+      const killMs = Math.min(KILL_TIMEOUT_MS, left());
+      await within(kill(proc.pid, { timeoutMs: killMs }), killMs, 'taskkill').catch((err) => warn('ending browser pid ' + proc.pid + ' of ' + profile, err));
+      await exitWithin(left());
     }
     ws?.close();
-    return release();
+    return release({ waited: true, treeWaitMs: Math.min(TREE_WAIT_MS, left()) });
   }
 
   // Which font drew the text of every element that holds text, summed per face: CDP

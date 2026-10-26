@@ -1,0 +1,71 @@
+// close() has a ceiling: a browser that answers nothing and survives every kill still lets close return
+// once its deadline (grace plus exit wait) is spent, with the waits it gave up on recorded. The real
+// headless Chrome is started and its browser process suspended, so Browser.close gets no reply and the
+// process never exits; the kill is injected as a no-op and the test ends the tree itself afterwards.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { basename } from 'node:path';
+import { DEFAULT_CHROME, openRenderer, releaseProfile } from '../src/render/html2png.mjs';
+import { tempDir } from './tmp.mjs';
+
+const GRACE_MS = 500;
+const EXIT_WAIT_MS = 1500;
+// The release after the deadline retries a held folder three times, 500 ms apart.
+const CEILING_MS = GRACE_MS + EXIT_WAIT_MS + 1500 + 1000;
+
+// The browser process of a renderer: the one naming its profile without a --type= child flag.
+function browserPid(profile) {
+  const name = basename(profile);
+  if (process.platform === 'win32') {
+    const query = "(Get-CimInstance Win32_Process -Filter \"CommandLine LIKE '%" + name + "%'\" | Where-Object { $_.CommandLine -notmatch '--type=' }).ProcessId";
+    return Number(execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', query], { windowsHide: true }).toString().trim());
+  }
+  const line = execFileSync('ps', ['-eo', 'pid=,args=']).toString().split('\n').find((l) => l.includes(name) && !l.includes('--type='));
+  return Number(line.trim().split(/\s+/)[0]);
+}
+
+function suspend(pid) {
+  if (process.platform !== 'win32') return process.kill(pid, 'SIGSTOP');
+  const script = "Add-Type -Name P -Namespace W -MemberDefinition '[DllImport(\"ntdll.dll\")] public static extern int NtSuspendProcess(IntPtr h);'; exit [W.P]::NtSuspendProcess((Get-Process -Id " + pid + ").Handle)";
+  execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true });
+}
+
+function endTree(pid) {
+  if (process.platform === 'win32') execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+  else process.kill(pid, 'SIGKILL');
+}
+
+test('close returns within its deadline when the browser never answers and survives every kill', { skip: !existsSync(process.env.FSW_CHROME ?? DEFAULT_CHROME) && 'Chrome not installed', timeout: 120000 }, async () => {
+  const root = tempDir('fsw-renderroot-');
+  const warned = [];
+  const renderer = await openRenderer({
+    tempRoot: root,
+    kill: async () => {},
+    processes: async () => [],
+    onLeftover: () => {},
+    warn: (what, err) => warned.push(what + ': ' + err.message),
+    closeGraceMs: GRACE_MS,
+    exitWaitMs: EXIT_WAIT_MS,
+  });
+  const pid = browserPid(renderer.profile);
+  assert.ok(pid > 0, 'the browser process of ' + renderer.profile + ' was found');
+  let elapsed;
+  let closed;
+  try {
+    suspend(pid);
+    const t0 = Date.now();
+    // A close that never returns is cut off here so the test can still clean up.
+    closed = await Promise.race([renderer.close(), new Promise((r) => setTimeout(r, CEILING_MS * 4).unref())]);
+    elapsed = Date.now() - t0;
+  } finally {
+    endTree(pid);
+    await renderer.exited;
+  }
+  assert.ok(closed && elapsed < CEILING_MS, 'close took ' + elapsed + ' ms against a ' + CEILING_MS + ' ms ceiling' + (closed ? '' : ' and never returned'));
+  assert.ok(warned.some((w) => /^closing browser pid \d+ of .*: the browser exit did not answer within \d+ ms$/.test(w)), warned.join(' | '));
+  assert.equal((await releaseProfile(renderer.profile)).removed, true);
+  assert.equal(existsSync(renderer.profile), false);
+});
+

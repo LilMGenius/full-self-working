@@ -1,4 +1,98 @@
 {
+ "evaluate inline:0f190470": [
+  {
+   "t": "string"
+  }
+ ],
+ "evaluate pageChatThread": [
+  {
+   "t": "object",
+   "k": {
+    "composer": {
+     "t": "object",
+     "k": {
+      "disabled": {
+       "t": "boolean"
+      },
+      "fileInput": {
+       "t": "boolean"
+      },
+      "found": {
+       "t": "boolean"
+      },
+      "maxChars": {
+       "t": "number"
+      },
+      "sendButton": {
+       "t": "boolean"
+      },
+      "sendDisabled": {
+       "t": "boolean"
+      },
+      "value": {
+       "t": "string"
+      }
+     }
+    },
+    "items": {
+     "t": "array",
+     "of": [
+      {
+       "t": "object",
+       "k": {
+        "kind": {
+         "t": "string"
+        },
+        "outbound": {
+         "t": "boolean"
+        },
+        "text": {
+         "t": "string"
+        },
+        "time": {
+         "t": "string"
+        },
+        "type": {
+         "t": "null"
+        }
+       }
+      },
+      {
+       "t": "object",
+       "k": {
+        "date": {
+         "t": "string"
+        }
+       }
+      },
+      {
+       "t": "object",
+       "k": {
+        "kind": {
+         "t": "string"
+        },
+        "outbound": {
+         "t": "boolean"
+        },
+        "text": {
+         "t": "string"
+        },
+        "time": {
+         "t": "string"
+        },
+        "type": {
+         "t": "string"
+        }
+       }
+      }
+     ]
+    },
+    "url": {
+     "t": "string"
+    }
+   }
+  }
+ ],
  "evaluate pageChats": [
   {
    "t": "array",
@@ -116,6 +210,150 @@
      }
     }
    ]
+  },
+  {
+   "t": "array",
+   "of": [
+    {
+     "t": "object",
+     "k": {
+      "customer": {
+       "t": "string"
+      },
+      "hireStatus": {
+       "t": "null"
+      },
+      "id": {
+       "t": "number"
+      },
+      "lastMessage": {
+       "t": "string"
+      },
+      "lastType": {
+       "t": "string"
+      },
+      "newMessages": {
+       "t": "number"
+      },
+      "otherProHireStatus": {
+       "t": "null"
+      },
+      "quoteOpened": {
+       "t": "boolean"
+      },
+      "quotePrice": {
+       "t": "number"
+      },
+      "quoteUnit": {
+       "t": "string"
+      },
+      "region": {
+       "t": "string"
+      },
+      "requestObjectId": {
+       "t": "string"
+      },
+      "safePaymentId": {
+       "t": "null"
+      },
+      "safePaymentStatus": {
+       "t": "null"
+      },
+      "service": {
+       "t": "string"
+      },
+      "status": {
+       "t": "string"
+      },
+      "updatedAt": {
+       "t": "string"
+      }
+     }
+    },
+    {
+     "t": "object",
+     "k": {
+      "customer": {
+       "t": "string"
+      },
+      "hireStatus": {
+       "t": "null"
+      },
+      "id": {
+       "t": "number"
+      },
+      "lastMessage": {
+       "t": "string"
+      },
+      "lastType": {
+       "t": "string"
+      },
+      "newMessages": {
+       "t": "number"
+      },
+      "otherProHireStatus": {
+       "t": "string"
+      },
+      "quoteOpened": {
+       "t": "boolean"
+      },
+      "quotePrice": {
+       "t": "number"
+      },
+      "quoteUnit": {
+       "t": "string"
+      },
+      "region": {
+       "t": "string"
+      },
+      "requestObjectId": {
+       "t": "string"
+      },
+      "safePaymentId": {
+       "t": "null"
+      },
+      "safePaymentStatus": {
+       "t": "null"
+      },
+      "service": {
+       "t": "string"
+      },
+      "status": {
+       "t": "string"
+      },
+      "updatedAt": {
+       "t": "string"
+      }
+     }
+    }
+   ]
+  }
+ ],
+ "evaluate pageLogin": [
+  {
+   "t": "object",
+   "k": {
+    "loginButton": {
+     "t": "boolean"
+    },
+    "proChat": {
+     "t": "boolean"
+    },
+    "proGreeting": {
+     "t": "boolean"
+    },
+    "profileLink": {
+     "t": "boolean"
+    },
+    "url": {
+     "t": "string"
+    }
+   }
+  }
+ ],
+ "evaluate pageOpenChat": [
+  {
+   "t": "boolean"
   }
  ],
  "evaluate pageRequests": [

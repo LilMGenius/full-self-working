@@ -1,4 +1,9 @@
 {
+ "evaluate inline:0f190470": [
+  {
+   "t": "string"
+  }
+ ],
  "evaluate pageInboxRows": [
   {
    "t": "array",
@@ -23,6 +28,72 @@
    ]
   }
  ],
+ "evaluate pageLogin": [
+  {
+   "t": "object",
+   "k": {
+    "authSection": {
+     "t": "boolean"
+    },
+    "avatar": {
+     "t": "boolean"
+    },
+    "loginButton": {
+     "t": "boolean"
+    },
+    "profileHref": {
+     "t": "string"
+    },
+    "sellerMode": {
+     "t": "boolean"
+    },
+    "url": {
+     "t": "string"
+    }
+   }
+  }
+ ],
+ "evaluate pageOpenRow": [
+  {
+   "t": "boolean"
+  }
+ ],
+ "evaluate pageOrders": [
+  {
+   "t": "object",
+   "k": {
+    "counters": {
+     "t": "object",
+     "k": {
+      "canceled-count": {
+       "t": "string"
+      },
+      "complete-count": {
+       "t": "string"
+      },
+      "delivery-count": {
+       "t": "string"
+      },
+      "inrevision-count": {
+       "t": "string"
+      },
+      "late-delivery-count": {
+       "t": "string"
+      },
+      "ongoing-count": {
+       "t": "string"
+      },
+      "resolution-problem-count": {
+       "t": "string"
+      }
+     }
+    },
+    "emptyState": {
+     "t": "boolean"
+    }
+   }
+  }
+ ],
  "evaluate pageSelectTab": [
   {
    "t": "object",
@@ -32,6 +103,69 @@
     },
     "ok": {
      "t": "boolean"
+    }
+   }
+  }
+ ],
+ "evaluate pageThread": [
+  {
+   "t": "object",
+   "k": {
+    "bubbles": {
+     "t": "array",
+     "of": [
+      {
+       "t": "object",
+       "k": {
+        "outbound": {
+         "t": "boolean"
+        },
+        "stamp": {
+         "t": "string"
+        },
+        "text": {
+         "t": "string"
+        }
+       }
+      }
+     ]
+    },
+    "composer": {
+     "t": "object",
+     "k": {
+      "disabled": {
+       "t": "boolean"
+      },
+      "fileInput": {
+       "t": "boolean"
+      },
+      "found": {
+       "t": "boolean"
+      },
+      "placeholder": {
+       "t": "string"
+      },
+      "sendButton": {
+       "t": "boolean"
+      },
+      "sendDisabled": {
+       "t": "boolean"
+      },
+      "value": {
+       "t": "string"
+      }
+     }
+    },
+    "gigHrefs": {
+     "t": "array",
+     "of": [
+      {
+       "t": "string"
+      }
+     ]
+    },
+    "url": {
+     "t": "string"
     }
    }
   }

@@ -11,6 +11,7 @@ import { applyEffects, step } from '../src/loop/index.mjs';
 import { decide } from '../src/brain/respond.mjs';
 import { THREAD_ATTEMPTS } from '../src/triage/index.mjs';
 import { scriptedSurface } from './helpers/surface.mjs';
+import { notifyOperator } from '../src/core/notify.mjs';
 import { tempDir } from './tmp.mjs';
 
 function makeInstance(edit = (c) => c) {
@@ -164,6 +165,38 @@ test('a posted-review notice lists every candidate when two jobs could be the on
   const none = setup();
   await none.run('soomgo', reviewThread(none, []));
   assert.equal(reviewNotes(none)[0].title, 'soomgo: a client posted a review on rv; no delivered job there lacks a review');
+});
+
+test('a posted-review notice months old, read when an old chat opens, is recorded without telling the operator', async () => {
+  const s = setup();
+  const t = s.ledger.upsertThread({ platform: 'soomgo', externalId: 'rv', kind: 'message' });
+  s.ledger.upsertJob({ id: 'soomgo-rv', threadId: t.id, platform: 'soomgo', service: 'landing_page_web', status: 'closed', priceKRW: 100000, deliveredAt: hoursBefore(NOON, 24 * 130) });
+  const surface = scriptedSurface({ sense: [inbound('soomgo', 'rv', { preview: REVIEW_POSTED, notice: REVIEW_POSTED, at: hoursBefore(NOON, 24 * 120) })] });
+  await s.run('soomgo', surface);
+  await s.run('soomgo', surface);
+  assert.deepEqual(s.events('review.posted').map((e) => e.stale), [true]);
+  assert.equal(reviewNotes(s).length, 0);
+});
+
+test('an undated posted-review notice keeps no lasting key: a later one notifies again once the first entry is resolved', async () => {
+  const s = setup();
+  const requests = join(s.instance.paths.operator, 'requests.md');
+  const notify = async (i, n) => (s.notes.push(n), notifyOperator(i, n));
+  const t = s.ledger.upsertThread({ platform: 'soomgo', externalId: 'rv', kind: 'message' });
+  s.ledger.upsertJob({ id: 'first', threadId: t.id, platform: 'soomgo', service: 'landing_page_web', status: 'delivered', priceKRW: 100000, deliveredAt: hoursBefore(NOON, 30) });
+  const surface = scriptedSurface({ sense: [inbound('soomgo', 'rv', { preview: REVIEW_POSTED, notice: REVIEW_POSTED, at: null })] });
+  const written = () => (readFileSync(requests, 'utf8').match(/^## .*a client posted a review on rv/gm) ?? []).length;
+  await s.run('soomgo', surface, { notify });
+  await s.run('soomgo', surface, { notify });
+  assert.equal(written(), 1, 'one open entry stops the repeats');
+  assert.match(readFileSync(requests, 'utf8'), /for job first/);
+  writeFileSync(requests, readFileSync(requests, 'utf8').replace('- status: open', '- status: resolved'));
+  s.ledger.addReview({ jobId: 'first', platform: 'soomgo', rating: 5, text: 'x', liked: null });
+  s.ledger.upsertJob({ id: 'second', threadId: t.id, platform: 'soomgo', service: 'landing_page_web', status: 'delivered', priceKRW: 100000, deliveredAt: hoursBefore(NOON, -48) });
+  await s.run('soomgo', surface, { notify, now: new Date(NOON.getTime() + 3 * 86_400_000) });
+  assert.equal(written(), 2);
+  assert.match(readFileSync(requests, 'utf8').split('## ').at(-1), /for job second/);
+  assert.equal(s.events('review.posted').length, 0, 'an undated notice is never recorded under a lasting key');
 });
 
 test('a revision decision on a delivered thread reopens its job', async () => {

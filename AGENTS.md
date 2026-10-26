@@ -4,7 +4,7 @@ An autonomous freelance-outsourcing agent that runs on one local machine around 
 
 `main` is the v0 line since the takeover of 2026-10-26, recorded as the ledger event `takeover`; the 2c77326 line is kept on `archive/20261026-151909`. The scheduled supervisor runs from a detached worktree of `main` and hands over to a new `main` commit once its module graph imports, and `scripts/rollback-takeover.mjs` moving `main` back is the rollback.
 
-- Branch policy after takeover: each unit commits and pushes on `v0`, and `main` fast-forwards to `v0` once per phase at D after C passes, so the live supervisor hands over once per phase.
+- Branch policy after takeover: each unit commits and pushes on `v0`, and `main` fast-forwards to `v0` once per phase at D after C passes, so the live supervisor hands over once per phase. A handover restarts the BrowserSkill daemon, and an extension whose Chrome has no open window stays away until Chrome is opened again, so `main` moves only while `bsk browsers` lists the operator's Chrome, the newest tick polled ok and the operator can answer; `scripts/takeover-check.mjs --since handover` judges the move.
 
 ## Privacy boundary
 
@@ -22,7 +22,7 @@ docs/DESIGN.md holds the module map and the contracts between modules.
 - `src/triage` decides each list row (wait, park, observe, open) from the row and the ledger alone; `src/policy/authorize.mjs` composes every send rule; `src/outbox` plans, screens, sends with read-back and resolves every outbound item; `src/deal` is the one state machine for jobs, quotes, payments and money events; `src/work` runs a paid job's recipe behind an executor seam; `src/loop` is one platform step from sense to drain and the effects the deal returns.
 - `src/brain` decides a reply and quote through the model, with every amount set by code; `src/portfolio` and `src/learning` keep the ranked portfolio, the outcome cases, the lessons and the playbook.
 - `src/supervisor` is the daemon and its 14 jobs (the `run/state.json` lastRuns ids of the live tree), the hourly lead supply report and the 09:00 digest; `src/listings`, `src/projects` and `src/profile` are the kmong gig writer and watch, the enterprise proposals the drain sends, and the profile tools; `site/` and `scripts/publish.mjs` are the public portfolio gallery.
-- `bin/fsw.mjs` maps each verb to `src/cli`: init, profile, doctor, settings, status, tick, run, schedule, approve, deal, job, probe, market, price, publish, listings, projects, services and edits. `src/core/config.schema.json` owns every config key; `fsw settings` changes one.
+- `bin/fsw.mjs` maps each verb to `src/cli`: init, profile, doctor, settings, status, tick, run, schedule, approve, deal, evidence, job, probe, market, price, publish, listings, projects, services and edits. `src/core/config.schema.json` owns every config key; `fsw settings` changes one.
 - `docs/NEGATIVE-CORPUS.md` lists what the 2c77326 tree learned, each lesson tied to the gate, test or note that holds it.
 
 ## Rules
@@ -37,7 +37,7 @@ docs/DESIGN.md holds the module map and the contracts between modules.
 - Every outbound customer item passes `src/outbox` and `authorize`: a `Surface` write method (`send`, `quote`, `payRequest`, `propose`) is called only from `src/outbox/drain.mjs`, and only `src/deal` writes job status, quote status, payments and money events. The seller's own pages are not customer items: the gig writer (`openListingSurface`, `src/listings/gig.mjs`) passes `checkListing` and the career write passes `careerStep`, and a forced observe pass skips both.
 - Money moves only through the channel the platform allows. Contact details and payout accounts are released only where the descriptor permits.
 - Every path a platform spends the operator's money on is read, including spend the platform makes by itself (automatic quote campaigns, auto-recharge), and reported beside fsw's own spend: the soomgo surface's `spend()` feeds the hourly supply report and the digest, and `platforms.<id>.platformSpendMaxPerDay` bounds the automatic budget.
-- A portfolio item is public only after its payment is recorded and the client allowed portfolio use.
+- A portfolio item is public only after its payment is recorded and the client allowed portfolio use in a sentence of their own after the delivery; `src/loop/permission.mjs` and test/permission.test.mjs hold the check, and only the operator lifts a denial.
 - Every operator choice is a setting: a mode, cap, answered service, budget, market engine or cadence, or a figure a listing prints is a key in the instance's `config.json` or `profile.json` with its type, default and meaning in `src/core/config.schema.json` (the example config is generated from it), never a constant one operator picked; `npm run check` (`scripts/check-example.mjs`) fails a key the code reads that the example lacks, and a figure a profile can answer, such as a career length, is derived from its dated roles.
 - A live job is retired only by the founder in writing; until then v0 runs every job the live supervisor runs, under the same id.
 - Schedules start on round Seoul marks; each cron carries its Seoul time and reason.

@@ -3,7 +3,7 @@
 // to, keyed so a row read twice acts once (the money-key rule of src/deal/advance.mjs moneyKey).
 import { dayKey } from '../core/clock.mjs';
 import { notifyOperator } from '../core/notify.mjs';
-import { advance, jobsOfThread, minuteKey } from '../deal/index.mjs';
+import { MONEY_LOOKBACK_DAYS, advance, fresh, jobsOfThread, minuteKey } from '../deal/index.mjs';
 import { loadDescriptor } from '../platforms/registry.mjs';
 import { hasSurface, openSurface as defaultOpenSurface } from '../surface/index.mjs';
 import { applyEffects } from './effects.mjs';
@@ -44,12 +44,21 @@ export function matchReview(row, jobs, threadOf) {
 // carries no rating or text, so it is no review signal: the deal refuses a review without a job id. It is
 // recorded once under its own key, keyed like the money notices by thread and minute so every later poll
 // of the same row does nothing, and the operator is told once which job to record it on: the delivered or
-// closed jobs of the thread that have no review yet. Returns the notify effects for the loop to carry out.
-export function reviewPosted(ledger, { platform, thread, signal }) {
-  const key = platform + ':' + thread.externalId + ':review_posted:' + (minuteKey(signal.at) ?? 'undated');
-  if (ledger.db.prepare("SELECT 1 FROM events WHERE kind = 'review.posted' AND ref = ?").get(key)) return [];
+// closed jobs of the thread that have no review yet. A notice older than the money lookback (an old chat
+// opened for the first time) is recorded as stale and told to nobody, as money() keeps history. An
+// undated notice has no minute to key on, so nothing lasting is recorded for it: the notice's dedupe key
+// holds only while its operator entry is open (notifyOperator), and a later undated review notice on the
+// thread reaches the operator once that entry is resolved. Returns the notify effects for the loop.
+export function reviewPosted(ledger, { platform, thread, signal, now = new Date() }) {
+  const minute = minuteKey(signal.at);
+  const key = platform + ':' + thread.externalId + ':review_posted:' + (minute ?? 'undated');
+  if (minute && ledger.db.prepare("SELECT 1 FROM events WHERE kind = 'review.posted' AND ref = ?").get(key)) return [];
   const candidates = jobsOfThread(ledger, platform, thread.id).filter((j) => ['delivered', 'closed'].includes(j.status) && !ledger.jobReviews(j.id).length);
-  ledger.addEvent({ kind: 'review.posted', platform, ref: key, payload: { thread: thread.externalId, at: signal.at ?? null, candidates: candidates.map((j) => j.id) } });
+  if (minute) {
+    const stale = !fresh(signal.at, now);
+    ledger.addEvent({ kind: 'review.posted', platform, ref: key, payload: { thread: thread.externalId, at: signal.at, candidates: candidates.map((j) => j.id), ...(stale ? { stale: true, note: 'older than ' + MONEY_LOOKBACK_DAYS + ' days; recorded, not told' } : {}) } });
+    if (stale) return [];
+  }
   const verb = (id) => 'fsw deal ' + id + ' review --rating <1-5> --text "..."';
   const where = 'a client posted a review on ' + thread.externalId;
   const [one] = candidates;

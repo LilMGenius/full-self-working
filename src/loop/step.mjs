@@ -82,7 +82,7 @@ export async function step(platform, ctx) {
   };
   // A notice's money signals go to the deal, except the posted-review notice, which names no job and is
   // recorded and told to the operator (reviewPosted).
-  const applyNotice = (signal, row) => (signal.type === 'review' ? effects.push(...reviewPosted(ledger, { platform, thread: ledger.getThread(row.id), signal })) : applyAdvance(signal));
+  const applyNotice = (signal, row) => (signal.type === 'review' ? effects.push(...reviewPosted(ledger, { platform, thread: ledger.getThread(row.id), signal, now })) : applyAdvance(signal));
   // One signal that throws is recorded against its outbox row and the rest still apply; the operator is told
   // once per row (the dedupe key holds while the notice stays open), since the sweep retries it every tick.
   const failedSignals = [];

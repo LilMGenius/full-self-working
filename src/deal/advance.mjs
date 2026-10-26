@@ -293,10 +293,13 @@ function money(ledger, out, signal, thread, { instance, descriptor, now }) {
   // hire is recorded, it is that hire repeated, never a past hire to record as history.
   if (signal.type === 'hired' && !live && ev.source === 'row-status' && ledger.getMoneyEvent(moneyKey(ledger, signal, thread, true))) return;
   const key = moneyKey(ledger, signal, thread, live);
-  // A review that names its job (the operator's fsw deal entry, a parsed row matched to a job) belongs to
-  // that job, never to the newest one on the thread, which can be a later job for the same client.
+  // A review belongs to the job it names (the operator's fsw deal entry, a parsed row matched to a job),
+  // never to the newest one on the thread, which can be a later job for the same client. A review signal
+  // that names none, such as the chat notice that a review was posted, is refused: which job it rates is
+  // unknown, and the operator records it with fsw deal <jobId> review.
   const named = signal.type === 'review' && signal.jobId ? ledger.getJob(signal.jobId) : null;
-  if (signal.type === 'review' && signal.jobId && named?.threadId !== thread.id) return refuse(ledger, out, signal, named, 'review names job ' + signal.jobId + ', which ' + (named ? 'is not on thread ' + thread.externalId : 'does not exist'));
+  if (signal.type === 'review' && !signal.jobId) return refuse(ledger, out, signal, null, 'a review signal names no job id; a review is recorded only on the job it names');
+  if (signal.type === 'review' && named?.threadId !== thread.id) return refuse(ledger, out, signal, named, 'review names job ' + signal.jobId + ', which ' + (named ? 'is not on thread ' + thread.externalId : 'does not exist'));
   const prior = ledger.getMoneyEvent(key);
   if (prior) {
     if (signal.type === 'review' && ev.source === 'operator') correctReview(ledger, out, signal, thread, prior);

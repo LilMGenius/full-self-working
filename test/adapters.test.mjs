@@ -285,6 +285,22 @@ test('soomgo cash reads the balance and payback only when they are cash amounts'
   assert.deepEqual(soomgo.parseCash('스토어\n바로가기'), { balance: null, paybackThisMonth: null });
 });
 
+test('kmong signIn fills the email login and reports the dashboard check, and refuses a page without the form', async () => {
+  let signedIn = false;
+  const s = fakeSession({ pageLoginForm: { found: true }, pageLogin: () => ({ url: 'u', avatar: signedIn, authSection: signedIn, loginButton: !signedIn, sellerMode: true, profileHref: null }) });
+  const click = s.click;
+  s.click = async (t) => {
+    await click(t);
+    if (t === '[data-fsw=login-submit]') signedIn = true;
+  };
+  const k = await openKmong({ session: s, sleep: async () => {} });
+  assert.deepEqual(await k.signIn({ email: 'seller@example.invalid', password: 'not-a-real-password' }), { signedIn: true });
+  assert.deepEqual(acted(s.log), ['fill [data-fsw=login-email]', 'fill [data-fsw=login-password]', 'click [data-fsw=login-submit]']);
+  const none = fakeSession({ pageLoginForm: { found: false } });
+  const r = await (await openKmong({ session: none, sleep: async () => {} })).signIn({ email: 'seller@example.invalid', password: 'not-a-real-password' });
+  assert.deepEqual([r.signedIn, acted(none.log)], [false, []]);
+});
+
 test('kmong readThread refuses an unread thread unless the caller will reply, before opening it', async () => {
   const row = { href: '?inbox_group_id=111&partner_id=9', nickname: '의뢰인A', time: '10.20', preview: '문의' };
   const s = fakeSession({ pageInboxRows: [row], pageSelectTab: { ok: true, empty: false }, pageOpenRow: true, pageThread: { url: 'u', gigHrefs: [], bubbles: [], composer: { found: true } } });

@@ -1,5 +1,6 @@
 // 크몽 conversation pages: page-side extractors, serialised into the page by the driver (no closure over
-// module scope). Moved verbatim from src/platforms/kmong/adapter.mjs:16-82 at 2c77326.
+// module scope). Moved verbatim from src/platforms/kmong/adapter.mjs:16-82 at 2c77326, with pageLoginForm
+// from 36400c4.
 
 export function pageLogin() {
   const nickLink = [...document.querySelectorAll('a[href^="/@"]')].find((a) => a.innerText.includes('프로필 완성도'));
@@ -11,6 +12,22 @@ export function pageLogin() {
     sellerMode: document.querySelector('input[aria-label="전문가 모드"]')?.checked ?? null,
     profileHref: nickLink?.getAttribute('href') ?? null,
   };
+}
+
+// The 로그인 modal (/?open=login_modal, read 2026-10-26): an email input, a password input and a 로그인
+// submit button in one box, with 로그인 유지 checked by default. The three are marked for fill and click.
+export function pageLoginForm() {
+  const pw = document.querySelector('input[type=password]');
+  if (!pw) return { found: false };
+  let box = pw;
+  for (let i = 0; i < 12 && box && !box.querySelector('input[type=email], input[name=email]'); i++) box = box.parentElement;
+  const email = box?.querySelector('input[type=email], input[name=email]');
+  const submit = box && ([...box.querySelectorAll('button')].find((b) => b.innerText.trim() === '로그인') ?? box.querySelector('button[type=submit]'));
+  if (!email || !submit) return { found: false };
+  email.setAttribute('data-fsw', 'login-email');
+  pw.setAttribute('data-fsw', 'login-password');
+  submit.setAttribute('data-fsw', 'login-submit');
+  return { found: true };
 }
 
 export function pageInboxRows() {

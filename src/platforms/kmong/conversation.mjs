@@ -2,19 +2,19 @@
 // check flips the client-side 안읽음 filter, and a thread opens only when it is already read or the
 // caller will reply in the same tick. send() types gated text, presses 전송 and reports success only
 // when the thread shows the text as the newest outbound message. The conversation half of
-// src/platforms/kmong/adapter.mjs at 2c77326 (:511-587, :593-605, :748-751); src/platforms/kmong/listing.mjs
-// holds the gig half.
+// src/platforms/kmong/adapter.mjs at 2c77326 (:511-587, :593-605, :748-751), with signIn from 36400c4;
+// src/platforms/kmong/listing.mjs holds the gig half.
 import { openSession } from '../../browser/driver.mjs';
 import { loadDescriptor } from '../registry.mjs';
 import { AdapterRefusal, squash } from '../kit.mjs';
 import { parseDashboard, parseInbox, parseOrders, parseProfile, parseThread, ORDER_COUNTERS } from './parse.mjs';
-import { pageLogin, pageInboxRows, pageSelectTab, pageOpenRow, pageThread, pageOrders } from './page.mjs';
+import { pageLogin, pageLoginForm, pageInboxRows, pageSelectTab, pageOpenRow, pageThread, pageOrders } from './page.mjs';
 
 const BASE = 'https://kmong.com';
 const INBOX = `${BASE}/inboxes?inbox_group_id=&partner_id=`;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export async function openKmongConversation({ session } = {}) {
+export async function openKmongConversation({ session, sleep = wait } = {}) {
   const s = session ?? (await openSession('kmong', { platform: 'kmong', pacing: loadDescriptor('kmong').pacing }));
 
   const unreadHrefs = async () => {
@@ -47,6 +47,17 @@ export async function openKmongConversation({ session } = {}) {
       const p = await s.evaluate(pageLogin);
       const nickname = p.profileHref ? decodeURIComponent(p.profileHref.slice(2)) : null;
       return { loggedIn: p.avatar && p.authSection && !p.loginButton, sellerMode: p.sellerMode, nickname, url: p.url };
+    },
+
+    // Signs in through the email login; the values go only into the form and never into a return value.
+    async signIn({ email, password }) {
+      await s.navigate(`${BASE}/?open=login_modal&next_page=%2Fseller%2Fdashboard`);
+      if (!(await s.evaluate(pageLoginForm)).found) return { signedIn: false, reason: 'the login form was not found' };
+      await s.fill('[data-fsw=login-email]', email);
+      await s.fill('[data-fsw=login-password]', password);
+      await s.click('[data-fsw=login-submit]');
+      await sleep(7000);
+      return (await adapter.login()).loggedIn ? { signedIn: true } : { signedIn: false, reason: 'still signed out after the form was sent' };
     },
 
     async inbox() {

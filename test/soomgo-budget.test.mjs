@@ -120,3 +120,17 @@ test('an hour of idle soomgo polls and the hourly supply report leave the cap a 
   // 12 polls of 3 loads, the first also opening the one chat, and the supply report's login, services and spend.
   assert.equal(used(acct), 12 * 3 + 1 + 4);
 });
+
+
+test('a poll that reads several listed chats loads the chat list once for all of them', async () => {
+  const instance = makeInstance();
+  const ledger = openLedger(':memory:');
+  const acct = account({ chats: [chatRow(701), chatRow(702), chatRow(703)] });
+  const r = await poll(instance, ledger, acct);
+  assert.equal(r.status, 'ok', JSON.stringify(r.errors ?? r.error));
+  assert.equal(r.threads.observed ?? 0, 0);
+  assert.equal(ledger.db.prepare("SELECT count(*) n FROM events WHERE kind = 'brain.decision'").get().n, 3);
+  // The poll's 3 list loads, then one /pro/chats load: sense ends on the request list.
+  assert.equal(used(acct), 4);
+  assert.deepEqual(acct.sessions[0].log, ['navigate /mypage', 'navigate /pro/chats', 'navigate /requests/received', 'navigate /pro/chats']);
+});

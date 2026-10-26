@@ -221,9 +221,15 @@ export async function openSoomgo({ session, sleep = wait } = {}) {
   // The chat rows inbox() listed in this session: orders() reads hires from them instead of loading the list
   // again, since every page load counts against the account's hourly action cap (descriptor pacing).
   let listed = null;
+  // The path this session last loaded; a chat opened by its list link keeps the page under /pro/chats.
+  let here = null;
+  const load = async (url) => {
+    here = new URL(url).pathname;
+    return s.navigate(url);
+  };
 
   const listChats = async ({ pages = 0, until } = {}) => {
-    await s.navigate(`${BASE}/pro/chats`);
+    await load(`${BASE}/pro/chats`);
     let rows = await s.evaluate(pageChats);
     for (let i = 0; i < pages && !(until && rows.some(until)); i++) {
       const before = rows.length;
@@ -234,9 +240,13 @@ export async function openSoomgo({ session, sleep = wait } = {}) {
     return rows;
   };
 
-  // Opens a chat from the list, which carries its new-message count; never by URL alone.
+  // Opens a chat from the list, which carries its new-message count; never by URL alone. While the page is
+  // still under /pro/chats (the list, or a chat opened from it beside the list) the rows are read fresh from
+  // the page, and the list is loaded again only when they lack the chat, so a poll that reads several chats
+  // loads the list once for all of them.
   const openChat = async (id, { willReply = false } = {}) => {
-    const rows = await listChats({ pages: 5, until: (r) => String(r.id) === String(id) });
+    const onPage = here?.startsWith('/pro/chats') ? await s.evaluate(pageChats) : [];
+    const rows = onPage.some((r) => String(r.id) === String(id)) ? onPage : await listChats({ pages: 5, until: (r) => String(r.id) === String(id) });
     const row = rows.find((r) => String(r.id) === String(id));
     if (!row) throw new AdapterRefusal('FSW_THREAD_NOT_LISTED', `chat ${id} is not in the first ${rows.length} rows, so its unread state is unknown`);
     const unread = (row.newMessages ?? 0) > 0;
@@ -251,7 +261,7 @@ export async function openSoomgo({ session, sleep = wait } = {}) {
     session: s,
 
     async login() {
-      await s.navigate(`${BASE}/mypage`);
+      await load(`${BASE}/mypage`);
       const p = await s.evaluate(pageLogin);
       const text = await s.evaluate(() => document.body.innerText);
       const onMypage = new URL(p.url).pathname === '/mypage';
@@ -259,13 +269,13 @@ export async function openSoomgo({ session, sleep = wait } = {}) {
     },
 
     async requests() {
-      await s.navigate(`${BASE}/requests/received`);
+      await load(`${BASE}/requests/received`);
       return parseRequests(await s.evaluate(pageRequests));
     },
 
     // Opening a request detail marks it read, which is normal pro browsing.
     async readRequest(id) {
-      await s.navigate(`${BASE}/requests/received/${encodeURIComponent(id)}?from=request_list`);
+      await load(`${BASE}/requests/received/${encodeURIComponent(id)}?from=request_list`);
       const page = await s.evaluate(pageRequestDetail, String(id));
       const detail = parseRequestDetail({ id, ...page });
       return { ...detail, title: detail.service, text: null, kind: 'request' };
@@ -279,7 +289,7 @@ export async function openSoomgo({ session, sleep = wait } = {}) {
       if (!dryRun && allowSpendCash !== true) return { sent: false, observed: false, pressed: false, reason: 'quote spends 숨고캐시; allowSpendCash was not given' };
       if (!Number.isInteger(amountKRW) || amountKRW <= 0) return { sent: false, observed: false, pressed: false, reason: 'amountKRW must be a positive integer' };
       if (!squash(text)) return { sent: false, observed: false, pressed: false, reason: 'empty text' };
-      await s.navigate(`${BASE}/requests/received/${encodeURIComponent(id)}?from=request_list`);
+      await load(`${BASE}/requests/received/${encodeURIComponent(id)}?from=request_list`);
       const before = await s.evaluate(pageRequestDetail, String(id));
       const detail = parseRequestDetail({ id, ...before });
       const f = detail.quoteForm;
@@ -319,7 +329,7 @@ export async function openSoomgo({ session, sleep = wait } = {}) {
       let charge = null;
       for (let i = 0; i < 4 && detail.quoteCostKRW > 0 && !charge; i++) {
         if (i) await sleep(2000);
-        await s.navigate(`${BASE}/mypage/cash-dashboard`);
+        await load(`${BASE}/mypage/cash-dashboard`);
         rows = parseCashHistory(await s.evaluate(pageText));
         charge = quoteCharge(rows, { since: pressedAt, customer });
       }
@@ -423,7 +433,7 @@ export async function openSoomgo({ session, sleep = wait } = {}) {
     },
 
     async profile() {
-      await s.navigate(`${BASE}/profile`);
+      await load(`${BASE}/profile`);
       const profile = parseProfile(await s.evaluate(() => document.body.innerText));
       const login = await adapter.login();
       return { profile, cash: login.cash };
@@ -435,9 +445,9 @@ export async function openSoomgo({ session, sleep = wait } = {}) {
     // Every path soomgo spends the account's cash on, one page each: today's charges by source from
     // 충전/사용 내역 and each smart quote campaign with its daily budget from /instant-match.
     async spend({ now = new Date() } = {}) {
-      await s.navigate(`${BASE}/mypage/cash-dashboard`);
+      await load(`${BASE}/mypage/cash-dashboard`);
       const today = cashSpend(parseCashHistory(await s.evaluate(pageText)), seoulDay(now));
-      await s.navigate(`${BASE}/instant-match`);
+      await load(`${BASE}/instant-match`);
       return { today, campaigns: parseCampaigns(await s.evaluate(pageCampaignLinks)) };
     },
 

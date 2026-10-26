@@ -76,10 +76,12 @@ export function holdAwake({ timeoutMs = 30_000 } = {}) {
 // ends its daemons on the way out and the next one starts its own, as every handover did before.
 export function createBrowserKeeper({ instance, canStart = true, bin = BSK_BIN, status = bskStatus, notify = notifyOperator, settleMs = 5000 } = {}) {
   const daemons = new Set();
+  let startError = null;
   const startDaemon = () => {
     const logFile = join(ensureDir(instance.paths.logs), 'bsk-daemon.log');
     const fd = openSync(logFile, 'a');
     let child;
+    startError = null;
     try {
       child = spawn(bin, ['daemon', 'start', '--foreground'], { stdio: ['ignore', fd, fd], windowsHide: true, env: { ...process.env, BSK_AUTO_START: '0' } });
     } finally {
@@ -87,6 +89,12 @@ export function createBrowserKeeper({ instance, canStart = true, bin = BSK_BIN, 
     }
     daemons.add(child);
     child.on('exit', () => daemons.delete(child));
+    // A spawn that fails (a binary that will not run, a refused process) emits error, and without a
+    // listener that error would end the supervisor; check() reports it as the cause of a failed start.
+    child.on('error', (err) => {
+      startError = err;
+      daemons.delete(child);
+    });
     return child.pid;
   };
   return {
@@ -102,6 +110,7 @@ export function createBrowserKeeper({ instance, canStart = true, bin = BSK_BIN, 
         if (!canStart) return { status: 'no daemon', ...s, started: null };
         started = startDaemon();
         await new Promise((r) => setTimeout(r, settleMs));
+        if (startError) return { status: 'daemon start failed', ...s, started, code: startError.code ?? null, detail: 'bsk daemon start failed: ' + startError.message };
         s = await status({ bin });
         if (!s.daemon) return { status: s.busy ? 'daemon busy' : 'daemon start failed', ...s, started };
       }

@@ -95,3 +95,14 @@ test('a status read that times out with a stale daemon.json and no pipe still st
   assert.equal(readFileSync(join(work, 'pids'), 'utf8').trim().split(/\s+/).length, 1);
 });
 
+test('a daemon that cannot be spawned is reported with its cause and does not end the supervisor', async () => {
+  const work = tempDir('fsw-keeper-spawn-');
+  const keeper = createBrowserKeeper({ instance: { config: {}, paths: { logs: work } }, bin: join(work, 'no-such-bsk.exe'), status: async () => ({ daemon: false }), notify: async () => ({ written: false }), settleMs: 200 });
+  const r = await keeper.check();
+  assert.equal(r.status, 'daemon start failed');
+  assert.equal(r.code, 'ENOENT');
+  assert.match(r.detail, /bsk daemon start failed: .*ENOENT/);
+  assert.equal(keeper.child, null);
+  keeper.stop();
+});
+

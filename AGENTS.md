@@ -2,7 +2,7 @@
 
 An autonomous freelance-outsourcing agent that runs on one local machine around the clock. It answers inquiries, sends quotes and proposals, keeps a price table current from live market samples, delivers the work, and moves its effort toward the service and platform pairs with the best hourly yield.
 
-This tree is v0, rebuilt from the 2c77326 tree on the orphan branch `v0`. Until the takeover replaces `main`, the running agent is the old `main`; a fix the live service needs lands there and is mirrored here in the same session.
+`main` is the v0 line since the takeover of 2026-10-26, recorded as the ledger event `takeover`; the 2c77326 line is kept on `archive/20261026-151909`. The scheduled supervisor runs from a detached worktree of `main` and hands over to a new `main` commit once its module graph imports, and `scripts/rollback-takeover.mjs` moving `main` back is the rollback.
 
 - Branch policy after takeover: each unit commits and pushes on `v0`, and `main` fast-forwards to `v0` once per phase at D after C passes, so the live supervisor hands over once per phase.
 

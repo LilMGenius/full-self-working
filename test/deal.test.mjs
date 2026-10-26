@@ -6,7 +6,7 @@ import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { plan } from '../src/outbox/index.mjs';
-import { advance, moneyToSignals, sweep } from '../src/deal/index.mjs';
+import { advance, jobOfThread, moneyToSignals, stageOf, sweep } from '../src/deal/index.mjs';
 import { itemFromJob } from '../src/portfolio/store.mjs';
 import { rankPortfolio } from '../src/portfolio/rank.mjs';
 import { tempDir } from './tmp.mjs';
@@ -41,6 +41,17 @@ function setup({ platform = 'soomgo', edit } = {}) {
   return { instance, ledger, descriptor, ctx, step, thread, quoteSignal, notices, events, platform };
 }
 const effectTypes = (r) => r.effects.map((e) => e.type + (e.item ? ':' + e.item.kind : '') + (e.case ? ':' + e.case.kind : ''));
+
+test('the job of a thread is the one opened last, not the first its id sorts to', () => {
+  const s = setup();
+  const t = s.thread('c9');
+  s.ledger.upsertJob({ id: 'soomgo-a-old', threadId: t.id, platform: 'soomgo', service: 'landing_page_web', status: 'closed', deliveredAt: at('09:00') });
+  s.ledger.upsertJob({ id: 'soomgo-b-new', threadId: t.id, platform: 'soomgo', service: 'landing_page_web', status: 'quoted' });
+  assert.equal(jobOfThread(s.ledger, 'soomgo', t.id).id, 'soomgo-b-new');
+  assert.equal(stageOf({ page: null, kind: 'message' }, s.ledger, 'soomgo', t.id), 'pre_order');
+  assert.equal(jobOfThread(s.ledger, 'soomgo', s.thread('none').id), null);
+  assert.equal(jobOfThread(s.ledger, 'kmong', t.id), null);
+});
 
 test('a paid notice writes one payment; every repeat read leaves one; the confirmation links it', () => {
   const s = setup();

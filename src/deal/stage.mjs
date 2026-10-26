@@ -4,7 +4,12 @@
 // which is not an accepted quote, so quoted is excluded beside lost.
 const STAGES = ['pre_order', 'quote_accepted', 'post_order'];
 
-export const jobOfThread = (ledger, platform, threadId) => ledger.listJobs({ platform }).find((j) => j.threadId === threadId) ?? null;
+// The newest job of a thread, by insertion order (jobs carry no creation time): an answer or a stage on a
+// thread that once held a closed job belongs to the job opened after it.
+export function jobOfThread(ledger, platform, threadId) {
+  const row = ledger.db.prepare('SELECT id FROM jobs WHERE platform = ? AND thread_id = ? ORDER BY rowid DESC LIMIT 1').get(platform, threadId);
+  return row ? ledger.getJob(row.id) : null;
+}
 
 export function stageFromLedger(ledger, platform, threadId) {
   const job = jobOfThread(ledger, platform, threadId);

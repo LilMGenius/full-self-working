@@ -60,7 +60,10 @@ export async function step(platform, ctx) {
   // lists were read).
   const cashUsage = () => {
     const u = quotaUsage(ledger, platform, now);
-    const waiting = ledger.listOutbox({ platform, statuses: ['planned', 'approved'], kinds: ['quote'] }).filter((r) => spendsCash(descriptor, r.payload.thread?.kind));
+    // A waiting quote no day's budget can pay (an unread cost, or one above maxCashPerDay; budget.unpayable)
+    // never goes out, so it takes none of today's room.
+    const payable = (r) => typeof r.payload.costKRW === 'number' && r.payload.costKRW <= (cfg.maxCashPerDay ?? -1);
+    const waiting = ledger.listOutbox({ platform, statuses: ['planned', 'approved'], kinds: ['quote'] }).filter((r) => spendsCash(descriptor, r.payload.thread?.kind) && payable(r));
     return { quotes: u.quotes + waiting.length, cashKRW: u.cashKRW + waiting.reduce((s, r) => s + (r.payload.costKRW ?? 0), 0) };
   };
   const applyAdvance = (signal) => {

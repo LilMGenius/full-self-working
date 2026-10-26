@@ -348,3 +348,19 @@ test('sends the d605c5d code recorded are never applied again by the sweep after
   assert.equal(s.ledger.listJobs().length, 0);
 });
 
+
+test('an approved quote no day can pay does not take the last quote of the day from a new request', async () => {
+  const s = setup((c) => ({ ...c, platforms: { ...c.platforms, soomgo: { ...c.platforms.soomgo, maxQuotesPerDay: 2 } } }));
+  const old = s.ledger.upsertThread({ platform: 'soomgo', externalId: 'old', kind: 'request' });
+  s.ledger.addQuote({ threadId: old.id, platform: 'soomgo', service: 'landing_page_web', amountKRW: 300000, costKRW: 990, status: 'sent', at: NOON.toISOString() });
+  const stuck = s.ledger.upsertThread({ platform: 'soomgo', externalId: 'w1', kind: 'request' });
+  const row = plan(s.ledger, { platform: 'soomgo', threadId: stuck.id, kind: 'quote', payload: { text: REPLY, amountKRW: 300000, costKRW: null, thread: { kind: 'request', stage: 'pre_order' }, priceRow: ROW, decision: decision({ intent: 'quote_request' }) } });
+  setStatus(s.ledger, row.id, { from: 'planned', to: 'awaiting_operator', approvalId: '20261020-soomgo-0000ff01' });
+  setStatus(s.ledger, row.id, { from: 'awaiting_operator', to: 'approved' });
+  const quote = decision({ intent: 'quote_request', reply: '요청하신 랜딩 페이지를 구성해 드리겠습니다. 결제는 착수금과 잔금으로 나누어 받습니다.', quote: { amountKRW: 1, scope: ['랜딩 페이지 1개'], deliveryDays: 7, priceType: 'fixed', complexity: 1 } });
+  const codex = codexWith(quote);
+  const surface = scriptedSurface({ sense: [inbound('soomgo', 'r2', { kind: 'request', service: '웹 개발', quotable: true, quoteCostKRW: 990 })], threads: (ref) => ({ ...chat('soomgo', ref, '웹 개발\n회사 소개 랜딩 페이지가 필요합니다.'), kind: 'request', quoteCostKRW: 990 }) });
+  const r = await s.run('soomgo', surface, { runCodex: codex });
+  assert.deepEqual([r.threads.budget, codex.calls, reads(surface).length], [undefined, 1, 1]);
+});
+

@@ -1,13 +1,13 @@
 // Synthetic page answers only: fixtures under test/fixtures/surfaces are hand-written, never recorded pages.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { openKmongConversation } from '../src/platforms/kmong/conversation.mjs';
 import { openSoomgo } from '../src/platforms/soomgo/adapter.mjs';
 import { openSurface } from '../src/surface/index.mjs';
 import { readRecording, recordSession, replaySession } from '../src/surface/recorder.mjs';
+import { tempDir } from './tmp.mjs';
 
 // A driver stand-in: extractors answer by function name and every action is logged.
 function fakeSession(answers) {
@@ -143,20 +143,15 @@ test('read gives a soomgo chat with its platform notices, and a request as one i
 });
 
 test('a recorded session replays the same answers in order, and a diverging call fails by name', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-rec-'));
-  try {
-    const file = join(dir, 'r.jsonl');
-    const live = fakeSession({ pageChats: [{ id: 9, customer: 'x', newMessages: 0 }], pageRequests: [] });
-    const first = await (await openSurface('soomgo', { session: live, record: file })).sense();
-    const calls = readRecording(file);
-    assert.deepEqual(calls.map((c) => c.op + ' ' + c.name), ['navigate https://soomgo.com/pro/chats', 'evaluate pageChats', 'navigate https://soomgo.com/requests/received', 'evaluate pageRequests']);
-    const again = await (await openSurface('soomgo', { replay: file })).sense();
-    assert.deepEqual(again, first);
-    const wrong = await openSurface('soomgo', { replay: file });
-    await assert.rejects(wrong.login(), { code: 'FSW_REPLAY_DIVERGED' });
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  const file = join(tempDir('fsw-rec-'), 'r.jsonl');
+  const live = fakeSession({ pageChats: [{ id: 9, customer: 'x', newMessages: 0 }], pageRequests: [] });
+  const first = await (await openSurface('soomgo', { session: live, record: file })).sense();
+  const calls = readRecording(file);
+  assert.deepEqual(calls.map((c) => c.op + ' ' + c.name), ['navigate https://soomgo.com/pro/chats', 'evaluate pageChats', 'navigate https://soomgo.com/requests/received', 'evaluate pageRequests']);
+  const again = await (await openSurface('soomgo', { replay: file })).sense();
+  assert.deepEqual(again, first);
+  const wrong = await openSurface('soomgo', { replay: file });
+  await assert.rejects(wrong.login(), { code: 'FSW_REPLAY_DIVERGED' });
 });
 
 test('a recorded error replays as the same error, and a platform without a surface is refused', async () => {

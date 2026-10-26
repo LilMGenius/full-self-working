@@ -691,6 +691,7 @@
         },
         "fiverr": {
           "title": null,
+          "skills": null,
           "skillLevel": null
         },
         "upwork": {
@@ -720,7 +721,8 @@
           "skills": [
             "Web Development",
             "JavaScript"
-          ]
+          ],
+          "skipPaymentVerification": false
         }
       },
       "properties": {
@@ -792,6 +794,7 @@
           "description": "fiverr seller profile",
           "default": {
             "title": null,
+            "skills": null,
             "skillLevel": null
           },
           "properties": {
@@ -801,6 +804,17 @@
                 "null"
               ],
               "description": "the seller title; null uses the headline",
+              "default": null
+            },
+            "skills": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              },
+              "description": "the skills the fiverr skills step tries, each kept only when profile.skills mentions it; null derives them from the profile",
               "default": null
             },
             "skillLevel": {
@@ -929,7 +943,8 @@
             "skills": [
               "Web Development",
               "JavaScript"
-            ]
+            ],
+            "skipPaymentVerification": false
           },
           "properties": {
             "headline": {
@@ -959,6 +974,11 @@
                 "Web Development",
                 "JavaScript"
               ]
+            },
+            "skipPaymentVerification": {
+              "type": "boolean",
+              "description": "whether the wizard leaves the phone and payment verification pages by Skip; false leaves them to you, since verifying adds a card",
+              "default": false
             }
           }
         }

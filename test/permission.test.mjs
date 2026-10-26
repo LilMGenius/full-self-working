@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
@@ -126,11 +126,13 @@ function setup() {
       threads: () => ({ ref: 'k1', kind: 'message', stage: 'post_order', messages: [...messages], notices: [] }),
     });
     const d = { intent: 'smalltalk', service: 'landing_page_web', language: 'ko', reply: null, quote: null, needsOperator: false, operatorReason: null, confidence: 0.9, claimsUsed: [], statedBudgetKRW: null, ...answer };
-    return step('kmong', { instance, ledger, now, notify: async () => ({ written: true }), openSurface: async () => surface, priceTable: [], runCodex: async () => ({ data: d, durationMs: 1 }) });
+    // The real notifier writes operator/requests.md in the temp instance (toast and webhook off).
+    return step('kmong', { instance, ledger, now, openSurface: async () => surface, priceTable: [], runCodex: async () => ({ data: d, durationMs: 1 }) });
   };
   const events = (kind) => ledger.db.prepare('SELECT * FROM events WHERE kind = ? ORDER BY id').all(kind).map((e) => JSON.parse(e.payload));
   const deal = (signal) => advance(ledger, { platform: 'kmong', jobId: 'kmong-k1', ...signal }, { instance, descriptor: loadDescriptor('kmong'), now: new Date(signal.at) });
-  return { ledger, run, events, deal };
+  const requests = () => (existsSync(join(instance.paths.operator, 'requests.md')) ? readFileSync(join(instance.paths.operator, 'requests.md'), 'utf8') : '');
+  return { instance, ledger, run, events, deal, requests };
 }
 
 test('the step sends a quoted grant to the deal, which keeps the quote on the portfolio meta', async () => {
@@ -219,3 +221,17 @@ test('a refusal about earlier work takes it down when the thread has opened a ne
   assert.deepEqual(s.events('permission.refusal_unapplied'), []);
 });
 
+test('an answer that is not applied tells the operator once per job and answer, naming the fsw deal verb', async () => {
+  const s = setup();
+  const keys = () => [...s.requests().matchAll(/^- dedupe: (portfolio-answer-check:.+)$/gm)].map((m) => m[1]);
+  await s.run('감사합니다!', { portfolioPermission: 'granted', permissionQuote: GRANT }, 11);
+  await s.run('정말 감사합니다!', { portfolioPermission: 'granted', permissionQuote: GRANT }, 13);
+  assert.deepEqual(keys(), ['portfolio-answer-check:kmong-k1:granted']);
+  assert.match(s.requests(), /fsw deal kmong-k1 permission granted \(or denied\)/);
+  assert.equal(s.events('permission.unverified').length, 2);
+  // A refusal with nothing delivered on the thread is its own notice.
+  s.ledger.upsertJob({ id: 'kmong-k1', status: 'in_progress', deliveredAt: null, meta: {} });
+  await s.run('포트폴리오에는 올리지 말아 주세요.', { portfolioPermission: 'refused', permissionQuote: null }, 15);
+  assert.deepEqual(keys(), ['portfolio-answer-check:kmong-k1:granted', 'portfolio-answer-check:kmong:k1:refused']);
+  assert.match(s.requests(), /No job on this thread was delivered/);
+});

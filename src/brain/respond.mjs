@@ -101,7 +101,7 @@ export function parseDecision(data, ids) {
   if (![null, 'granted', 'refused'].includes(permission)) throw bad('portfolioPermission ' + permission);
   if (permissionQuote !== null && typeof permissionQuote !== 'string') throw bad('permissionQuote');
   // A grant the model cannot quote is no grant, but the reply and the quote in the same answer still stand;
-  // the loop records the dropped claim for the operator (permission.unverified).
+  // the loop records the dropped claim (permission.unverified) and notifies the operator.
   let permissionIssue = null;
   if (permission === 'granted' && !(permissionQuote ?? '').trim()) {
     permission = null;

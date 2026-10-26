@@ -223,11 +223,17 @@ export async function step(platform, ctx) {
         ledger.upsertThread({ platform, externalId: ref, kind: view.kind, service: d.service ?? undefined, language: d.language ?? undefined, status: d.intent, meta: readMeta({ stage, settled: settled('decide') }) });
         event('brain.decision', ref, { intent: d.intent, service: d.service, confidence: d.confidence, modelCalls: r.modelCalls, needsOperator: d.needsOperator, reply: d.reply !== null });
         // The client's portfolio answer (wp6) lands before a change request in the same message moves the job:
-        // a grant only with their own sentence after the delivery, a refusal on any job delivered once. An
-        // answer that is not applied is an event for the operator.
+        // a grant only with their own sentence after the delivery, a refusal on every job delivered once. An
+        // answer that is not applied is an event and an operator notice naming the fsw deal verb, once per job
+        // and answer while the notice stays open, since the same block repeats on every read.
         const perm = permissionSignal({ thread: view, jobs: jobsOfThread(ledger, platform, row.id), decision: d, at: now.toISOString() });
         for (const s of perm.signals) applyAdvance(s);
-        if (perm.reason) event(d.portfolioPermission === 'refused' ? 'permission.refusal_unapplied' : 'permission.unverified', ref, { reason: perm.reason });
+        if (perm.reason) {
+          const answer = d.portfolioPermission === 'refused' ? 'refused' : 'granted';
+          event(answer === 'refused' ? 'permission.refusal_unapplied' : 'permission.unverified', ref, { reason: perm.reason, jobId: perm.jobId });
+          const verb = perm.jobId ? '\nRecord the client answer with: fsw deal ' + perm.jobId + ' permission granted (or denied)' : '\nNo job on this thread was delivered, so there is nothing to record yet.';
+          effects.push({ type: 'notify', note: { kind: 'order', title: platform + ' ' + (perm.jobId ?? 'thread ' + ref) + ': a portfolio answer was not applied', body: 'The model read the client as ' + answer + ' on thread ' + ref + ', and it was not applied: ' + perm.reason + '.\nQuote: ' + (d.permissionQuote ?? 'none') + verb, dedupeKey: 'portfolio-answer-check:' + (perm.jobId ?? platform + ':' + ref) + ':' + answer } });
+        }
         // A change request on delivered work reopens its job whatever happens to the reply.
         const delivered = d.intent === 'revision' ? ledger.listJobs({ platform, status: 'delivered' }).find((j) => j.threadId === row.id) : null;
         if (delivered) applyAdvance({ type: 'revision_requested', platform, threadId: row.id, jobId: delivered.id, at: now.toISOString(), evidence: { text: pendingInbound(view).map(msgText).join('\n') } });

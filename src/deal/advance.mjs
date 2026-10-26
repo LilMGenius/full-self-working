@@ -396,6 +396,9 @@ const RULES = {
   delivery_observed(ledger, out, s, { job, descriptor, now }) {
     if (!job || job.status !== 'in_progress') return refuse(ledger, out, s, job, 'a delivery lands only on an in_progress job');
     const delivered = move(ledger, out, job, 'delivered', { deliveredAt: s.at, meta: { ...(job.meta ?? {}), delivery: { at: s.at, outboxId: s.evidence?.outboxId ?? null, files: s.evidence?.files ?? null }, portfolio: { permission: 'pending', askedAt: s.at } } });
+    // The delivery message asked the client about the portfolio (deliveryText); their answer and a review
+    // reach the deal through the operator's fsw deal verbs wherever no parser reads them (060 U6.7).
+    out.effects.push(notifyEffect(job.platform + ' job ' + job.id + ' delivered: record the client\'s answers', 'The delivery asked the client whether the work may be shown in the portfolio. Record their answer with: fsw deal ' + job.id + ' permission granted (or denied)\nRecord a review they leave with: fsw deal ' + job.id + ' review --rating <1-5> --text "<review>"', 'portfolio-answer:' + job.id));
     // Confirmations can arrive before the files land (kmong 구매 확정 after an early look): settle now too.
     close(ledger, out, delivered, descriptor, now);
   },

@@ -203,6 +203,20 @@ test('permission granted on a delivered job syncs the portfolio; on an ordered j
   assert.equal(s.events('deal.refused').at(-1).reason, 'portfolio permission needs a delivered or closed job');
 });
 
+test('a delivery tells the operator which fsw deal verbs record the client portfolio answer and review', () => {
+  const s = setup();
+  const t = s.thread('c1');
+  s.step(s.quoteSignal(t));
+  s.step(s.notices(t, [{ text: NOTICE.hired, at: at('10:58') }])[0]);
+  s.step(s.notices(t, [{ text: NOTICE.paid('150,000'), at: at('11:58') }])[0]);
+  s.step({ type: 'run_started', platform: 'soomgo', jobId: 'soomgo-c1', at: at('12:00'), evidence: {} });
+  const del = s.step({ type: 'delivery_observed', platform: 'soomgo', jobId: 'soomgo-c1', at: at('13:00'), evidence: {} });
+  const notes = del.effects.filter((e) => e.type === 'notify').map((e) => e.note);
+  assert.deepEqual(notes.map((n) => n.dedupeKey), ['portfolio-answer:soomgo-c1']);
+  assert.match(notes[0].body, /fsw deal soomgo-c1 permission granted \(or denied\)/);
+  assert.match(notes[0].body, /fsw deal soomgo-c1 review --rating <1-5>/);
+});
+
 test('delivery_observed on an ordered job is refused with a deal.refused event, and an unknown signal throws', () => {
   const s = setup();
   const t = s.thread('c2');

@@ -148,6 +148,23 @@ test('a decision carries statedBudgetKRW, and one without it parses as null', ()
   assert.ok(DECISION_SCHEMA(ids).required.includes('statedBudgetKRW'));
 });
 
+test('a decision carries the portfolio answer with its quote; a grant without a quote or an unknown answer is rejected', () => {
+  const ids = ['landing_page_web'];
+  const granted = parseDecision(decision({ portfolioPermission: 'granted', permissionQuote: '네, 올리셔도 됩니다.' }), ids);
+  assert.deepEqual([granted.portfolioPermission, granted.permissionQuote], ['granted', '네, 올리셔도 됩니다.']);
+  const none = parseDecision(decision({ portfolioPermission: null, permissionQuote: null }), ids);
+  assert.deepEqual([none.portfolioPermission, none.permissionQuote], [null, null]);
+  const older = parseDecision(decision(), ids);
+  assert.deepEqual([older.portfolioPermission, older.permissionQuote], [null, null]);
+  assert.equal(parseDecision(decision({ portfolioPermission: 'refused', permissionQuote: null }), ids).portfolioPermission, 'refused');
+  for (const over of [{ portfolioPermission: 'yes', permissionQuote: '네' }, { portfolioPermission: 'granted', permissionQuote: null }, { portfolioPermission: 'granted', permissionQuote: '  ' }, { portfolioPermission: null, permissionQuote: 3 }]) {
+    assert.throws(() => parseDecision(decision(over), ids), { code: 'FSW_BRAIN_BAD_DECISION' }, JSON.stringify(over));
+  }
+  const schema = DECISION_SCHEMA(ids);
+  assert.ok(schema.required.includes('portfolioPermission') && schema.required.includes('permissionQuote'));
+  assert.deepEqual(schema.properties.portfolioPermission.enum, ['granted', 'refused', null]);
+});
+
 test('the model sees only the services and price rows the instance answers on the platform', async () => {
   const row = (service) => ({ platform: 'soomgo', service, packages: { standard: 40000, deluxe: 88000, premium: 160000 }, floorKRW: 35000, ceilingKRW: 160000, viable: true });
   const priceTable = [row('landing_page_web'), row('lesson_tutoring')];

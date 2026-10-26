@@ -15,12 +15,13 @@ import { decide as defaultDecide, loadGateRules, pendingInbound } from '../brain
 import { authorize, budgetSpent, operatingMode, spendsCash } from '../policy/authorize.mjs';
 import { drain, plan, signalOf } from '../outbox/index.mjs';
 import { quotaUsage } from '../outbox/usage.mjs';
-import { advance, moneyToSignals, readiness, stageOf, unappliedObserved } from '../deal/index.mjs';
+import { advance, jobOfThread, moneyToSignals, readiness, stageOf, unappliedObserved } from '../deal/index.mjs';
 import { answeredServices, parkKey } from '../economics/catalog.mjs';
 import { latestAllocation, prioritize } from '../economics/priority.mjs';
 import { loadRecipe } from '../work/index.mjs';
 import { applyEffects } from './effects.mjs';
 import { recordOrderCounters } from './orders.mjs';
+import { permissionSignal } from './permission.mjs';
 
 // One platform opens at most this many threads per tick, so a backlog cannot hold the tick past the next
 // 5-minute mark (src/supervisor/run.mjs:22-24).
@@ -224,6 +225,10 @@ export async function step(platform, ctx) {
         // A change request on delivered work reopens its job whatever happens to the reply.
         const delivered = d.intent === 'revision' ? ledger.listJobs({ platform, status: 'delivered' }).find((j) => j.threadId === row.id) : null;
         if (delivered) applyAdvance({ type: 'revision_requested', platform, threadId: row.id, jobId: delivered.id, at: now.toISOString(), evidence: { text: pendingInbound(view).map(msgText).join('\n') } });
+        // The client's portfolio answer (wp6): a grant only with their own sentence after the delivery.
+        const perm = permissionSignal({ thread: view, job: jobOfThread(ledger, platform, row.id), decision: d, at: now.toISOString() });
+        if (perm.signal) applyAdvance(perm.signal);
+        else if (perm.reason) event('permission.unverified', ref, { reason: perm.reason });
         // A buyer request answered only through a paid quote that the brain rules unsupported is left for
         // the operator's own app and counted for the digest, as a service outside the catalog is; planning it
         // would only ask the operator to reject a quote nobody should pay for (426cb9d). Chats still plan a

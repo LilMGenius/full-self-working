@@ -7,6 +7,8 @@ import { openLedger } from '../src/core/ledger.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { plan } from '../src/outbox/index.mjs';
 import { advance, moneyToSignals, sweep } from '../src/deal/index.mjs';
+import { itemFromJob } from '../src/portfolio/store.mjs';
+import { rankPortfolio } from '../src/portfolio/rank.mjs';
 import { tempDir } from './tmp.mjs';
 
 function makeInstance(edit = (c) => c) {
@@ -201,6 +203,20 @@ test('permission granted on a delivered job syncs the portfolio; on an ordered j
   const refused = s.step({ type: 'permission_refused', platform: 'soomgo', threadId: t2.id, at: at('15:00'), evidence: {} });
   assert.deepEqual(refused.effects, []);
   assert.equal(s.events('deal.refused').at(-1).reason, 'portfolio permission needs a delivered or closed job');
+});
+
+test('a grant keeps the customer quote and its source on the portfolio meta; a refusal is denied and ranks no item', () => {
+  const s = setup();
+  delivered(s);
+  s.step({ type: 'permission_granted', platform: 'soomgo', jobId: 'soomgo-c1', at: at('15:00'), evidence: { quote: '네, 올리셔도 됩니다.', source: 'brain' } });
+  const granted = s.ledger.getJob('soomgo-c1');
+  assert.deepEqual(granted.meta.portfolio, { ...granted.meta.portfolio, permission: 'granted', quote: '네, 올리셔도 됩니다.', source: 'brain', answeredAt: at('15:00') });
+  const item = (job) => itemFromJob({ job, payments: s.ledger.jobPayments(job.id) });
+  assert.equal(rankPortfolio([item(granted)]).length, 1);
+  s.step({ type: 'permission_refused', platform: 'soomgo', jobId: 'soomgo-c1', at: at('15:10'), evidence: { quote: null, source: 'brain' } });
+  const refused = s.ledger.getJob('soomgo-c1');
+  assert.deepEqual([refused.meta.portfolio.permission, refused.meta.portfolio.quote, refused.meta.portfolio.source], ['denied', null, 'brain']);
+  assert.deepEqual(rankPortfolio([item(refused)]), []);
 });
 
 test('a delivery tells the operator which fsw deal verbs record the client portfolio answer and review', () => {

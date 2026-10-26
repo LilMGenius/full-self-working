@@ -40,7 +40,7 @@ export function matchSystemNotice(thread) {
 export const DECISION_SCHEMA = (ids) => ({
   type: 'object',
   additionalProperties: false,
-  required: ['intent', 'service', 'language', 'reply', 'quote', 'needsOperator', 'operatorReason', 'confidence', 'claimsUsed', 'statedBudgetKRW'],
+  required: ['intent', 'service', 'language', 'reply', 'quote', 'needsOperator', 'operatorReason', 'confidence', 'claimsUsed', 'statedBudgetKRW', 'portfolioPermission', 'permissionQuote'],
   properties: {
     intent: { type: 'string', enum: INTENTS },
     service: { type: ['string', 'null'], enum: [...ids, null] },
@@ -68,6 +68,8 @@ export const DECISION_SCHEMA = (ids) => ({
     confidence: { type: 'number' },
     claimsUsed: { type: 'array', items: { type: 'string' } },
     statedBudgetKRW: { type: ['integer', 'null'], description: 'the budget the customer states for this work, in a request field or in the text, in KRW; null when none is stated' },
+    portfolioPermission: { type: ['string', 'null'], enum: ['granted', 'refused', null], description: 'the customer answered the portfolio question: granted, refused, or null when the conversation holds no answer' },
+    permissionQuote: { type: ['string', 'null'], description: 'the customer sentence that answers it, copied verbatim; null when portfolioPermission is null' },
   },
 });
 
@@ -94,6 +96,11 @@ export function parseDecision(data, ids) {
   // A decision written before the field existed (an older fixture) parses as null.
   const stated = data.statedBudgetKRW ?? null;
   if (stated !== null && !(Number.isInteger(stated) && stated > 0)) throw bad('statedBudgetKRW');
+  const permission = data.portfolioPermission ?? null;
+  const permissionQuote = data.permissionQuote ?? null;
+  if (![null, 'granted', 'refused'].includes(permission)) throw bad('portfolioPermission ' + permission);
+  if (permissionQuote !== null && typeof permissionQuote !== 'string') throw bad('permissionQuote');
+  if (permission === 'granted' && !(permissionQuote ?? '').trim()) throw bad('portfolioPermission granted without permissionQuote');
   return {
     intent: data.intent,
     service: data.service,
@@ -105,6 +112,8 @@ export function parseDecision(data, ids) {
     confidence: data.confidence,
     claimsUsed: data.claimsUsed,
     statedBudgetKRW: stated,
+    portfolioPermission: permission,
+    permissionQuote,
   };
 }
 
@@ -137,7 +146,7 @@ export function outboundItem(thread, decision, text) {
 
 const SYSTEM_DECISION = Object.freeze({
   intent: 'system', service: null, language: null, reply: null, quote: null,
-  needsOperator: false, operatorReason: null, confidence: 1, claimsUsed: [], statedBudgetKRW: null,
+  needsOperator: false, operatorReason: null, confidence: 1, claimsUsed: [], statedBudgetKRW: null, portfolioPermission: null, permissionQuote: null,
 });
 
 export async function decide(thread, ctx) {

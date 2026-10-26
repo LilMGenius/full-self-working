@@ -342,7 +342,7 @@ function money(ledger, out, signal, thread, { instance, descriptor, now }) {
 
 const permission = (value) => (ledger, out, s, { job }) => {
   if (!job || !['delivered', 'closed'].includes(job.status)) return refuse(ledger, out, s, job, 'portfolio permission needs a delivered or closed job');
-  ledger.upsertJob({ id: job.id, meta: { ...(job.meta ?? {}), portfolio: { ...(job.meta?.portfolio ?? {}), permission: value, answeredAt: s.at } } });
+  ledger.upsertJob({ id: job.id, meta: { ...(job.meta ?? {}), portfolio: { ...(job.meta?.portfolio ?? {}), permission: value, answeredAt: s.at, quote: s.evidence?.quote ?? null, source: s.evidence?.source ?? null } } });
   out.effects.push({ type: 'sync_portfolio' });
 };
 

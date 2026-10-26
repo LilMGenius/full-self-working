@@ -14,26 +14,35 @@ const msgText = (m) => String(m.text ?? m.body ?? '');
 // work private until the operator records the answer.
 const NEGATION = /않|못|말아|말고|마세요|마시고|마십시오|싫|아니|거절|불가|곤란|어렵|비공개|삼가|(?:^|[\s,.!?])안(?=\s|돼|되|됩)|\b(?:no|not|never|don'?t|rather not)\b|n't\b/iu;
 
-export function permissionSignal({ thread, job, decision, at = new Date().toISOString() }) {
-  if (decision?.permissionIssue) return { signal: null, reason: decision.permissionIssue };
+// jobs: every job of the thread, oldest first. Returns the deal signals to apply, or a reason the answer was
+// not applied, with the job it concerns.
+export function permissionSignal({ thread, jobs, decision, at = new Date().toISOString() }) {
+  const job = jobs.at(-1) ?? null;
+  const none = (reason) => ({ signals: [], reason, jobId: job?.id ?? null });
+  if (decision?.permissionIssue) return none(decision.permissionIssue);
   const answer = decision?.portfolioPermission ?? null;
-  if (!answer) return { signal: null, reason: null };
-  const signal = (type, evidence) => ({ signal: { type, platform: thread.platform, threadId: job.threadId, jobId: job.id, at, evidence: { ...evidence, source: 'brain' } }, reason: null });
-  // A refusal holds on any job delivered once, a revision or a rerun included.
-  if (answer === 'refused') return job?.deliveredAt ? signal('permission_refused', { quote: null }) : { signal: null, reason: 'refusal on a thread whose job was never delivered' };
-  if (!job || !['delivered', 'closed'].includes(job.status)) return { signal: null, reason: null };
+  if (!answer) return none(null);
+  const signal = (type, j, evidence) => ({ type, platform: thread.platform, threadId: j.threadId, jobId: j.id, at, evidence: { ...evidence, source: 'brain' } });
+  // A refusal cannot say which of the thread's works it means, so it holds on every job delivered once (an
+  // older closed one, a revision or a rerun included): hiding work is the safe side.
+  if (answer === 'refused') {
+    const delivered = jobs.filter((j) => j.deliveredAt);
+    if (!delivered.length) return none('refusal on a thread whose job was never delivered');
+    return { signals: delivered.map((j) => signal('permission_refused', j, { quote: null })), reason: null, jobId: job.id };
+  }
+  if (!job || !['delivered', 'closed'].includes(job.status)) return none(null);
   const after = Date.parse(job.deliveredAt ?? '');
   const inbound = (thread.messages ?? []).filter((m) => m.direction === 'in' && Number.isFinite(Date.parse(m.at ?? '')) && Date.parse(m.at) > after);
   // A denial stands until the operator lifts it, and a grant already recorded needs nothing more.
   const prior = job.meta?.portfolio ?? {};
-  if (prior.permission === 'denied') return { signal: null, reason: 'the client refused before; only the operator lifts it with fsw deal ' + job.id + ' permission granted' };
-  if (prior.permission === 'granted') return { signal: null, reason: null };
+  if (prior.permission === 'denied') return none('the client refused before; only the operator lifts it with fsw deal ' + job.id + ' permission granted');
+  if (prior.permission === 'granted') return none(null);
   // The quote must be newer than the last recorded answer as well as the delivery.
   const since = prior.answeredAt ? Date.parse(prior.answeredAt) : -Infinity;
   const fresh = inbound.filter((m) => Date.parse(m.at) > since);
   const quote = bare(decision.permissionQuote);
   const i = quote.length >= 2 ? fresh.findIndex((m) => bare(msgText(m)) === quote || sentencesOf(msgText(m)).includes(quote)) : -1;
-  if (i < 0) return { signal: null, reason: 'grant whose quote is not a whole sentence of an inbound message after the delivery' };
-  if (fresh.slice(i).some((m) => NEGATION.test(msgText(m)))) return { signal: null, reason: 'grant quoted from a message that says no, or followed by one' };
-  return signal('permission_granted', { quote: norm(decision.permissionQuote), quoteAt: fresh[i].at });
+  if (i < 0) return none('grant whose quote is not a whole sentence of an inbound message after the delivery');
+  if (fresh.slice(i).some((m) => NEGATION.test(msgText(m)))) return none('grant quoted from a message that says no, or followed by one');
+  return { signals: [signal('permission_granted', job, { quote: norm(decision.permissionQuote), quoteAt: fresh[i].at })], reason: null, jobId: job.id };
 }

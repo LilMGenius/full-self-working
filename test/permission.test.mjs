@@ -16,14 +16,20 @@ const job = { id: 'kmong-k1', threadId: 7, platform: 'kmong', status: 'delivered
 const GRANT = '네, 포트폴리오에 올리셔도 됩니다.';
 const msg = (direction, text, at) => ({ direction, text, at });
 const thread = (messages) => ({ platform: 'kmong', messages });
+// One job on the thread: the result as one signal or none.
+const single = ({ job: j, ...rest }) => {
+  const r = permissionSignal({ ...rest, jobs: j ? [j] : [] });
+  assert.ok(r.signals.length <= 1);
+  return { signal: r.signals[0] ?? null, reason: r.reason };
+};
 const decision = (portfolioPermission, permissionQuote) => ({ intent: 'smalltalk', portfolioPermission, permissionQuote });
 
 test('a grant whose quote is in an inbound message after the delivery becomes permission_granted with the quote', () => {
-  const r = permissionSignal({ thread: thread([msg('out', '작업물 전달드립니다. 포트폴리오에 써도 될까요?', DELIVERED), msg('in', '감사합니다!  ' + GRANT, '2026-10-20T11:00:00+09:00')]), job, decision: decision('granted', GRANT), at: '2026-10-20T12:00:00+09:00' });
+  const r = single({ thread: thread([msg('out', '작업물 전달드립니다. 포트폴리오에 써도 될까요?', DELIVERED), msg('in', '감사합니다!  ' + GRANT, '2026-10-20T11:00:00+09:00')]), job, decision: decision('granted', GRANT), at: '2026-10-20T12:00:00+09:00' });
   assert.equal(r.reason, null);
   assert.deepEqual(r.signal, { type: 'permission_granted', platform: 'kmong', threadId: 7, jobId: 'kmong-k1', at: '2026-10-20T12:00:00+09:00', evidence: { quote: GRANT, quoteAt: '2026-10-20T11:00:00+09:00', source: 'brain' } });
   // The model may drop the closing mark; the sentence is the same.
-  const bare = permissionSignal({ thread: thread([msg('in', GRANT, '2026-10-20T11:00:00+09:00')]), job, decision: decision('granted', GRANT.slice(0, -1)) });
+  const bare = single({ thread: thread([msg('in', GRANT, '2026-10-20T11:00:00+09:00')]), job, decision: decision('granted', GRANT.slice(0, -1)) });
   assert.equal(bare.signal?.type, 'permission_granted');
 });
 
@@ -34,11 +40,11 @@ test('a grant quoting my own outbound message, an inbound before the delivery, o
     thread([msg('in', '감사합니다!', '2026-10-20T11:00:00+09:00')]),
   ];
   for (const t of cases) {
-    const r = permissionSignal({ thread: t, job, decision: decision('granted', GRANT) });
+    const r = single({ thread: t, job, decision: decision('granted', GRANT) });
     assert.equal(r.signal, null);
     assert.equal(r.reason, 'grant whose quote is not a whole sentence of an inbound message after the delivery');
   }
-  const thanksOnly = permissionSignal({ thread: thread([msg('in', '감사합니다!', '2026-10-20T11:00:00+09:00')]), job, decision: decision('granted', '감사합니다!'.slice(0, 1)) });
+  const thanksOnly = single({ thread: thread([msg('in', '감사합니다!', '2026-10-20T11:00:00+09:00')]), job, decision: decision('granted', '감사합니다!'.slice(0, 1)) });
   assert.equal(thanksOnly.signal, null);
 });
 
@@ -52,40 +58,49 @@ test('a fragment of a refusal, or a whole sentence from a message that says no, 
     ['Sure, but please do not post it publicly.', 'Sure, but please do not post it publicly.', 'grant quoted from a message that says no, or followed by one'],
   ];
   for (const [text, quote, reason] of cases) {
-    const r = permissionSignal({ thread: thread([msg('in', text, at)]), job, decision: decision('granted', quote) });
+    const r = single({ thread: thread([msg('in', text, at)]), job, decision: decision('granted', quote) });
     assert.deepEqual([r.signal, r.reason], [null, reason], text + ' / ' + quote);
   }
   // A yes followed by a later no is not a grant either.
-  const later = permissionSignal({ thread: thread([msg('in', GRANT, at), msg('in', '아, 생각해 보니 포트폴리오는 올리지 말아 주세요.', '2026-10-20T11:30:00+09:00')]), job, decision: decision('granted', GRANT) });
+  const later = single({ thread: thread([msg('in', GRANT, at), msg('in', '아, 생각해 보니 포트폴리오는 올리지 말아 주세요.', '2026-10-20T11:30:00+09:00')]), job, decision: decision('granted', GRANT) });
   assert.equal(later.signal, null);
   // A greeting that starts with 안 is not a no.
-  const hello = permissionSignal({ thread: thread([msg('in', '안녕하세요. ' + GRANT, at)]), job, decision: decision('granted', GRANT) });
+  const hello = single({ thread: thread([msg('in', '안녕하세요. ' + GRANT, at)]), job, decision: decision('granted', GRANT) });
   assert.equal(hello.signal?.type, 'permission_granted');
 });
 
 test('a refusal needs no quote and becomes permission_refused', () => {
-  const r = permissionSignal({ thread: thread([]), job, decision: decision('refused', null), at: '2026-10-20T12:00:00+09:00' });
+  const r = single({ thread: thread([]), job, decision: decision('refused', null), at: '2026-10-20T12:00:00+09:00' });
   assert.equal(r.signal.type, 'permission_refused');
   assert.deepEqual(r.signal.evidence, { quote: null, source: 'brain' });
 });
 
+test('a refusal reaches every job of the thread that was ever delivered, the older ones included', () => {
+  const old = { ...job, id: 'kmong-k1-a', status: 'closed' };
+  const rerun = { ...job, id: 'kmong-k1-b', status: 'revision' };
+  const fresh = { ...job, id: 'kmong-k1-c', status: 'ordered', deliveredAt: null };
+  const r = permissionSignal({ thread: thread([]), jobs: [old, rerun, fresh], decision: decision('refused', null) });
+  assert.deepEqual(r.signals.map((s) => [s.type, s.jobId]), [['permission_refused', 'kmong-k1-a'], ['permission_refused', 'kmong-k1-b']]);
+  assert.equal(r.reason, null);
+});
+
 test('no answer gives nothing; a grant waits for delivered work; a refusal before any delivery is named, after one it holds', () => {
-  assert.deepEqual(permissionSignal({ thread: thread([]), job, decision: decision(null, null) }), { signal: null, reason: null });
-  assert.deepEqual(permissionSignal({ thread: thread([msg('in', GRANT, '2026-10-20T11:00:00+09:00')]), job: { ...job, status: 'revision' }, decision: decision('granted', GRANT) }), { signal: null, reason: null });
+  assert.deepEqual(single({ thread: thread([]), job, decision: decision(null, null) }), { signal: null, reason: null });
+  assert.deepEqual(single({ thread: thread([msg('in', GRANT, '2026-10-20T11:00:00+09:00')]), job: { ...job, status: 'revision' }, decision: decision('granted', GRANT) }), { signal: null, reason: null });
   const never = 'refusal on a thread whose job was never delivered';
-  assert.deepEqual(permissionSignal({ thread: thread([]), job: { ...job, status: 'in_progress', deliveredAt: null }, decision: decision('refused', null) }), { signal: null, reason: never });
-  assert.deepEqual(permissionSignal({ thread: thread([]), job: null, decision: decision('refused', null) }), { signal: null, reason: never });
-  for (const status of ['revision', 'in_progress']) assert.equal(permissionSignal({ thread: thread([]), job: { ...job, status }, decision: decision('refused', null) }).signal.type, 'permission_refused');
+  assert.deepEqual(single({ thread: thread([]), job: { ...job, status: 'in_progress', deliveredAt: null }, decision: decision('refused', null) }), { signal: null, reason: never });
+  assert.deepEqual(single({ thread: thread([]), job: null, decision: decision('refused', null) }), { signal: null, reason: never });
+  for (const status of ['revision', 'in_progress']) assert.equal(single({ thread: thread([]), job: { ...job, status }, decision: decision('refused', null) }).signal.type, 'permission_refused');
 });
 
 test('a brain grant never replaces a denial, needs nothing over a grant, and quotes only messages after the last answer', () => {
   const yes = thread([msg('in', GRANT, '2026-10-20T11:00:00+09:00')]);
   const denied = { ...job, meta: { portfolio: { permission: 'denied', answeredAt: '2026-10-20T13:00:00+09:00', source: 'operator' } } };
-  assert.deepEqual(permissionSignal({ thread: yes, job: denied, decision: decision('granted', GRANT) }), { signal: null, reason: 'the client refused before; only the operator lifts it with fsw deal kmong-k1 permission granted' });
+  assert.deepEqual(single({ thread: yes, job: denied, decision: decision('granted', GRANT) }), { signal: null, reason: 'the client refused before; only the operator lifts it with fsw deal kmong-k1 permission granted' });
   const granted = { ...job, meta: { portfolio: { permission: 'granted', answeredAt: '2026-10-20T12:00:00+09:00' } } };
-  assert.deepEqual(permissionSignal({ thread: yes, job: granted, decision: decision('granted', GRANT) }), { signal: null, reason: null });
+  assert.deepEqual(single({ thread: yes, job: granted, decision: decision('granted', GRANT) }), { signal: null, reason: null });
   const answered = { ...job, meta: { portfolio: { permission: 'pending', answeredAt: '2026-10-20T12:00:00+09:00' } } };
-  assert.equal(permissionSignal({ thread: yes, job: answered, decision: decision('granted', GRANT) }).signal, null);
+  assert.equal(single({ thread: yes, job: answered, decision: decision('granted', GRANT) }).signal, null);
 });
 
 // The step: the brain's answer on a delivered thread reaches the deal, or is recorded as unverified.
@@ -190,3 +205,17 @@ test('a model grant without the client sentence keeps the thread reply and is re
   assert.deepEqual(s.events('permission.unverified').map((e) => e.reason), ['the model answered granted without the client sentence']);
   assert.equal(s.ledger.getJob('kmong-k1').meta.portfolio.permission, 'pending');
 });
+
+test('a refusal about earlier work takes it down when the thread has opened a newer order since', async () => {
+  const s = setup();
+  await s.run(GRANT, { portfolioPermission: 'granted', permissionQuote: GRANT }, 11);
+  const a = s.ledger.getJob('kmong-k1');
+  assert.equal(a.meta.portfolio.permission, 'granted');
+  s.ledger.upsertJob({ id: a.id, status: 'closed', closedAt: '2026-10-20T12:00:00+09:00' });
+  s.ledger.upsertJob({ id: 'kmong-k1-2', threadId: a.threadId, platform: 'kmong', service: 'landing_page_web', status: 'ordered' });
+  await s.run('예전 작업물은 포트폴리오에서 내려 주세요.', { portfolioPermission: 'refused', permissionQuote: '예전 작업물은 포트폴리오에서 내려 주세요.' }, 13);
+  assert.equal(s.ledger.getJob('kmong-k1').meta.portfolio.permission, 'denied');
+  assert.equal(s.ledger.getJob('kmong-k1-2').meta?.portfolio, undefined);
+  assert.deepEqual(s.events('permission.refusal_unapplied'), []);
+});
+

@@ -1,0 +1,126 @@
+{
+  "service": "mobile_app_dev",
+  "version": 1,
+  "hours": {
+    "standard": 36,
+    "deluxe": 80,
+    "premium": 160
+  },
+  "steps": [
+    {
+      "id": "architecture",
+      "skill": "codexclaw:cxc-dev-architecture",
+      "type": "invoke-model-skill",
+      "input": "brief.md",
+      "output": "notes/architecture.md",
+      "does": "Write the screens, navigation, data model, backend choice and the Android and iOS targets for the agreed scope, as one Expo React Native app."
+    },
+    {
+      "id": "build",
+      "skill": "codexclaw:cxc-dev",
+      "type": "invoke-model-skill",
+      "input": "brief.md, notes/architecture.md",
+      "output": "app/",
+      "does": "Build the app as an Expo React Native project whose npm test script runs its tests and whose app.json names the Android package and the iOS bundle identifier; assets are drawn or generated locally, since the sandbox has no network."
+    },
+    {
+      "id": "ui",
+      "skill": "codexclaw:cxc-dev-frontend",
+      "type": "invoke-model-skill",
+      "input": "app/",
+      "output": "app/",
+      "does": "Fit every screen to small and large phone sizes, with touch targets, safe areas and the keyboard handled on both platforms."
+    },
+    {
+      "id": "tests",
+      "skill": "codexclaw:cxc-dev-testing",
+      "type": "invoke-model-skill",
+      "input": "app/",
+      "output": "app/",
+      "does": "Cover every screen flow and data rule with tests that fail when the behavior breaks."
+    },
+    {
+      "id": "deslop",
+      "skill": "omo:remove-ai-slops",
+      "type": "invoke-model-skill",
+      "input": "app/",
+      "output": "app/",
+      "does": "Remove dead code, swallowed errors and narration comments behind the tests."
+    },
+    {
+      "id": "handover",
+      "type": "invoke-model-skill",
+      "input": "app/, notes/",
+      "output": "notes/handover.md",
+      "does": "Write the store-ready handover in the brief language: how to run and build each platform, the signing keys and accounts each store needs, the store listing fields, the screenshots to take, the privacy answers and known limits."
+    },
+    {
+      "id": "accept",
+      "type": "script",
+      "run": "accept",
+      "input": "work/",
+      "output": "qa/"
+    },
+    {
+      "id": "android-build",
+      "type": "user-handoff",
+      "input": "app/, notes/handover.md",
+      "output": "Android build (APK and AAB)",
+      "ask": "The operator builds the signed Android release from app/ (an APK to install and an AAB for Google Play), installs the APK on a phone and checks it against the brief."
+    },
+    {
+      "id": "ios-build",
+      "type": "user-handoff",
+      "input": "app/, notes/handover.md",
+      "output": "iOS build",
+      "ask": "When the brief includes iOS, the operator lends his Mac for this step: he builds app/ in Xcode, checks it on a simulator or an iPhone and uploads it to TestFlight under the customer's Apple developer account. Without a Mac the iOS build waits, and the customer is told the new date before the old one passes."
+    },
+    {
+      "id": "review",
+      "type": "user-handoff",
+      "input": "notes/architecture.md, notes/handover.md",
+      "output": "operator decision",
+      "ask": "The operator checks the data model and the handover notes, then submits to the stores under the customer's developer accounts, which needs the customer's credentials."
+    }
+  ],
+  "deliverables": [
+    {
+      "path": "app/package.json",
+      "format": "json"
+    },
+    {
+      "path": "app/app.json",
+      "format": "json"
+    },
+    {
+      "path": "app/README.md",
+      "format": "md"
+    },
+    {
+      "path": "notes/handover.md",
+      "format": "md"
+    }
+  ],
+  "acceptance": [
+    {
+      "check": "files"
+    },
+    {
+      "check": "command",
+      "run": "npm install --no-audit --no-fund && npm test && npx expo export --platform android --platform ios --output-dir dist",
+      "cwd": "app",
+      "timeoutMs": 900000
+    },
+    {
+      "check": "sloplint",
+      "paths": [
+        "notes/handover.md",
+        "app/README.md"
+      ]
+    }
+  ],
+  "payment": {
+    "beforeStart": "deposit",
+    "beforeDelivery": "full"
+  }
+}

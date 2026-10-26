@@ -1,0 +1,120 @@
+{
+  "service": "erp_dev",
+  "version": 1,
+  "hours": {
+    "standard": 40,
+    "deluxe": 90,
+    "premium": 180
+  },
+  "steps": [
+    {
+      "id": "architecture",
+      "skill": "codexclaw:cxc-dev-architecture",
+      "type": "invoke-model-skill",
+      "input": "brief.md",
+      "output": "notes/architecture.md",
+      "does": "Write the records of each business area in scope, their fields and links, the roles and what each may see or change, the reports and the deploy target."
+    },
+    {
+      "id": "build",
+      "skill": "codexclaw:cxc-dev",
+      "type": "invoke-model-skill",
+      "input": "brief.md, notes/architecture.md",
+      "output": "app/",
+      "does": "Build the system as a Node web app whose npm test script runs its tests: sign-in, a list, form and detail screen per record, the reports, and an import of the customer's existing spreadsheet columns."
+    },
+    {
+      "id": "tests",
+      "skill": "codexclaw:cxc-dev-testing",
+      "type": "invoke-model-skill",
+      "input": "app/",
+      "output": "app/",
+      "does": "Cover every record rule, role permission, report total and import mapping with tests that fail when the behavior breaks."
+    },
+    {
+      "id": "security",
+      "skill": "codexclaw:cxc-dev-security",
+      "type": "invoke-model-skill",
+      "input": "app/",
+      "output": "notes/security.md",
+      "does": "Review auth, role checks, input handling, backups and secrets; fix findings and list what remains."
+    },
+    {
+      "id": "deslop",
+      "skill": "omo:remove-ai-slops",
+      "type": "invoke-model-skill",
+      "input": "app/",
+      "output": "app/",
+      "does": "Remove dead code, swallowed errors and narration comments behind the tests."
+    },
+    {
+      "id": "admin-guide",
+      "type": "invoke-model-skill",
+      "input": "app/, notes/",
+      "output": "notes/admin-guide.md",
+      "does": "Write the admin guide in the brief language: adding users and roles, importing and exporting data, reading each report, backup and restore, and known limits."
+    },
+    {
+      "id": "handover",
+      "type": "invoke-model-skill",
+      "input": "app/, notes/",
+      "output": "notes/handover.md",
+      "does": "Write setup, environment variables, deploy steps and the data migration in the brief language."
+    },
+    {
+      "id": "accept",
+      "type": "script",
+      "run": "accept",
+      "input": "work/",
+      "output": "qa/"
+    },
+    {
+      "id": "review",
+      "type": "user-handoff",
+      "input": "notes/architecture.md, notes/security.md",
+      "output": "operator decision",
+      "ask": "The operator reviews the data model, role permissions and security notes, then deploys under the customer account and imports the customer's data, which needs the customer credentials."
+    }
+  ],
+  "deliverables": [
+    {
+      "path": "app/package.json",
+      "format": "json"
+    },
+    {
+      "path": "app/README.md",
+      "format": "md"
+    },
+    {
+      "path": "notes/admin-guide.md",
+      "format": "md"
+    },
+    {
+      "path": "notes/handover.md",
+      "format": "md"
+    }
+  ],
+  "acceptance": [
+    {
+      "check": "files"
+    },
+    {
+      "check": "command",
+      "run": "npm install --no-audit --no-fund && npm test",
+      "cwd": "app",
+      "timeoutMs": 900000
+    },
+    {
+      "check": "sloplint",
+      "paths": [
+        "notes/admin-guide.md",
+        "notes/handover.md",
+        "app/README.md"
+      ]
+    }
+  ],
+  "payment": {
+    "beforeStart": "deposit",
+    "beforeDelivery": "full"
+  }
+}

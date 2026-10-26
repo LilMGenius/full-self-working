@@ -14,6 +14,19 @@ test('every service the agent delivers has a recipe that validates, and an opera
   assert.ok(validateRecipe(lesson).some((e) => /lesson_tutoring is delivered by the operator/.test(e)));
 });
 
+test('mobile and ERP work run as agent recipes, and the builds only the operator can make are his steps after acceptance', () => {
+  const mobile = loadRecipe('mobile_app_dev');
+  const after = (recipe) => recipe.steps.slice(recipe.steps.findIndex((s) => s.run === 'accept') + 1);
+  const handoffs = Object.fromEntries(after(mobile).map((s) => [s.id, s]));
+  assert.ok(after(mobile).every((s) => s.type === 'user-handoff'));
+  assert.match(handoffs['ios-build'].ask, /Mac/);
+  assert.match(handoffs['android-build'].ask, /Android/);
+  assert.ok(mobile.deliverables.some((d) => d.path === 'app/app.json'));
+  const erp = loadRecipe('erp_dev');
+  assert.ok(erp.deliverables.some((d) => d.path === 'notes/admin-guide.md'));
+  assert.deepEqual([deliveryOf(serviceCatalog().mobile_app_dev), deliveryOf(serviceCatalog().erp_dev)], ['agent', 'agent']);
+});
+
 test('a broken recipe fails with errors naming the file and the path', () => {
   const recipe = structuredClone(loadRecipe('landing_page_web'));
   recipe.hours.standard = 99;

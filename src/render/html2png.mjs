@@ -171,7 +171,7 @@ export async function releaseProfile(profile, { proc = null, processes = profile
     // A handle can close a moment after its process is gone (an indexer or a scanner reading the folder).
     for (let i = 0; i < 3; i++) {
       if (attempt()) return { removed: true, profile, ended: [...ended] };
-      await wait(500);
+      if (i < 2) await wait(500);
     }
   }
   const why = [describe(error)];

@@ -4,7 +4,7 @@
 // process never exits; the kill is injected as a no-op and the test ends the tree itself afterwards.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { basename } from 'node:path';
 import { DEFAULT_CHROME, openRenderer, releaseProfile } from '../src/render/html2png.mjs';
@@ -12,8 +12,11 @@ import { tempDir } from './tmp.mjs';
 
 const GRACE_MS = 500;
 const EXIT_WAIT_MS = 1500;
-// The release after the deadline retries a held folder three times, 500 ms apart.
-const CEILING_MS = GRACE_MS + EXIT_WAIT_MS + 1500 + 1000;
+// The release after the deadline tries a held folder three times, 500 ms apart. The slack covers timer
+// lag and the removal attempts themselves: under two concurrent full suites one close took 4,506 ms
+// against grace, exit wait and retries of 3,000 ms. 6507383 never returned here, and running the second
+// kill pass again costs 5 s more, so the slack still tells both apart.
+const CEILING_MS = GRACE_MS + EXIT_WAIT_MS + 1000 + 3000;
 
 // The browser process of a renderer: the one naming its profile without a --type= child flag.
 function browserPid(profile) {
@@ -32,12 +35,16 @@ function suspend(pid) {
   execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true });
 }
 
+// taskkill /T exits 128 or 255 when a child of the tree exits on its own while the tree is being ended
+// (seen under two concurrent suites), so its status proves nothing; the caller awaits the browser's exit.
 function endTree(pid) {
-  if (process.platform === 'win32') execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+  if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
   else process.kill(pid, 'SIGKILL');
 }
 
-test('close returns within its deadline when the browser never answers and survives every kill', { skip: !existsSync(process.env.FSW_CHROME ?? DEFAULT_CHROME) && 'Chrome not installed', timeout: 120000 }, async () => {
+// The budget covers the start, the suspension and the cleanup around close: under two concurrent full
+// suites the whole test took 72 to 82 s while close itself stayed under 4.6 s.
+test('close returns within its deadline when the browser never answers and survives every kill', { skip: !existsSync(process.env.FSW_CHROME ?? DEFAULT_CHROME) && 'Chrome not installed', timeout: 180000 }, async () => {
   const root = tempDir('fsw-renderroot-');
   const warned = [];
   const renderer = await openRenderer({

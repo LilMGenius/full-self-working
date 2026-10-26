@@ -1,0 +1,63 @@
+{
+  "source": "one read of soomgo /profile/services through BrowserSkill, 2026-10-26 18:15 Seoul; names and item states only",
+  "counts": {
+    "buttons": 43,
+    "roleButtons": 0,
+    "rows": 13
+  },
+  "markup": "ul > li (2 children: the row, its icon) > div row (2 children: the service name, then p holding the state); no row is a button or has a role",
+  "rows": [
+    {
+      "name": "프로그래밍/코딩 레슨",
+      "itemsSet": true
+    },
+    {
+      "name": "웹 개발",
+      "itemsSet": true
+    },
+    {
+      "name": "소프트웨어 개발",
+      "itemsSet": true
+    },
+    {
+      "name": "웹 디자인",
+      "itemsSet": true
+    },
+    {
+      "name": "안드로이드 개발",
+      "itemsSet": false
+    },
+    {
+      "name": "iOS 개발",
+      "itemsSet": false
+    },
+    {
+      "name": "게임 개발",
+      "itemsSet": false
+    },
+    {
+      "name": "상세페이지 제작",
+      "itemsSet": true
+    },
+    {
+      "name": "챗봇 개발",
+      "itemsSet": true
+    },
+    {
+      "name": "데이터 크롤링",
+      "itemsSet": true
+    },
+    {
+      "name": "인공지능(AI) 개발",
+      "itemsSet": true
+    },
+    {
+      "name": "ERP 개발",
+      "itemsSet": false
+    },
+    {
+      "name": "매크로/VBA 개발",
+      "itemsSet": true
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { addService, pageItemModal, pageServiceRows, planItems, readServices, setServiceItems } from '../src/platforms/soomgo/services.mjs';
 
@@ -56,6 +57,7 @@ function el(tagName, { text = '', id = null, checked = false, disabled = false, 
   return e;
 }
 function matches(e, s) {
+  if (s === '*') return true;
   if (s === '[role=heading]') return e.role === 'heading';
   if (s === '[role=button]') return e.role === 'button';
   if (s === 'input[type=checkbox]') return e.tagName === 'INPUT';
@@ -114,11 +116,44 @@ test('service rows read every offered service with its item state by DOM query a
   assert.deepEqual(rows.map((r) => doc.querySelector(r.ref)?.innerText), ['프로그래밍/코딩 레슨 세부 항목 설정됨', '웹 개발 항목 미설정'], 'each ref selects the row\'s own button');
 });
 
+// The live services page as one read recorded it (names and item states only): a row is a div in its list
+// item, the name then a p with the state, beside an icon button; nothing on a row is a button or a role.
+const LIVE = JSON.parse(readFileSync(new URL('./fixtures/surfaces/soomgo/services-page.json', import.meta.url), 'utf8'));
+function livePage(rows) {
+  const items = rows.map((r) => el('LI', { children: [el('DIV', { children: [el('SPAN', { text: r.name }), el('P', { text: r.itemsSet ? '세부 항목 설정됨' : '항목 미설정' })] }), el('BUTTON')] }));
+  return el('BODY', { children: [el('MAIN', { children: [el('DIV', { children: [el('BUTTON', { text: '서비스 추가' }), el('UL', { children: items })] })] })] });
+}
+
+test('the live services page reads every row with its item state, replayed from the recorded fixture', async () => {
+  const doc = livePage(LIVE.rows);
+  const rows = await readServices(sessionOn(doc));
+  assert.deepEqual(rows.map(({ name, itemsSet }) => ({ name, itemsSet })), LIVE.rows);
+  assert.equal(rows.length, LIVE.counts.rows);
+  assert.deepEqual(rows.map((r) => doc.querySelector(r.ref)?.tagName), Array(LIVE.rows.length).fill('DIV'), 'each ref selects the row div, never its list item or icon');
+  assert.deepEqual(rows.filter((r) => !r.itemsSet).map((r) => r.name), LIVE.rows.filter((r) => !r.itemsSet).map((r) => r.name));
+});
+
+test('the services read polls until the list renders, and refuses a page that never shows a row', async () => {
+  const empty = el('BODY', { children: [el('BUTTON', { text: '서비스 추가' })] });
+  const s = sessionOn(empty);
+  const waits = [];
+  s.navigate = async (_url, opts) => { s.navOpts = opts; };
+  let polls = 0;
+  const evaluate = s.evaluate;
+  s.evaluate = async (fn, arg) => { polls += 1; if (polls === 4) s.doc = livePage(LIVE.rows); return evaluate(fn, arg); };
+  const rows = await readServices(s, { wait: async (ms) => waits.push(ms) });
+  assert.deepEqual([rows.length, polls, waits, s.navOpts], [LIVE.rows.length, 4, [1000, 1000, 1000], { settle: 0 }]);
+  const never = sessionOn(empty);
+  const slept = [];
+  await assert.rejects(readServices(never, { wait: async (ms) => slept.push(ms) }), { code: 'FSW_SERVICES_UNREAD', message: /within 20 s/ });
+  assert.equal(slept.length, 20);
+});
+
 test('a row drawn as a role button with an aria-label reads the same, and a page with no row is a refusal', async () => {
   const row = el('DIV', { role: 'button', text: '웹 개발\n편집' });
   row.attrs['aria-label'] = '웹 개발 항목 미설정';
   assert.deepEqual((await readServices(sessionOn(el('BODY', { children: [row] })))).map(({ name, itemsSet }) => [name, itemsSet]), [['웹 개발', false]]);
-  await assert.rejects(readServices(sessionOn(el('BODY', { children: [el('BUTTON', { text: '서비스 추가' })] }))), { code: 'FSW_SERVICES_UNREAD' });
+  await assert.rejects(readServices(sessionOn(el('BODY', { children: [el('BUTTON', { text: '서비스 추가' })] })), { wait: async () => {} }), { code: 'FSW_SERVICES_UNREAD' });
 });
 
 test('the item modal groups checkboxes under their headings and leaves the occluded page out', async () => {
@@ -191,7 +226,7 @@ function addServicePage(offered) {
     navigate: async () => { state.modal = null; state.marked.clear(); },
     snapshot: async () => { throw new Error('a soomgo read took a whole-page snapshot'); },
     evaluate: async (fn, arg) => {
-      globalThis.document = { querySelectorAll: (selector) => (selector.split(',').includes('button') ? buttons() : []) };
+      globalThis.document = { querySelectorAll: (selector) => (selector === '*' || selector.split(',').includes('button') ? buttons() : []) };
       try { return fn(arg); } finally { delete globalThis.document; }
     },
   };

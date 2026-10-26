@@ -8,15 +8,19 @@
 import { AdapterRefusal } from '../kit.mjs';
 
 const BASE = 'https://soomgo.com';
-// In-page: offered services in page order, {ref, name, itemsSet}; ref is the selector of the row's own
-// button, which this read marks with data-fsw-service. The snapshot named these rows by their accessible
-// role and name, so an element with role button counts as a button and its aria-label as its name.
+// In-page: offered services in page order, {ref, name, itemsSet}. On the live page (read 2026-10-26, fixture
+// test/fixtures/surfaces/soomgo/services-page.json) a row is a plain div inside its list item, the service
+// name followed by a p holding the state, and no row is a button or has a role. So a row is the innermost
+// element whose text, or aria-label, reads "<service> 세부 항목 설정됨" or "<service> 항목 미설정"; ref is the
+// selector of that element, which this read marks with data-fsw-service.
 export const pageServiceRows = () => {
+  const ROW = /^(.+?) (세부 항목 설정됨|항목 미설정)$/;
+  const textOf = (e) => (e.getAttribute('aria-label') || e.innerText || '').replace(/\s+/g, ' ').trim();
   const rows = [];
-  for (const b of document.querySelectorAll('button,[role=button]')) {
-    const m = (b.getAttribute('aria-label') || b.innerText).replace(/\s+/g, ' ').trim().match(/^(.+?) (세부 항목 설정됨|항목 미설정)$/);
-    if (!m) continue;
-    b.setAttribute('data-fsw-service', String(rows.length));
+  for (const e of (document.body ?? document).querySelectorAll('*')) {
+    const m = textOf(e).match(ROW);
+    if (!m || [...(e.children ?? [])].some((c) => ROW.test(textOf(c)))) continue;
+    e.setAttribute('data-fsw-service', String(rows.length));
     rows.push({ ref: '[data-fsw-service="' + rows.length + '"]', name: m[1], itemsSet: m[2] === '세부 항목 설정됨' });
   }
   return rows;
@@ -97,13 +101,20 @@ const pageSave = () => {
   return true;
 };
 
-// A pro on soomgo offers at least one service, so a page that shows no row was not read: an empty list
-// would report every offered service as set. It is a refusal the caller reports by name.
-export async function readServices(s) {
-  await s.navigate(`${BASE}/profile/services`);
-  const rows = await s.evaluate(pageServiceRows);
-  if (!rows.length) throw new AdapterRefusal('FSW_SERVICES_UNREAD', 'no offered service row was found on /profile/services');
-  return rows;
+// The list renders after the page loads, so the read polls the DOM once a second for up to
+// SERVICES_WAIT_MS instead of trusting a fixed settle. A pro on soomgo offers at least one service, so a page
+// that never shows a row was not read: an empty list would report every offered service as set. It is a
+// refusal the caller reports by name.
+export const SERVICES_WAIT_MS = 20_000;
+
+export async function readServices(s, { wait = (ms) => new Promise((r) => setTimeout(r, ms)), waitMs = SERVICES_WAIT_MS } = {}) {
+  await s.navigate(`${BASE}/profile/services`, { settle: 0 });
+  for (let waited = 0; ; waited += 1000) {
+    const rows = await s.evaluate(pageServiceRows);
+    if (rows.length) return rows;
+    if (waited >= waitMs) throw new AdapterRefusal('FSW_SERVICES_UNREAD', 'no offered service row was found on /profile/services within ' + waitMs / 1000 + ' s');
+    await wait(1000);
+  }
 }
 
 async function openModal(s, name, wait) {

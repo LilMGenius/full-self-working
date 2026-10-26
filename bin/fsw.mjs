@@ -13,7 +13,7 @@ const VERBS = {
   deal: 'deal list | deal <jobId> permission granted|denied | deal <jobId> review --rating <1-5>: record what the client said on the platform',
   job: 'job run|check <id>: run a paid job through its recipe, or re-run its acceptance checks; job handoff <id> <step> [file ...]: record an operator step with its files',
   evidence: 'evidence first-outbound [--since <iso>]: the first item v0 sent and read back on a real thread',
-  probe: 'probe <platform> <op>: one read operation of a platform surface (login, sense, read, orders, supply)',
+  probe: 'probe <platform> <op>: one read operation of a platform surface (login, sense, read, orders, supply, reviews)',
   market: 'market [platform...]: refresh market samples',
   price: 'rebuild the price table',
   publish: 'build and deploy the portfolio site when it changed',

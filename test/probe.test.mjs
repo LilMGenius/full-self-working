@@ -1,6 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { probe, probeWindow, summarize } from '../scripts/probe.mjs';
+import { spawnSync } from 'node:child_process';
+import { join } from 'node:path';
+import { repoRoot } from '../src/core/instance.mjs';
+import { READ_OPS, probe, probeWindow, summarize } from '../scripts/probe.mjs';
+
+test('fsw help lists every read op the probe accepts', () => {
+  const help = spawnSync(process.execPath, [join(repoRoot, 'bin', 'fsw.mjs'), 'help'], { encoding: 'utf8' }).stdout;
+  const line = help.split('\n').find((l) => l.trim().startsWith('probe '));
+  for (const op of READ_OPS) assert.match(line, new RegExp('\\b' + op + '\\b'), op + ' missing from: ' + line);
+});
 
 test('the probe window opens after the live tick of the mark and closes a minute before the next', () => {
   const at = (hms) => new Date('2026-10-25T' + hms + '+09:00');

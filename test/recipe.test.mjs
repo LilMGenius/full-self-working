@@ -39,6 +39,22 @@ test('a broken recipe fails with errors naming the file and the path', () => {
   for (const path of expect) assert.ok(errors.some((e) => e.startsWith('recipes/landing_page_web.json: ' + path + ':')), 'no error at ' + path + ' in ' + errors.join(' | '));
 });
 
+test('an operator step names the files it produces, and only such a step carries a condition', () => {
+  const mobile = loadRecipe('mobile_app_dev');
+  const steps = Object.fromEntries(mobile.steps.map((s) => [s.id, s]));
+  assert.equal(steps['android-build'].produces.length, 2);
+  assert.match(steps['ios-build'].when, /iOS/);
+  assert.equal(steps.review.produces, undefined);
+  assert.ok(loadRecipe('erp_dev').steps.find((s) => s.id === 'deploy').produces.length);
+  const broken = structuredClone(mobile);
+  broken.steps[0].produces = ['x'];
+  broken.steps.find((s) => s.id === 'review').when = 'always';
+  broken.steps.find((s) => s.id === 'android-build').produces = [];
+  const errors = validateRecipe(broken, { file: 'recipes/mobile_app_dev.json' });
+  const at = (id) => 'steps[' + broken.steps.findIndex((s) => s.id === id) + ']';
+  for (const path of ['steps[0].produces', at('review') + '.when', at('android-build') + '.produces']) assert.ok(errors.some((e) => e.startsWith('recipes/mobile_app_dev.json: ' + path + ':')), 'no error at ' + path);
+});
+
 test('loadRecipe throws a RecipeError carrying every error', () => {
   const dir = tempDir('fsw-recipe-');
   writeFileSync(join(dir, 'copywriting.json'), JSON.stringify({ service: 'copywriting', version: 0 }));

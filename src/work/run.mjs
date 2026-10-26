@@ -329,7 +329,7 @@ export async function runJob(jobId, ctx = {}) {
     await report({ type: lastRun.ok ? 'run_accepted' : 'run_failed', platform: job.platform, jobId: job.id, threadId: job.threadId, at: lastRun.at, evidence: { lastRun, minutes, files: deliverables.absolute, captures: deliverables.captures, handoffs } });
     ledger.addEvent({ kind: lastRun.ok ? 'job.accepted' : 'job.failed', platform: job.platform, ref: jobId, payload: { ...lastRun, minutes } });
     const body = lastRun.ok
-      ? 'Acceptance passed after ' + turns.length + ' turn(s). The delivery waits for each operator step; record one with fsw job handoff ' + jobId + ' <step> [file ...]:\n' + handoffs.map((h) => '- ' + h.id + ': ' + h.ask).join('\n')
+      ? 'Acceptance passed after ' + turns.length + ' turn(s). Before delivery:\n' + handoffs.map((h) => '- ' + h.id + ': ' + h.ask + (h.produces ? ' Record it with fsw job handoff ' + jobId + ' ' + h.id + ' <file ...> (' + h.produces.join(', ') + ')' + (h.when ? ', or without files when it does not apply (' + h.when + ')' : '') + '.' : ' Confirm it when you approve the delivery.')).join('\n')
       : (error ? 'The run stopped: ' + error.message : 'Acceptance still fails after one retry: ' + lastRun.failed.join(', ')) + '\nSee ' + jobPaths(instance, jobId).runLog;
     await notify(instance, { kind: 'job', title: 'job ' + jobId + (lastRun.ok ? ' ready for review' : ' needs a person'), body, dedupeKey: 'job-' + jobId + '-' + lastRun.at });
     if (error) throw error;
@@ -358,9 +358,9 @@ export async function checkJob(jobId, ctx = {}) {
 
 const listFiles = (dir) => (existsSync(dir) ? readdirSync(dir, { recursive: true }).map(String).filter((f) => /.(jpe?g|png)$/i.test(f)) : []);
 
-// The recipe's user-handoff steps, which the operator records with fsw job handoff before the delivery is
-// planned (src/deal/advance.mjs deliveryEffects).
-export const handoffsOf = (recipe) => recipe.steps.filter((s) => s.type === 'user-handoff').map((s) => ({ id: s.id, ask: s.ask, output: s.output }));
+// The recipe's user-handoff steps. One that produces files holds the delivery until fsw job handoff records
+// it; one that produces none is the operator's to confirm in the delivery approval (src/deal/advance.mjs).
+export const handoffsOf = (recipe) => recipe.steps.filter((s) => s.type === 'user-handoff').map((s) => ({ id: s.id, ask: s.ask, output: s.output, ...(s.produces ? { produces: s.produces } : {}), ...(s.when ? { when: s.when } : {}) }));
 
 // The files a delivery carries and the QA captures beside them (src/orders/delivery.mjs:46-52 at 2c77326).
 export function deliverablesOf(instance, job, recipe) {

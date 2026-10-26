@@ -1,6 +1,6 @@
 // fsw job run|check <id>: run a paid job through its recipe with the deal applying its run signals, or
 // re-run its acceptance checks without a model. fsw job handoff <id> <step> [file ...] records an
-// operator step of the last run with the files it made; the delivery waits for every such step.
+// operator step of the last run that produces files; the delivery waits for every such step.
 import { loadInstance } from '../core/instance.mjs';
 import { openLedger } from '../core/ledger.mjs';
 import { checkJobWithDeal, recordHandoff, runJobWithDeal } from '../loop/job.mjs';

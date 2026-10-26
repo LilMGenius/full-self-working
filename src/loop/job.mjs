@@ -36,8 +36,8 @@ export const runJobWithDeal = (jobId, ctx) => runJob(jobId, seam(jobId, ctx));
 export const checkJobWithDeal = (jobId, ctx) => checkJob(jobId, seam(jobId, ctx));
 
 // fsw job handoff <id> <step> [file ...]: the operator finished one user-handoff step of the job's last
-// run. Its files are copied into jobs/<id>/handoff/<step>/, so the delivery carries them wherever they
-// were made, and the deal plans the delivery once every step of the run is recorded.
+// run that produces files. Its files are copied into jobs/<id>/handoff/<step>/, so the delivery carries
+// them wherever they were made, and the deal plans the delivery once every such step is recorded.
 export async function recordHandoff(jobId, step, files, ctx) {
   const { instance } = ctx;
   const s = seam(jobId, ctx);
@@ -54,6 +54,6 @@ export async function recordHandoff(jobId, step, files, ctx) {
   const r = await s.report({ type: 'handoff_done', platform: job.platform, jobId, evidence: { step, files: copies } });
   const after = ctx.ledger.getJob(jobId);
   const recorded = after.meta?.handoffs?.[step]?.runAt === after.meta?.lastRun?.at && after.meta?.handoffs?.[step]?.files?.length === copies.length;
-  const steps = (after.meta?.lastRun?.handoffs ?? []).map((h) => h.id);
+  const steps = (after.meta?.lastRun?.handoffs ?? []).filter((h) => h.produces?.length).map((h) => h.id);
   return { recorded, step, files: copies, pending: steps.filter((id) => after.meta?.handoffs?.[id]?.runAt !== after.meta.lastRun.at), delivery: r.effects.some((e) => e.item?.kind === 'delivery') };
 }

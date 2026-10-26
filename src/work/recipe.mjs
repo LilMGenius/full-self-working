@@ -120,6 +120,14 @@ export function validateRecipe(recipe, { file = 'recipe', services = serviceCata
       if (s.run === 'render') validateRenderArgs(s, at, err);
     }
     if (s.type === 'user-handoff' && !isText(s.ask)) err(at + '.ask', 'must say what the person decides');
+    // produces names each file an operator step makes (a build, a URL file, an import report); such a step
+    // holds the delivery until fsw job handoff records it with its files, and when says the condition under
+    // which the step applies, so it is recorded without files when the condition does not hold.
+    if (s.produces !== undefined) {
+      if (s.type !== 'user-handoff') err(at + '.produces', 'only user-handoff steps produce files the operator records');
+      else if (!(Array.isArray(s.produces) && s.produces.length && s.produces.every(isText))) err(at + '.produces', 'must list each file the step makes');
+    }
+    if (s.when !== undefined && (!isText(s.when) || s.produces === undefined)) err(at + '.when', 'must be the condition of a step that produces files');
   }
   const acceptAt = (steps ?? []).findIndex((s) => s?.type === 'script' && s.run === 'accept');
   if (steps && steps.filter((s) => s?.type === 'script' && s.run === 'accept').length !== 1) err('steps', 'must hold exactly one script step with run accept');

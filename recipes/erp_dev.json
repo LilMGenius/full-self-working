@@ -69,11 +69,22 @@
       "output": "qa/"
     },
     {
+      "id": "deploy",
+      "type": "user-handoff",
+      "input": "app/, notes/handover.md",
+      "output": "deployed app and imported data",
+      "ask": "The operator deploys app/ under the customer's account, imports the customer's data with its import screen and saves the app address and the import result, which needs the customer credentials.",
+      "produces": [
+        "a text file holding the deployed app address",
+        "the data import report"
+      ]
+    },
+    {
       "id": "review",
       "type": "user-handoff",
       "input": "notes/architecture.md, notes/security.md",
       "output": "operator decision",
-      "ask": "The operator reviews the data model, role permissions and security notes, then deploys under the customer account and imports the customer's data, which needs the customer credentials."
+      "ask": "The operator reviews the data model, role permissions and security notes against the brief."
     }
   ],
   "deliverables": [

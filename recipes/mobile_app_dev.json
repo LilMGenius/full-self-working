@@ -66,14 +66,22 @@
       "type": "user-handoff",
       "input": "app/, notes/handover.md",
       "output": "Android build (APK and AAB)",
-      "ask": "The operator builds the signed Android release from app/ (an APK to install and an AAB for Google Play), installs the APK on a phone and checks it against the brief."
+      "ask": "The operator builds the signed Android release from app/ (an APK to install and an AAB for Google Play), installs the APK on a phone and checks it against the brief.",
+      "produces": [
+        "signed Android APK",
+        "Android App Bundle (AAB) for Google Play"
+      ]
     },
     {
       "id": "ios-build",
       "type": "user-handoff",
       "input": "app/, notes/handover.md",
       "output": "iOS build",
-      "ask": "When the brief includes iOS, the operator lends his Mac for this step: he builds app/ in Xcode, checks it on a simulator or an iPhone and uploads it to TestFlight under the customer's Apple developer account. Without a Mac the iOS build waits, and the customer is told the new date before the old one passes. When the brief has no iOS app, the step is recorded without files."
+      "ask": "The operator lends his Mac for this step: he builds app/ in Xcode, checks it on a simulator or an iPhone, uploads it to TestFlight under the customer's Apple developer account and records a note with the build number. Without a Mac the iOS build waits, and the customer is told the new date before the old one passes.",
+      "produces": [
+        "TestFlight build note with the build number"
+      ],
+      "when": "the brief includes an iOS app"
     },
     {
       "id": "review",

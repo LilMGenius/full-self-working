@@ -19,14 +19,15 @@ const DELIVERED = '2026-10-20T09:00:00+09:00';
 const CHANGE_1 = '메뉴 사진을 더 크게 바꿔 주세요.';
 const CHANGE_2 = '글꼴도 고딕으로 바꿔 주실 수 있나요?';
 
-function setup() {
+function setup({ watched = true } = {}) {
   const dir = tempDir('fsw-revision-live-');
   for (const f of ['profile.json', 'business.json']) copyFileSync(join(exampleDir, f), join(dir, f));
   const config = JSON.parse(readFileSync(join(exampleDir, 'config.json'), 'utf8'));
   config.notify = { toast: false, webhookUrl: null };
   config.platforms.kmong = { ...config.platforms.kmong, enabled: true, mode: 'auto' };
-  // Replies after an order go out on their own only while the operator watches orders (authorize).
-  config.orders = { ...config.orders, watched: true };
+  // Replies after an order go out on their own only while the operator watches orders (authorize); the
+  // example default, like a new instance, is false.
+  if (watched) config.orders = { ...config.orders, watched: true };
   writeFileSync(join(dir, 'config.json'), JSON.stringify(config));
   const instance = loadInstance({ dir });
   const ledger = openLedger(':memory:');
@@ -99,4 +100,14 @@ test('a change request on delivered work reopens the job once, an extra round go
   assert.deepEqual(s.spawned, ['kmong-k1']);
   // Each tick answered the client in the chat.
   assert.deepEqual(s.sent, [1, 1, 1]);
+});
+
+test('with orders not watched, the default, the revision still reopens the job and the reply waits for the operator', async () => {
+  const s = setup({ watched: false });
+  assert.notEqual(s.instance.config.orders?.watched, true);
+  await s.tick(CHANGE_1, '10');
+  assert.equal(s.ledger.getJob('kmong-k1').status, 'revision');
+  assert.deepEqual(s.spawned, ['kmong-k1']);
+  assert.deepEqual(s.sent, [0]);
+  assert.deepEqual(s.ledger.listOutbox({ platform: 'kmong' }).map((o) => [o.kind, o.status]), [['message', 'awaiting_operator']]);
 });

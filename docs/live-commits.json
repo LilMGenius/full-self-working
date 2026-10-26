@@ -57,7 +57,9 @@
     {"commit":"b81882e423dbcacbbd42c010c5e7dc08388c70fa","subject":"feat(freelancer): the wizard stopped at the headline and summary step","owner":["010","080"],"paths":["examples/instance/config.json","src/platforms/freelancer/onboarding.mjs","test/onboard.test.mjs"],"ownerCommit":null},
     {"commit":"55b1066bfb395584ce67a56924b49173e52a4a56","subject":"fix(brain): requests missing scope or schedule went to the operator","owner":["030"],"paths":["src/brain/prompts.mjs"],"ownerCommit":null},
     {"commit":"9dc861848624fd887a3ed27f66ae0fc45c912af6","subject":"feat(freelancer): the wizard stopped at the languages and birthdate step","owner":["080"],"paths":["src/platforms/freelancer/onboarding.mjs","test/onboard.test.mjs"],"ownerCommit":null},
-    {"commit":"4523ff9750cb093ca7589c5877aca34443a5d636","subject":"fix(freelancer): a language listed late or with a note was not picked","owner":["080"],"paths":["src/platforms/freelancer/onboarding.mjs","test/onboard.test.mjs"],"ownerCommit":null}
+    {"commit":"4523ff9750cb093ca7589c5877aca34443a5d636","subject":"fix(freelancer): a language listed late or with a note was not picked","owner":["080"],"paths":["src/platforms/freelancer/onboarding.mjs","test/onboard.test.mjs"],"ownerCommit":null},
+    {"commit":"0107457aab7bec6d3cb366deebd3cc8cb4d7a9bd","subject":"fix(freelancer): a language the list never shows stopped the wizard","owner":["080"],"paths":["src/platforms/freelancer/onboarding.mjs","test/onboard.test.mjs"],"ownerCommit":null},
+    {"commit":"b223ed7cb2c75a0e10cfb15051c4fb51ad94ebed","subject":"fix(pipeline): soomgo kept reading requests after the day cash was spent","owner":["030"],"paths":["docs/DESIGN.md","src/brain/approvals.mjs","src/pipeline/thread.mjs","src/supervisor/run.mjs","test/budget-defer.test.mjs","test/pipeline.test.mjs","test/triage.test.mjs"],"ownerCommit":null}
   ],
   "pathMap": [
     {"old":"src/jobs/recipe.mjs","v0":"src/work/recipe.mjs","reason":"030 moves the recipe module (3.24)"},

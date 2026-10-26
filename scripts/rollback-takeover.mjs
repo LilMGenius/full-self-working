@@ -7,11 +7,15 @@
 // main checkout first when it has main checked out, and switching it back after, so its index and files
 // follow main and the next fast-forward is not refused), check --old out in the deploy worktree, start the
 // task, and prove a live lock and a fresh supervisor.tick. Everything after the task stops runs under
-// try/finally, so a step that throws still leaves the deploy worktree at --old and the task started, and a
-// rerun whose main already is --old skips the compare-and-swap. Without --apply it prints the nine steps
-// and runs nothing. Exit 0: rolled back and live; 1: live, but a step failed and is named; 2: no live lock
-// with a fresh tick within --abort-after-min of the newest supervisor.tick before the rollback began, so
-// the gap takeover-check measures stays under its eight minutes; 3: a usage error.
+// try/finally, so a step that throws still starts the task, and a rerun whose main already is --old skips
+// the compare-and-swap. Until the write-back has finished, the old line is never started: the old code
+// sends every approved file and every budget-deferred open quote it finds, so starting it over files v0
+// did not update would send them a second time, which is worse than a failed rollback; a failure before
+// that point checks --from out again, starts the task (v0 keeps running) and exits 2 naming the step.
+// Without --apply it prints the nine steps and runs nothing. Exit 0: rolled back and live; 1: live on the
+// old line, but a later step failed and is named; 2: the write-back did not finish (v0 restarted on
+// --from), or no live lock with a fresh tick within --abort-after-min of the newest supervisor.tick before
+// the rollback began, so the gap takeover-check measures stays under its eight minutes; 3: a usage error.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
@@ -31,7 +35,7 @@ export const steps = ({ repo, code, instance, old, from, task }) => [
   ['leave main in the main checkout', 'git -C ' + repo + ' switch --detach --quiet (only when step 5 runs and symbolic-ref -q HEAD is refs/heads/main)'],
   ['move main back', 'git -C ' + repo + ' update-ref -m rollback refs/heads/main ' + old + ' ' + from + ' (skipped when refs/heads/main already is ' + old + ', so a rerun changes nothing)'],
   ['return the main checkout to main', 'git -C ' + repo + ' switch --quiet main (only when step 4 detached it, in a finally of its own)'],
-  ['check out the old line', 'git -C ' + code + ' checkout --detach --quiet ' + old + ' (always: finally after step 1)'],
+  ['check out the old line', 'git -C ' + code + ' checkout --detach --quiet ' + old + ' (always: finally after step 1; ' + from + ' instead when steps 2 or 3 failed, so the old code never starts over files the write-back did not update)'],
   ['start the task', 'Start-ScheduledTask -TaskName ' + task + ' (always: finally after step 1)'],
   ['prove a live lock and a fresh tick', 'poll ' + join(instance, 'run', 'supervisor.pid') + ' and supervisor.tick until --abort-after-min after the newest tick'],
 ];
@@ -76,6 +80,8 @@ export async function runRollback(a, io) {
   let oldPid = null;
   let failed = null;
   let startedAt = null;
+  // True once step 3 finished; until then the old line must not start (see the header).
+  let wroteBack = false;
   try {
     oldPid = io.pidNow();
     if (io.alive(oldPid)) io.ps('Stop-Process -Id ' + oldPid + ' -Force');
@@ -83,6 +89,7 @@ export async function runRollback(a, io) {
     const wb = io.writeback();
     if (wb.stdout) io.log(wb.stdout.trimEnd());
     if (wb.status !== 0) throw new Error('write approval outcomes back: ' + (wb.stderr || 'exit ' + wb.status));
+    wroteBack = true;
     if (io.git(['-C', a.repo, 'rev-parse', 'refs/heads/main']) === a.old) say('main already at ' + a.old.slice(0, 7) + '; compare-and-swap skipped');
     else {
       const onMain = io.gitQuiet(['-C', a.repo, 'symbolic-ref', '-q', 'HEAD']).stdout.trim() === 'refs/heads/main';
@@ -98,13 +105,15 @@ export async function runRollback(a, io) {
     failed = err.message;
     say('step failed: ' + failed);
   } finally {
-    // Whatever failed above, the supervisor comes back on the old line rather than staying down.
+    // Whatever failed above, a supervisor comes back rather than staying down: the old line once the
+    // write-back finished, else v0 on --from.
+    const line = wroteBack ? a.old : a.from;
     try {
-      io.git(['-C', a.code, 'checkout', '--detach', '--quiet', a.old]);
-      say('deploy worktree at ' + a.old.slice(0, 7));
+      io.git(['-C', a.code, 'checkout', '--detach', '--quiet', line]);
+      say('deploy worktree at ' + line.slice(0, 7) + (wroteBack ? '' : ' (--from: the write-back did not finish)'));
     } catch (err) {
-      failed ??= 'check out the old line: ' + err.message;
-      say('check out the old line failed: ' + err.message);
+      failed ??= 'check out ' + line.slice(0, 7) + ': ' + err.message;
+      say('check out ' + line.slice(0, 7) + ' failed: ' + err.message);
     }
     startedAt = new Date(io.now()).toISOString();
     try {
@@ -121,11 +130,15 @@ export async function runRollback(a, io) {
     const pid = io.pidNow();
     const tick = io.lastTick(startedAt);
     if (pid !== oldPid && io.alive(pid) && tick) {
+      if (!wroteBack) {
+        say('pid ' + pid + ' holds the lock and ticked at ' + tick + ' on ' + a.from.slice(0, 7) + '; not rolled back: ' + failed);
+        return 2;
+      }
       say('pid ' + pid + ' holds the lock and ticked at ' + tick + (failed ? '; but ' + failed : '; rollback done'));
       return failed ? 1 : 0;
     }
   }
-  say('no live lock with a fresh tick within ' + a['abort-after-min'] + ' min of the last tick (' + lastTick + ')' + (failed ? '; ' + failed : '') + '; restore by hand from the ledger snapshot (050 section 4)');
+  say('no live lock with a fresh tick within ' + a['abort-after-min'] + ' min of the last tick (' + lastTick + ')' + (failed ? '; ' + failed : '') + (wroteBack ? '; restore by hand from the ledger snapshot (050 section 4)' : '; not rolled back, the deploy worktree is at ' + a.from.slice(0, 7)));
   return 2;
 }
 

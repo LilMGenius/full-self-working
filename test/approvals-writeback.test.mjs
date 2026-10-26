@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { openLedger } from '../src/core/ledger.mjs';
 import { importApprovals } from '../src/core/approvals-import.mjs';
-import { disagreement, fileOutcome, nextRecord } from '../scripts/approvals-writeback.mjs';
+import { disagreement, fileOutcome, nextRecord, planWriteback } from '../scripts/approvals-writeback.mjs';
 import { tempDir } from './tmp.mjs';
 
 const AT = '2026-10-26T14:30:00.000Z';
@@ -145,4 +145,28 @@ test('a ledger still at version 3 has no outbox, and every mode says so and exit
   assert.equal(db2.prepare('PRAGMA user_version').get().user_version, 3);
   db2.close();
   assert.equal(cli(instance, '--apply', '--check').status, 2);
+});
+
+test('one unreadable file stops --apply before any file is written, and the run names it', () => {
+  const s = instanceWithOutbox();
+  writeFileSync(join(s.dir, '20261025-soomgo-00000099.json'), '{"id": "20261025-soomgo-00000099", "status": ');
+  const before = hashes(s);
+  const r = cli(s.instance, '--apply');
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /^20261025-soomgo-00000099\.json: unreadable: /m);
+  assert.match(r.stdout, /^approvals-writeback: 1 problem\(s\); nothing written/m);
+  assert.deepEqual(hashes(s), before);
+  assert.equal(s.read(ID.sent).status, 'open');
+  assert.ok(!readdirSync(s.dir).some((f) => f.endsWith('.tmp')));
+  assert.equal(cli(s.instance, '--check').status, 1);
+});
+
+test('planWriteback names every unreadable file and every row with no file status, and plans the rest', () => {
+  const rec = (id, status) => [id, { file: id + '.json', text: '{}', record: { id, status } }];
+  const imported = (id, approvalId, status) => ({ id, approvalId, status, kind: 'message', updatedAt: AT, payload: { text: 't', importedFrom: 'operator/approvals/' + approvalId + '.json' }, operator: null, receipt: null, reason: null });
+  const records = new Map([rec('f1', 'open'), rec('f2', 'open'), rec('f3', 'sent')]);
+  const p = planWriteback([imported(1, 'f1', 'observed'), imported(2, 'f2', 'mystery'), imported(3, 'f3', 'mystery'), imported(4, 'f4', 'observed')], { records, unreadable: ['bad.json: unreadable: x'] });
+  assert.deepEqual(p.problems, ['bad.json: unreadable: x', 'f2.json: row 2 is mystery, which has no approval file status']);
+  assert.deepEqual(p.writes.map((w) => [w.id, w.next.status]), [['f1', 'sent']]);
+  assert.deepEqual(p.notes, ['row 4: f4.json is gone']);
 });

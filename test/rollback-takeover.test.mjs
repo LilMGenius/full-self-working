@@ -24,7 +24,7 @@ test('the nine steps put the write-back before the compare-and-swap, the two swi
   const back = at(/switch --quiet main/);
   assert.deepEqual([at(/^Stop-ScheduledTask -TaskName fsw-supervisor$/), wb, detach, cas, back], [0, 2, 3, 4, 5]);
   assert.match(s[4][1], /skipped when refs\/heads\/main already is a{40}/);
-  assert.match(s[6][1], /git -C C checkout --detach --quiet a{40} \(always: finally after step 1\)/);
+  assert.match(s[6][1], /git -C C checkout --detach --quiet a{40} \(always: finally after step 1; b{40} instead when steps 2 or 3 failed/);
   assert.match(s[7][1], /Start-ScheduledTask -TaskName fsw-supervisor \(always: finally after step 1\)/);
 });
 
@@ -135,7 +135,7 @@ test('the deadline is the newest tick plus --abort-after-min, so a tick four min
 });
 
 // A recording io with no real side effect: git answers from a table, the task controller records.
-function recording({ main = B, onMain = true, writebackStatus = 0, updateRefThrows = false, lastTickAgoMs = 60_000 } = {}) {
+function recording({ main = B, onMain = true, writebackStatus = 0, updateRefThrows = false, stopThrows = false, lastTickAgoMs = 60_000 } = {}) {
   const calls = [];
   let clock = Date.parse('2026-10-26T14:31:00.000Z');
   let started = false;
@@ -144,6 +144,7 @@ function recording({ main = B, onMain = true, writebackStatus = 0, updateRefThro
     io: {
       ps: (cmd) => {
         calls.push('ps ' + cmd);
+        if (stopThrows && cmd.startsWith('Stop-Process')) throw new Error('access denied');
         if (cmd.startsWith('Start-ScheduledTask')) started = true;
         return '';
       },
@@ -169,12 +170,22 @@ function recording({ main = B, onMain = true, writebackStatus = 0, updateRefThro
 
 const after = (calls, a, b) => calls.indexOf(b) > calls.indexOf(a) && calls.indexOf(a) >= 0;
 
-test('a write-back that fails still checks the old line out, starts the task and returns 1 once a fresh tick is seen', async () => {
+test('a write-back that fails never starts the old line: main stays, --from is checked out again, the task starts and the exit is 2', async () => {
   const r = recording({ writebackStatus: 1 });
-  assert.equal(await runRollback(args(), r.io), 1);
-  assert.ok(!r.calls.some((c) => c.includes('update-ref')));
-  assert.ok(after(r.calls, 'git -C C checkout --detach --quiet ' + A, 'ps Start-ScheduledTask -TaskName fsw-supervisor'));
+  const said = [];
+  assert.equal(await runRollback(args(), { ...r.io, log: (m) => said.push(m) }), 2);
+  assert.ok(!r.calls.some((c) => c.includes('update-ref') || c.includes('switch')));
+  assert.ok(!r.calls.includes('git -C C checkout --detach --quiet ' + A));
+  assert.ok(after(r.calls, 'git -C C checkout --detach --quiet ' + B, 'ps Start-ScheduledTask -TaskName fsw-supervisor'));
   assert.ok(r.calls.includes('ps Stop-Process -Id 1 -Force'));
+  assert.match(said.at(-1), /not rolled back: write approval outcomes back: boom/);
+});
+
+test('a lock holder that cannot be stopped also keeps v0: no write-back, no old line, exit 2', async () => {
+  const r = recording({ stopThrows: true });
+  assert.equal(await runRollback(args(), r.io), 2);
+  assert.ok(!r.calls.includes('writeback') && !r.calls.some((c) => c.includes('update-ref')));
+  assert.ok(after(r.calls, 'git -C C checkout --detach --quiet ' + B, 'ps Start-ScheduledTask -TaskName fsw-supervisor'));
 });
 
 test('an update-ref that throws switches the checkout back to main, then checks out the old line and starts the task', async () => {

@@ -21,8 +21,11 @@ export function bskListening({ home = BSK_HOME, listPipes = () => readdirSync(PI
   let record;
   try {
     record = JSON.parse(readFileSync(join(home, 'daemon.json'), 'utf8'));
-  } catch {
-    return { listening: false, note: null };
+  } catch (err) {
+    // A missing record is the normal state with no daemon; one that does not parse is named, though
+    // both start a daemon as before.
+    if (err.code === 'ENOENT') return { listening: false, note: null };
+    return { listening: false, note: join(home, 'daemon.json') + ' could not be read (' + (err.code ? err.code + ' ' : '') + err.message + '), so whether a daemon lives is unknown and a daemon is started as before' };
   }
   const sock = typeof record.sock_path === 'string' ? record.sock_path : null;
   if (!sock) return { listening: false, note: null };

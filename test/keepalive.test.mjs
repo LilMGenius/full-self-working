@@ -107,6 +107,15 @@ test('a pipe listing that throws after a status timeout reads as unknown, starts
   assert.match(r.detail, /did not answer within 1000 ms; the daemon pipe could not be listed/);
 });
 
+test('a corrupt daemon.json after a status timeout is named in the result, and a daemon starts as before', async (t) => {
+  const { work, keeper } = await busyDaemon(t, { listening: false });
+  writeFileSync(join(work, 'daemon.json'), '{"pid": 4242, "sock_pa');
+  const r = await keeper.check();
+  assert.equal(readFileSync(join(work, 'pids'), 'utf8').trim().split(/\s+/).length, 1, 'a daemon was started as before');
+  assert.match(r.liveness, /daemon\.json could not be read \(.*JSON.*\)/);
+  assert.match(r.detail, /did not answer within 1000 ms; .*daemon\.json could not be read/);
+});
+
 test('a daemon that cannot be spawned is reported with its cause and does not end the supervisor', async () => {
   const work = tempDir('fsw-keeper-spawn-');
   const keeper = createBrowserKeeper({ instance: { config: {}, paths: { logs: work } }, bin: join(work, 'no-such-bsk.exe'), status: async () => ({ daemon: false }), notify: async () => ({ written: false }), settleMs: 200 });

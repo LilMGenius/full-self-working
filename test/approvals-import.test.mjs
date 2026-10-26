@@ -103,6 +103,35 @@ test('a row the old code sent or closed after a rollback follows its file and is
   assert.deepEqual(hashes(approvals), before);
 }));
 
+test('a row v0 was sending follows a final file without being sent again: observed when sent, unobserved otherwise', () => withApprovals({
+  '20261020-kmong-aaaaaaaa.json': approval('20261020-kmong-aaaaaaaa', { platform: 'kmong', kind: 'message', threadRef: 'A', status: 'approved', draft: 'a' }),
+  '20261020-kmong-bbbbbbbb.json': approval('20261020-kmong-bbbbbbbb', { platform: 'kmong', kind: 'message', threadRef: 'B', status: 'approved', draft: 'b' }),
+}, ({ ledger, approvals, write }) => {
+  assert.equal(importApprovals(ledger, approvals).imported, 2);
+  const [a, b] = ['20261020-kmong-aaaaaaaa', '20261020-kmong-bbbbbbbb'].map((id) => ledger.outboxByApproval(id));
+  for (const row of [a, b]) ledger.updateOutbox(row.id, { status: 'sending' }, { from: 'approved' });
+  write('20261020-kmong-aaaaaaaa.json', approval(a.approvalId, { platform: 'kmong', kind: 'message', threadRef: 'A', status: 'sent', draft: 'a' }));
+  write('20261020-kmong-bbbbbbbb.json', approval(b.approvalId, { platform: 'kmong', kind: 'message', threadRef: 'B', status: 'rejected', draft: 'b' }));
+  assert.equal(importApprovals(ledger, approvals).reconciled, 2);
+  assert.deepEqual([ledger.getOutbox(a.id).status, ledger.getOutbox(b.id).status], ['observed', 'unobserved']);
+  assert.deepEqual(ledger.listOutbox({ statuses: ['planned', 'approved', 'sending'] }), []);
+}));
+
+test('a later file that sent the same item closes the older file\'s open row, and a rejected duplicate does not', () => withApprovals({
+  '20261020-kmong-11111111.json': approval('20261020-kmong-11111111', { platform: 'kmong', kind: 'message', threadRef: 'T1', status: 'open', draft: '같은 문장' }),
+  '20261021-kmong-22222222.json': approval('20261021-kmong-22222222', { platform: 'kmong', kind: 'message', threadRef: 'T1', status: 'sent', createdAt: '2026-10-21T01:00:00.000Z', draft: '같은 문장' }),
+  '20261020-kmong-33333333.json': approval('20261020-kmong-33333333', { platform: 'kmong', kind: 'message', threadRef: 'T3', status: 'open', draft: '다른 문장' }),
+  '20261021-kmong-44444444.json': approval('20261021-kmong-44444444', { platform: 'kmong', kind: 'message', threadRef: 'T3', status: 'rejected', createdAt: '2026-10-21T02:00:00.000Z', draft: '다른 문장' }),
+}, ({ ledger, approvals }) => {
+  const out = importApprovals(ledger, approvals);
+  assert.deepEqual([out.imported, out.reconciled], [2, 1]);
+  assert.equal(ledger.outboxByApproval('20261020-kmong-11111111').status, 'observed');
+  const open = ledger.outboxByApproval('20261020-kmong-33333333');
+  assert.equal(open.status, 'awaiting_operator');
+  assert.deepEqual(out.skipped, [{ file: '20261021-kmong-44444444.json', reason: 'same key as outbox row ' + open.id }]);
+  assert.deepEqual(ledger.listOutbox({ statuses: ['planned', 'approved', 'awaiting_operator'] }).map((r) => r.approvalId), ['20261020-kmong-33333333']);
+}));
+
 test('a send the old pipeline could not observe imports as unobserved, with its press', () => withApprovals({
   '20261023-soomgo-dddddddd.json': approval('20261023-soomgo-dddddddd', { platform: 'soomgo', kind: 'quote', threadRef: 'D', status: 'open', unobserved: true, draft: 'd', quote: { amountKRW: 150000 }, pressed: { at: '2026-10-23T05:00:00.000Z', costKRW: 600 } }),
   '20261023-soomgo-eeeeeeee.json': approval('20261023-soomgo-eeeeeeee', { platform: 'soomgo', kind: 'quote', threadRef: 'E', status: 'unobserved', draft: 'e', quote: { amountKRW: 150000 } }),

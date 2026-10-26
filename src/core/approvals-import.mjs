@@ -17,13 +17,21 @@ export const STATUS_OF = { open: 'awaiting_operator', approved: 'approved', reje
 // open under it follows the file at the next import, so a forward move after a rollback never sends it again.
 export const FINAL_FILE = ['sent', 'rejected', 'dropped', 'expired', 'blocked', 'unobserved'];
 export const OPEN_ROW = ['planned', 'awaiting_operator', 'approved'];
+// Of two files holding the same item (one outbox key), a later file that sent it, or may have, closes the
+// older file's row too; a later rejection of a duplicate leaves the other one open, as the old code did.
+export const SENT_FILE = ['sent', 'unobserved'];
+// A row v0 was sending may already have gone out, so a final file moves it too: a sent file closes it as
+// observed, and any other final file leaves it unobserved for the operator, never closed or sent again.
+const FOLLOWS = [...OPEN_ROW, 'sending'];
+const followed = (fileStatus, rowStatus) => (rowStatus === 'sending' ? (fileStatus === 'sent' ? 'observed' : 'unobserved') : STATUS_OF[fileStatus]);
 
 const receiptOf = (status) => (status === 'observed' ? { observed: true, reason: 'sent by the d605c5d pipeline' } : status === 'unobserved' ? { observed: false, reason: 'unobserved by the d605c5d pipeline' } : null);
 
 // An old approval whose send was not observed: status unobserved, or open with unobserved true (the queue
 // path of src/pipeline/thread.mjs at 7b9524e). Approving it again could send it twice, so it imports as
 // unobserved, and a press the adapter recorded (pressed {at, costKRW}) stays on the receipt for quotaUsage.
-const statusOf = (a) => (a.status === 'open' && a.unobserved === true ? 'unobserved' : STATUS_OF[a.status]);
+const fileStatusOf = (a) => (a.status === 'open' && a.unobserved === true ? 'unobserved' : a.status);
+const statusOf = (a) => STATUS_OF[fileStatusOf(a)];
 const pressOf = (a) => (a.pressed ? { pressed: true, pressedAt: a.pressed.at ?? null, costKRW: a.pressed.costKRW ?? null } : {});
 
 function threadIdFor(ledger, a) {
@@ -62,6 +70,15 @@ export function rowFromApproval(ledger, a) {
   };
 }
 
+// Moves an imported row to the status its file's final state implies, as a compare-and-set with one
+// outbox.status event; false when the row moved since it was read.
+function follow(ledger, row, a, fileStatus, reason) {
+  const to = followed(fileStatus, row.status);
+  const moved = ledger.updateOutbox(row.id, { status: to, reason, receipt: receiptOf(to) ? { ...receiptOf(to), ...pressOf(a) } : row.receipt, updatedAt: a.closedAt ?? a.resolvedAt ?? undefined }, { from: row.status });
+  if (moved) ledger.addEvent({ kind: 'outbox.status', platform: row.platform, ref: String(row.id), payload: { id: row.id, kind: row.kind, from: row.status, to, reason } });
+  return Boolean(moved);
+}
+
 // Returns {read, imported, already, reconciled, skipped: [{file, reason}]}. Approvals go in the order the old store
 // listed them (createdAt, then id; src/brain/approvals.mjs:50), so of two files holding the same item the
 // older one owns the row. One transaction for the whole directory.
@@ -95,20 +112,11 @@ export function importApprovals(ledger, approvalsDir) {
   try {
     for (const { file, a } of found) {
       const have = ledger.outboxByApproval(a.id);
+      // An open file the old code could not observe (unobserved: true) is final for these rules too.
+      const fileStatus = fileStatusOf(a);
       if (have) {
-        // An open file the old code could not observe (unobserved: true) is final for this rule too.
-        const fileStatus = a.status === 'open' && a.unobserved === true ? 'unobserved' : a.status;
-        const to = STATUS_OF[fileStatus];
-        if (FINAL_FILE.includes(fileStatus) && OPEN_ROW.includes(have.status)) {
-          const reason = 'approval file ' + fileStatus + ' under the d605c5d code';
-          const moved = ledger.updateOutbox(have.id, { status: to, reason, receipt: receiptOf(to) ? { ...receiptOf(to), ...pressOf(a) } : have.receipt, updatedAt: a.closedAt ?? a.resolvedAt ?? undefined }, { from: have.status });
-          if (moved) {
-            ledger.addEvent({ kind: 'outbox.status', platform: have.platform, ref: String(have.id), payload: { id: have.id, kind: have.kind, from: have.status, to, reason } });
-            out.reconciled += 1;
-            continue;
-          }
-        }
-        out.already += 1;
+        if (FINAL_FILE.includes(fileStatus) && FOLLOWS.includes(have.status) && follow(ledger, have, a, fileStatus, 'approval file ' + fileStatus + ' under the d605c5d code')) out.reconciled += 1;
+        else out.already += 1;
         continue;
       }
       const mapped = rowFromApproval(ledger, a);
@@ -118,7 +126,8 @@ export function importApprovals(ledger, approvalsDir) {
       }
       const same = ledger.outboxByKey(mapped.row.key);
       if (same) {
-        skip(file, 'same key as outbox row ' + same.id);
+        if (SENT_FILE.includes(fileStatus) && FOLLOWS.includes(same.status) && follow(ledger, same, a, fileStatus, 'approval file ' + a.id + ' holding the same item ' + fileStatus + ' under the d605c5d code')) out.reconciled += 1;
+        else skip(file, 'same key as outbox row ' + same.id);
         continue;
       }
       ledger.addOutbox(mapped.row);

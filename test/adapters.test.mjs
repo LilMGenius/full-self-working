@@ -8,6 +8,7 @@ import * as kmong from '../src/platforms/kmong/parse.mjs';
 import * as soomgo from '../src/platforms/soomgo/parse.mjs';
 import { openKmongConversation as openKmong } from '../src/platforms/kmong/conversation.mjs';
 import { openSoomgo } from '../src/platforms/soomgo/adapter.mjs';
+import { openSoomgoSurface } from '../src/surface/soomgo.mjs';
 import { tempDir } from './tmp.mjs';
 
 // A stand-in driver session: page extractors are answered by function name, and every action is logged
@@ -414,4 +415,24 @@ test('soomgo spend reads today\'s charges by source and every smart quote campai
   assert.deepEqual(spend, { today, campaigns: soomgo.parseCampaigns(CAMPAIGN_LINKS) });
   assert.deepEqual(s.log.filter((l) => l.startsWith('navigate')), ['navigate https://soomgo.com/mypage/cash-dashboard', 'navigate https://soomgo.com/instant-match']);
   assert.deepEqual(acted(s.log), []);
+});
+
+
+test('a soomgo request that already has its quota of quotes is refused with no press counted and no cash read', async () => {
+  const form = { priceInput: true, priceTypes: ['총 비용', '시간 당'], selectedPriceType: '총 비용', textarea: true, fileInput: true, sendLabel: '2,490 캐시로 견적 보내기', sendDisabled: false, saveTemplateChecked: false, priceValue: '', textValue: '' };
+  let reads = 0;
+  const s = fakeSession({
+    pageRequestDetail: () => {
+      reads += 1;
+      const typed = reads >= 2 ? { priceValue: '50,000', textValue: '견적 드립니다' } : {};
+      return { url: 'u', service: '웹 개발', pairs: [], customerText: '', full: reads >= 3 ? '이미 10개 이상 견적을 받은 요청입니다.' : null, form: { ...form, ...typed } };
+    },
+    pageText: '',
+  });
+  const q = await (await openSoomgo({ session: s, sleep: async () => {} })).quote('req1', quoteArgs);
+  assert.deepEqual(q, { sent: false, observed: false, pressed: false, code: 'FSW_SOOMGO_REQUEST_FULL', reason: 'soomgo took no quote: 이미 10개 이상 견적을 받은 요청입니다.' });
+  assert.equal(s.log.includes('navigate https://soomgo.com/mypage/cash-dashboard'), false);
+  const surface = await openSoomgoSurface({ session: s });
+  reads = 0;
+  await assert.rejects(surface.quote('req1', { amountKRW: 50000, text: '견적 드립니다', authorized: { verdict: 'send' }, allowSpendCash: true }), (err) => err.code === 'FSW_SOOMGO_REQUEST_FULL');
 });

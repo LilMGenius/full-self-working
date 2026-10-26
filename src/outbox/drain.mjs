@@ -29,9 +29,10 @@ export const handles = (surface, kind) => typeof surface?.[METHOD[kind]] === 'fu
 // after an older proposal still goes out.
 export const PROPOSAL_NOT_SENT = ['FSW_KMONG_QUOTA_SPENT', 'FSW_KMONG_ENTERPRISE_PROFILE'];
 export const NOT_SENT = ['FSW_PACING_LIMIT', ...PROPOSAL_NOT_SENT];
-// Refusals before the page was touched that make the item itself moot (kmong's PROJECT_CLOSED): the row
-// goes back from sending and on to stale with the surface's reason, and the drain goes on.
-export const STALE_NOT_SENT = ['FSW_KMONG_PROJECT_CLOSED'];
+// Refusals that make the item itself moot with nothing sent or charged (kmong's PROJECT_CLOSED, a soomgo
+// request that already has its quota of quotes): the row goes back from sending and on to stale with the
+// surface's reason, and the drain goes on.
+export const STALE_NOT_SENT = ['FSW_KMONG_PROJECT_CLOSED', 'FSW_SOOMGO_REQUEST_FULL'];
 // The clock drift allowed between the machine and a platform's line times when reading a send back.
 export const READBACK_MARGIN_MS = 60_000;
 

@@ -66,6 +66,8 @@ function pageRequestDetail(id) {
   return {
     url: location.href,
     service: card?.__vue__?.$props?.request?.serviceInfo?.service?.name ?? null,
+    // The line soomgo shows instead of taking a quote on a request that already has its quota of quotes.
+    full: document.body.innerText.match(/이미 \d+개 이상 견적을 받은 요청입니다\.?/)?.[0] ?? null,
     pairs: spans.map((s) => s.innerText),
     customerText: document.querySelector('section[data-section=customer-profile]')?.innerText ?? '',
     form: {
@@ -210,6 +212,8 @@ function pageOpenPayDialog() {
 
 // 숨고페이 takes 15,000 to 5,000,000 KRW per payment (descriptor splitMechanism).
 export const PAY_REQUEST_RANGE = [15_000, 5_000_000];
+// quote() returns this code when soomgo refused the press because the request already has its quota of quotes.
+export const REQUEST_FULL = 'FSW_SOOMGO_REQUEST_FULL';
 
 export async function openSoomgo({ session, sleep = wait } = {}) {
   const s = session ?? (await openSession('soomgo', { platform: 'soomgo', pacing: loadDescriptor('soomgo').pacing }));
@@ -307,6 +311,9 @@ export async function openSoomgo({ session, sleep = wait } = {}) {
       // minute, and it prints today's rows with a time where a date was expected. A free quote leaves no
       // charge, so it counts when the request page no longer offers the send button.
       const after = await s.evaluate(pageRequestDetail, String(id));
+      // A request that already holds its quota of quotes shows a notice with a 확인 button in place of
+      // taking the quote: nothing is sent and no cash is charged (observed 2026-10-26).
+      if (after.full) return { sent: false, observed: false, pressed: false, code: REQUEST_FULL, reason: 'soomgo took no quote: ' + after.full };
       let rows = [];
       let charge = null;
       for (let i = 0; i < 4 && detail.quoteCostKRW > 0 && !charge; i++) {

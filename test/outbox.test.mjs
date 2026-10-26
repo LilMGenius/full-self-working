@@ -518,3 +518,17 @@ test('a proposal for a project that closed goes stale with its reason and asks t
   assert.deepEqual(s.notes, []);
 });
 
+
+test('a soomgo quote the platform refused as full goes stale, counts no press and asks the operator nothing', async () => {
+  const s = setup('soomgo');
+  const row = plan(s.ledger, { platform: 'soomgo', threadId: s.thread('r1', 'request').id, kind: 'quote', payload: quotePayload() });
+  const surface = scriptedSurface({ receipts: { quote: [Object.assign(new Error('soomgo took no quote: 이미 10개 이상 견적을 받은 요청입니다.'), { code: 'FSW_SOOMGO_REQUEST_FULL' })] } });
+  const out = await s.run(surface);
+  assert.deepEqual(out.map((x) => [x.id, x.action, x.code]), [[row.id, 'stale', 'FSW_SOOMGO_REQUEST_FULL']]);
+  const after = s.ledger.getOutbox(row.id);
+  assert.deepEqual([after.status, after.reason], ['stale', 'soomgo took no quote: 이미 10개 이상 견적을 받은 요청입니다.']);
+  assert.deepEqual(quotaUsage(s.ledger, 'soomgo', NOON), { quotes: 0, cashKRW: 0 });
+  assert.equal(events(s.ledger, 'send.unobserved').length, 0);
+  assert.deepEqual(s.notes, []);
+});
+

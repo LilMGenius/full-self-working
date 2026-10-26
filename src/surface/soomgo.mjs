@@ -1,7 +1,8 @@
 // 숨고 behind the surface interface (003). Page knowledge stays in src/platforms/soomgo; this file maps
 // shapes only. A request has no chat yet, so its read is one inbound message built from its answers, the
 // rule of src/pipeline/thread.mjs:86-90 at 2c77326.
-import { openSoomgo } from '../platforms/soomgo/adapter.mjs';
+import { AdapterRefusal } from '../platforms/kit.mjs';
+import { REQUEST_FULL, openSoomgo } from '../platforms/soomgo/adapter.mjs';
 import { authorizedSend, messageOf, readKind, receiptOf, unauthorized } from './shared.mjs';
 
 const base = { platform: 'soomgo', notice: null, status: null, hired: null, quotable: null, expiresAt: null, quoteCostKRW: null, requestId: null, quote: null };
@@ -37,7 +38,14 @@ export async function openSoomgoSurface({ session } = {}) {
     sense: async () => [...(await a.inbox()).map(inboundOfChat), ...(await a.requests()).map(inboundOfRequest)],
     read: async (ref, { willReply = false, kind } = {}) => (readKind(kind) === 'request' ? threadOfRequest(await a.readRequest(ref)) : threadOfChat(await a.readThread(ref, { willReply }))),
     send: async (ref, { text, files = [], authorized } = {}) => (authorizedSend(authorized) ? receiptOf(await a.send(ref, { text, files, gate: { ok: true } })) : unauthorized()),
-    quote: async (ref, { amountKRW, priceType = 'fixed', text, authorized, allowSpendCash = false, customer = null } = {}) => (authorizedSend(authorized) ? receiptOf(await a.quote(ref, { amountKRW, priceType, text, gate: { ok: true }, allowSpendCash, customer })) : unauthorized()),
+    // A request soomgo calls full took no quote and no cash, so it is thrown for the drain to mark the row
+    // stale (its STALE_NOT_SENT list) instead of an unobserved press.
+    quote: async (ref, { amountKRW, priceType = 'fixed', text, authorized, allowSpendCash = false, customer = null } = {}) => {
+      if (!authorizedSend(authorized)) return unauthorized();
+      const r = await a.quote(ref, { amountKRW, priceType, text, gate: { ok: true }, allowSpendCash, customer });
+      if (r.code === REQUEST_FULL) throw new AdapterRefusal(r.code, r.reason);
+      return receiptOf(r);
+    },
     // A payment request is operator only (approved) and, like every surface write, needs the authorize verdict.
     payRequest: async (ref, { amountKRW, approved = false, authorized } = {}) => (authorizedSend(authorized) ? receiptOf(await a.payRequest(ref, { amountKRW, approved })) : unauthorized()),
     // soomgo has no order list: a hire is a chat row (Inbound.hired, from sense) and its 숨고페이 notices, so

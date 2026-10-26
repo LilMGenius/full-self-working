@@ -6,7 +6,8 @@ import { join } from 'node:path';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
 import { plan, setStatus } from '../src/outbox/index.mjs';
-import { latestSupply, parkedCounts, supplyLines, supplyReport, writeSupply } from '../src/supervisor/supply.mjs';
+import { expansionCandidates, latestSupply, parkedCounts, supplyLines, supplyReport, writeSupply } from '../src/supervisor/supply.mjs';
+import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { runTick } from '../src/supervisor/run.mjs';
 import { writeDigest } from '../src/supervisor/digest.mjs';
 import { tempDir } from './tmp.mjs';
@@ -36,6 +37,32 @@ test('parked counts distinct threads per reason over the last seven days', () =>
   park('thread.skipped', 'r9', 'stale: 90h', hoursAgo(24 * 8));
   ledger.addEvent({ kind: 'thread.operator', platform: 'kmong', ref: 'x', payload: { reason: 'catalog: x' }, at: hoursAgo(1) });
   assert.deepEqual(parkedCounts(ledger, 'soomgo', NOW), { outOfCatalog: 1, stale: 1, expired: 1, notice: 1 });
+});
+
+test('the labels behind the out-of-catalog count are listed as expansion candidates, top five by threads', async () => {
+  const ledger = openLedger(':memory:');
+  const park = (ref, service, at = hoursAgo(1), reason = 'catalog: service ' + service + ' is not in the catalog') => ledger.addEvent({ kind: 'thread.operator', platform: 'soomgo', ref, payload: { reason, service }, at });
+  park('p1', '피아노 레슨');
+  park('p1', '피아노 레슨', hoursAgo(2));
+  park('p2', '피아노 레슨');
+  park('m1', '음악 작곡');
+  park('m2', '음악 작곡');
+  for (const [i, label] of ['3D 모델링', '보컬 레슨', '드럼 레슨', '기타 레슨'].entries()) park('x' + i, label);
+  park('old', '피아노 레슨', hoursAgo(24 * 8));
+  park('g1', '게임 개발');
+  park('l1', '프로그래밍/코딩 레슨', hoursAgo(1), 'catalog: service 프로그래밍/코딩 레슨 is lesson_tutoring, which config platforms.soomgo.services does not answer');
+  park('u1', null, hoursAgo(1), 'unsupported: a game bot');
+  const soomgo = loadDescriptor('soomgo');
+  assert.deepEqual(expansionCandidates(ledger, soomgo, NOW), [
+    { label: '음악 작곡', threads: 2 },
+    { label: '피아노 레슨', threads: 2 },
+    { label: '3D 모델링', threads: 1 },
+    { label: '기타 레슨', threads: 1 },
+    { label: '드럼 레슨', threads: 1 },
+  ]);
+  const report = await supplyReport('soomgo', { instance: makeInstance(), ledger, now: NOW, openSurface: surfaceWith([]) });
+  assert.equal(report.candidates.length, 5);
+  assert.match(supplyLines({ reports: [report] })[0], /; labels no service covers yet: 음악 작곡 2, 피아노 레슨 2, 3D 모델링 1, 기타 레슨 1, 드럼 레슨 1;/);
 });
 
 test('a report lists gigs by review state, offered services without items and the awaiting reply count', async () => {

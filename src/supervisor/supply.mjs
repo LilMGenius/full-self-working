@@ -17,6 +17,7 @@ import { openSurface as defaultOpenSurface } from '../surface/index.mjs';
 import { awaitingReply } from '../triage/index.mjs';
 
 export const SUPPLY_DAYS = 7;
+export const CANDIDATES_SHOWN = 5;
 const DAY_MS = 86_400_000;
 const FILE_RE = /^supply-(\d{10})\.json$/;
 export const supplyDir = (instance) => join(instance.paths.operator, 'supply');
@@ -32,6 +33,23 @@ export function parkedCounts(ledger, platform, now) {
     seen[bucket].add(e.ref);
   }
   return Object.fromEntries(Object.entries(seen).map(([k, v]) => [k, v.size]));
+}
+
+// The platform labels behind the out-of-catalog count that the catalog still covers with no service, by
+// distinct threads parked under each in the window, the most first: the queue of services to add
+// (AGENTS.md, the catalog rule). A label mapped since its park drops out, and a label parked because the
+// instance does not answer its service is a setting, so neither is a candidate.
+export function expansionCandidates(ledger, descriptor, now, limit = CANDIDATES_SHOWN) {
+  const since = now.getTime() - SUPPLY_DAYS * DAY_MS;
+  const byLabel = new Map();
+  const rows = ledger.db.prepare("SELECT ref, payload, at FROM events WHERE platform = ? AND kind = 'thread.operator'").all(descriptor.id);
+  for (const e of rows.filter((r) => Date.parse(r.at) >= since && Date.parse(r.at) <= now.getTime())) {
+    const { reason, service: label } = JSON.parse(e.payload ?? '{}') ?? {};
+    if (!label || !String(reason ?? '').startsWith('catalog:') || catalogServicesFor(descriptor, label)?.length !== 0) continue;
+    if (!byLabel.has(label)) byLabel.set(label, new Set());
+    byLabel.get(label).add(e.ref);
+  }
+  return [...byLabel].map(([label, refs]) => ({ label, threads: refs.size })).sort((a, b) => b.threads - a.threads || a.label.localeCompare(b.label)).slice(0, limit);
 }
 
 // Published kmong gigs by the review state the listings job last saw (src/listings/review.mjs codes).
@@ -61,6 +79,7 @@ export async function supplyReport(platform, { instance, ledger, now = new Date(
     listings: platform === 'kmong' ? listingStates(instance) : null,
     services: null,
     parked: parkedCounts(ledger, platform, now),
+    candidates: expansionCandidates(ledger, descriptor, now),
     awaitingReply: settings ? ledger.listThreads({ platform }).filter((t) => t.kind !== 'project' && awaitingReply(t, ledger.threadMessages(t.id), { now, settings })).length : null,
     waiting, notes,
   };
@@ -115,6 +134,7 @@ export function supplyLines(supply) {
   if (!supply.reports.length) return ['- no platform is enabled'];
   return supply.reports.map((r) => {
     const parts = [(r.awaitingReply ?? 'unknown') + ' awaiting reply', 'parked in ' + SUPPLY_DAYS + ' days: ' + counts({ 'out of catalog': r.parked.outOfCatalog, stale: r.parked.stale, expired: r.parked.expired, notices: r.parked.notice })];
+    if (r.candidates?.length) parts.push('labels no service covers yet: ' + r.candidates.map((c) => c.label + ' ' + c.threads).join(', '));
     if (r.listings) parts.push('gigs: ' + counts(r.listings.byStatus) + ' of ' + r.listings.published);
     if (r.services) parts.push(r.services.withoutItems.length ? 'offered services without request items: ' + r.services.withoutItems.join(', ') : 'every offered service has request items');
     if (r.waiting.awaiting_operator) parts.push(r.waiting.awaiting_operator + ' waiting for your approval');

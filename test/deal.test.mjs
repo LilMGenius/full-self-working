@@ -221,7 +221,7 @@ test('a grant keeps the customer quote and its source on the portfolio meta; a r
   delivered(s);
   s.step({ type: 'permission_granted', platform: 'soomgo', jobId: 'soomgo-c1', at: at('15:00'), evidence: { quote: '네, 올리셔도 됩니다.', quoteAt: at('14:30'), source: 'brain' } });
   const granted = s.ledger.getJob('soomgo-c1');
-  assert.deepEqual(granted.meta.portfolio, { ...granted.meta.portfolio, permission: 'granted', quote: '네, 올리셔도 됩니다.', source: 'brain', answeredAt: at('15:00') });
+  assert.deepEqual(granted.meta.portfolio, { ...granted.meta.portfolio, permission: 'granted', quote: '네, 올리셔도 됩니다.', quoteAt: at('14:30'), source: 'brain', answeredAt: at('15:00') });
   const item = (job) => itemFromJob({ job, payments: s.ledger.jobPayments(job.id) });
   assert.equal(rankPortfolio([item(granted)]).length, 1);
   s.step({ type: 'permission_refused', platform: 'soomgo', jobId: 'soomgo-c1', at: at('15:10'), evidence: { quote: null, source: 'brain' } });

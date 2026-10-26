@@ -80,11 +80,14 @@ export function restore(snap, to, instance, alive = pidAlive) {
   copyFileSync(snap, tmp);
   if (sha256(tmp) !== record.sha256) throw new Error('the copied snapshot does not match its sha256; nothing was replaced');
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  // The kept copy is <to>.replaced-<stamp> with -wal and -shm after that name, the pair SQLite opens
+  // together, so the rows still in the replaced WAL (the newest v0 writes) show when the kept file is opened.
+  const keptBase = to + '.replaced-' + stamp;
   const kept = [];
   for (const ext of ['', '-wal', '-shm']) {
     if (!existsSync(to + ext)) continue;
-    renameSync(to + ext, to + ext + '.replaced-' + stamp);
-    kept.push(to + ext + '.replaced-' + stamp);
+    renameSync(to + ext, keptBase + ext);
+    kept.push(keptBase + ext);
   }
   renameSync(tmp, to);
   return { restored: to, kept, sha256: record.sha256 };

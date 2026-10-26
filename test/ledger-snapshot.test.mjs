@@ -114,3 +114,22 @@ test('--restore with the supervisor stopped puts the snapshot back and keeps the
   writeFileSync(tampered, bytes);
   assert.throws(() => restore(tampered, file, instance, () => false), /does not match its recorded sha256/);
 });
+
+test('the kept file is <to>.replaced-<stamp> with its -wal beside it, so a row that lived only in the WAL opens with it', () => {
+  const { instance, file, ledger } = liveLedger();
+  const out = join(instance, 'snap.sqlite');
+  snapshot(file, out);
+  ledger.addEvent({ kind: 'wal.only', payload: {} });
+  // A stopped supervisor's ledger as it lies on disk: the main file and an uncheckpointed WAL.
+  const to = join(instance, 'stopped.sqlite');
+  copyFileSync(file, to);
+  copyFileSync(file + '-wal', to + '-wal');
+  ledger.close();
+  const r = restore(out, to, instance, () => false);
+  assert.match(r.kept[0], /stopped\.sqlite\.replaced-[0-9TZ-]+$/);
+  assert.equal(r.kept[1], r.kept[0] + '-wal');
+  const kept = new DatabaseSync(r.kept[0]);
+  assert.equal(kept.prepare("SELECT count(*) AS n FROM events WHERE kind = 'wal.only'").get().n, 1);
+  kept.close();
+  assert.equal(inspect(to).counts.events, 3);
+});

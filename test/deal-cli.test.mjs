@@ -32,6 +32,18 @@ test('permission on a closed job ranks it in the portfolio and exits 0', async (
   assert.match(s.lines.at(-1), /^job j1 permission recorded/);
 });
 
+test('granting over a client refusal says it lifts that refusal and quotes it; a first grant says nothing of the kind', async () => {
+  const s = setup();
+  const j = s.job('j4', 'closed');
+  s.ledger.upsertJob({ id: 'j4', meta: { portfolio: { permission: 'denied', answeredAt: '2026-10-21T02:00:00Z', source: 'brain', quote: '포트폴리오에는 올리지 말아 주세요.' } } });
+  assert.equal(await s.call(['j4', 'permission', 'granted']), 0);
+  assert.deepEqual(s.lines.slice(-2), ['job j4 permission granted lifts the refusal recorded 2026-10-21T02:00:00Z from brain: "포트폴리오에는 올리지 말아 주세요."', 'job j4 permission recorded; the portfolio is synced and the next daily publish shows it']);
+  assert.equal(s.ledger.getJob(j.id).meta.portfolio.permission, 'granted');
+  s.job('j5', 'closed');
+  await s.call(['j5', 'permission', 'granted']);
+  assert.ok(!s.lines.some((l) => l.startsWith('job j5') && l.includes('lifts')));
+});
+
 test('permission on an ordered job exits 1 with the refusal', async () => {
   const s = setup();
   s.job('j2', 'ordered');

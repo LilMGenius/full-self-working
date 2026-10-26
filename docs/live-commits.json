@@ -1,99 +1,1151 @@
 {
   "base": "2c77326a1862b9921b0a6a7035828d88c080490f",
   "entries": [
-    {"commit":"7574533cf1c134c69eced954109f0a2c7d9e1cc8","subject":"fix(soomgo): added services were marked but never registered","owner":["020"],"paths":["src/platforms/soomgo/services.mjs","test/soomgo-services.test.mjs"],"ownerCommit":null},
-    {"commit":"0c64cbd5d17d4f73545e950fe95d1d688bdc404d","subject":"fix(supervisor): polls failed for an hour after every code handover","owner":["040"],"paths":["src/supervisor/run.mjs","test/supervisor.test.mjs"],"ownerCommit":null},
-    {"commit":"276d496d00472a1725f987bef1657778048bd88e","subject":"fix(kmong): approved proposals stopped at the final confirm dialog","owner":["040"],"paths":["src/platforms/kmong/projects.mjs","test/projects.test.mjs"],"ownerCommit":null},
-    {"commit":"14d2f17a9c67cd31926a468add4bc2531c16d4f2","subject":"feat(catalog): instances could not choose the services they answer","owner":["010","030","040"],"paths":["README.md","docs/DESIGN.md","examples/instance/config.json","scripts/check-example.mjs","scripts/check-recipes.mjs","src/brain/prompts.mjs","src/brain/respond.mjs","src/cli/doctor.mjs","src/economics/catalog.mjs","src/economics/services.json","src/jobs/recipe.mjs","src/orders/money.mjs","src/orders/run.mjs","src/pipeline/thread.mjs","src/supervisor/run.mjs","test/recipe.test.mjs","test/services-setting.test.mjs","test/triage.test.mjs"],"ownerCommit":null},
-    {"commit":"0556ebb6ed4f8fe6995c18f7a315403ead6fe760","subject":"fix(market): a guide with only an average gave the service no price row","owner":["010","020"],"paths":["docs/DESIGN.md","src/economics/pricing.mjs","src/platforms/soomgo/market.mjs","test/lesson-pricing.test.mjs"],"ownerCommit":null},
-    {"commit":"206d36050301eb9f643ac74b966db563323cc1fa","subject":"feat(orders): a paid lesson had no path to the operator","owner":["010","030"],"paths":["docs/DESIGN.md","src/jobs/run.mjs","src/orders/delivery.mjs","src/orders/requests.mjs","src/orders/run.mjs","test/operator-delivery.test.mjs"],"ownerCommit":null},
-    {"commit":"e5bc34fdd4637dec0e6830b82d8f1eeb6c991afc","subject":"feat(market): fiverr samples could only load in the blocked owned page","owner":["010","020"],"paths":["docs/DESIGN.md","examples/instance/config.json","src/browser/archive.mjs","src/cli/market.mjs","src/platforms/descriptors/fiverr.json","src/platforms/fiverr/market.mjs","src/platforms/registry.mjs","test/overseas-market.test.mjs"],"ownerCommit":null},
-    {"commit":"96018867ab639cd22ce13e4a74ca76e0953e6c1f","subject":"fix(market): a missing archive snapshot was loaded again on the retry","owner":["010"],"paths":["src/browser/archive.mjs","src/cli/market.mjs","src/platforms/kit.mjs","test/overseas-market.test.mjs"],"ownerCommit":null},
-    {"commit":"cd38a710a62ffc647c107fcf1571b8db8d99a2ed","subject":"feat(market): a run read every category through the operator Chrome","owner":["010"],"paths":["docs/DESIGN.md","examples/instance/config.json","src/cli/market.mjs","src/platforms/descriptors/fiverr.json","src/platforms/registry.mjs","test/overseas-market.test.mjs"],"ownerCommit":null},
-    {"commit":"9101c1c533b46021cb316b9f6154ec460f73af3e","subject":"feat(market): a daily run got one fiverr search past its bot wall","owner":["010","040"],"paths":["docs/DESIGN.md","examples/instance/config.json","src/cli/market.mjs","src/platforms/descriptors/fiverr.json","src/platforms/registry.mjs","src/supervisor/run.mjs","src/supervisor/schedule.mjs","test/overseas-market.test.mjs","test/supervisor.test.mjs"],"ownerCommit":null},
-    {"commit":"b2ec31dc3348337fe8e9b12805b53f26da482192","subject":"fix(supervisor): a job that ran before the poll had no browser daemon","owner":["040"],"paths":["src/supervisor/run.mjs","test/supervisor.test.mjs"],"ownerCommit":null},
-    {"commit":"f6005453912e5e24a1729aeeb8b8250a5d74c719","subject":"fix(supervisor): a request whose pass threw was never passed again","owner":["030"],"paths":["src/brain/prompts.mjs","src/supervisor/run.mjs","test/supervisor.test.mjs"],"ownerCommit":null},
-    {"commit":"8fbaeee330174866fc93dfbd7a494d879364be19","subject":"docs(agents): one operator's choices could land in code as constants","owner":["010"],"paths":["AGENTS.md"],"ownerCommit":null},
-    {"commit":"2d9d0c8c89e3597b7e4c8ee6bc7be682be1942c9","subject":"docs(design): the keeper was described as an hourly check only","owner":["040"],"paths":["docs/DESIGN.md"],"ownerCommit":null},
-    {"commit":"7482c0f4081d9b4eaf9ffa810146e3d76dd64b31","subject":"fix(publish): a failed deploy left only a stack trace in the job record","owner":["040","070"],"paths":["scripts/publish.mjs","test/publish-cli.test.mjs"],"ownerCommit":null},
-    {"commit":"1a952d1f74f5ea6967e3a902ff7e824a18dc1ec0","subject":"fix(projects): proposals counted toward the wall-clock day","owner":["040"],"paths":["src/projects/job.mjs"],"ownerCommit":null},
-    {"commit":"40bf4024fab6a61fa741a40916bed47323a15e35","subject":"feat(wishket): a partner profile drifted from the instance unchecked","owner":["080"],"paths":["examples/instance/config.json","src/platforms/wishket/onboarding.mjs","test/onboarding-wishket.test.mjs"],"ownerCommit":null},
-    {"commit":"3c024f923fde21548c8d95339aceeac529ebca10","subject":"feat(fiverr): seller onboarding had no script","owner":["080"],"paths":["examples/instance/config.json","src/platforms/fiverr/onboarding.mjs","test/onboarding-fiverr.test.mjs"],"ownerCommit":null},
-    {"commit":"6196122cb374c3a9eb9497c4404e7d82a2eef9bb","subject":"fix(onboarding): a challenge page or spent budget crashed a run","owner":["080"],"paths":["src/platforms/fiverr/onboarding.mjs","src/platforms/wishket/onboarding.mjs"],"ownerCommit":null},
-    {"commit":"a050a703591e1c132fd1811e6620cdaf21f6d47e","subject":"fix(wishket): a run kept writing after the site signed it out","owner":["010","080"],"paths":["examples/instance/config.json","src/platforms/descriptors/fiverr.json","src/platforms/descriptors/wishket.json","src/platforms/wishket/onboarding.mjs","test/onboarding-wishket.test.mjs"],"ownerCommit":null},
-    {"commit":"ab51c77d3a9e3b1d926089e8d75949ecbd78aa2d","subject":"fix(fiverr): the descriptor gave the human check to the operator","owner":["010"],"paths":["src/platforms/descriptors/fiverr.json"],"ownerCommit":null},
-    {"commit":"e8ea6a6f396707f8f083ab080da13dcd64f24a32","subject":"fix(soomgo): a quote soomgo listed as sent was recorded as unsent","owner":["020","030"],"paths":["src/pipeline/thread.mjs","src/platforms/soomgo/adapter.mjs","test/adapters.test.mjs"],"ownerCommit":null},
-    {"commit":"98f78e28d759cae17483426fa923061231436573","subject":"fix(driver): typeKeys sent an empty key name for a space","owner":["020"],"paths":["src/browser/driver.mjs"],"ownerCommit":null},
-    {"commit":"25d195aa9324b093ceeda592a3111506f5ed3b64","subject":"feat(onboard): seller onboarding had no command and no shared interface","owner":["010","080"],"paths":["bin/fsw.mjs","src/cli/onboard.mjs","src/platforms/descriptors/freelancer.json","src/platforms/descriptors/upwork.json","src/platforms/onboarding.mjs"],"ownerCommit":null},
-    {"commit":"297a8497cae9856e571b1cb1fa0b561d3b543b0e","subject":"feat(upwork): the create-profile wizard had to be filled by hand","owner":["010","080"],"paths":["examples/instance/config.json","src/economics/services.json","src/platforms/upwork/onboarding.mjs","test/onboard.test.mjs"],"ownerCommit":null},
-    {"commit":"35ca40daa9a9b755a1721f47278db7ab28e0e863","subject":"feat(upwork): later wizard steps stopped the walk as unmapped","owner":["010","080"],"paths":["examples/instance/config.json","src/platforms/onboarding.mjs","src/platforms/upwork/onboarding.mjs","test/onboard.test.mjs"],"ownerCommit":null},
-    {"commit":"52f0fdc78eac4dcb9ee09ae3f6e6f55e2ac0e624","subject":"refactor(onboard): each platform would copy the upwork wizard walker","owner":["080"],"paths":["src/platforms/onboarding.mjs","src/platforms/upwork/onboarding.mjs"],"ownerCommit":null},
-    {"commit":"c46324b34dc049042e83ff0ee746565017842c66","subject":"feat(freelancer): the new-freelancer wizard had no onboarding script","owner":["080"],"paths":["src/platforms/freelancer/onboarding.mjs","test/onboard.test.mjs"],"ownerCommit":null},
-    {"commit":"3378885536aa47942a7c8db2d7845e29dbc902fb","subject":"fix(example): onboarding keys the scripts read were missing","owner":["010"],"paths":["examples/instance/config.json"],"ownerCommit":null},
-    {"commit":"f5f6d9a81ffd433beb0212c4b113b7a8f834db6d","subject":"fix(onboard): sites signed out a wizard driven at machine speed","owner":["010","020","080"],"paths":["src/browser/driver.mjs","src/cli/onboard.mjs","src/platforms/descriptors/freelancer.json","src/platforms/descriptors/upwork.json","src/platforms/onboarding.mjs","test/onboard.test.mjs"],"ownerCommit":null},
-    {"commit":"946a02bd6f2ff93d2f101298440628e1c755b8c2","subject":"feat(upwork): the last wizard step needed private details typed by hand","owner":["010","080"],"paths":["examples/instance/config.json","src/platforms/onboarding.mjs","src/platforms/upwork/onboarding.mjs","test/onboard.test.mjs"],"ownerCommit":null},
-    {"commit":"e28f44b3ce0cc4b806fe0e9a684e157ed399cbf5","subject":"feat(onboard): a signed-out wizard waited for the operator to sign in","owner":["080"],"paths":["src/platforms/onboarding.mjs","src/platforms/upwork/onboarding.mjs","test/onboard.test.mjs"],"ownerCommit":null},
-    {"commit":"1e57f4a3602f221860a3ff205e7007cf027eb4a7","subject":"feat(upwork): the walk stopped at the preview page before submitting","owner":["080"],"paths":["src/platforms/onboarding.mjs","src/platforms/upwork/onboarding.mjs"],"ownerCommit":null},
-    {"commit":"119f6decfaa004ded769a3f3ed42908bc27f9d5c","subject":"feat(freelancer): the Google button in a frame could not be clicked","owner":["080"],"paths":["src/platforms/freelancer/onboarding.mjs","src/platforms/onboarding.mjs"],"ownerCommit":null},
-    {"commit":"8eacaa72d62df3579f855d99a3f548975bf8ec8e","subject":"fix(test): the suite left a temp directory per fixture behind","owner":["010","020","030","040","080"],"paths":["test/adapters.test.mjs","test/brain.test.mjs","test/check-privacy.test.mjs","test/decide-cli.test.mjs","test/digest.test.mjs","test/doctor.test.mjs","test/economics.test.mjs","test/fx.test.mjs","test/handover.test.mjs","test/init.test.mjs","test/instance.test.mjs","test/jobs.test.mjs","test/ledger.test.mjs","test/listings.test.mjs","test/market.test.mjs","test/onboard.test.mjs","test/operator-delivery.test.mjs","test/orders.test.mjs","test/overseas-market.test.mjs","test/pipeline.test.mjs","test/portfolio.test.mjs","test/price-cli.test.mjs","test/priority.test.mjs","test/profile.test.mjs","test/project-score.test.mjs","test/projects.test.mjs","test/recipe.test.mjs","test/resume.test.mjs","test/revision.test.mjs","test/services-cli.test.mjs","test/services-setting.test.mjs","test/site.test.mjs","test/soomgo-edits.test.mjs","test/supervisor.test.mjs","test/temp-leak.test.mjs","test/tmp.mjs","test/triage.test.mjs","test/wishket-projects.test.mjs"],"ownerCommit":null},
-    {"commit":"b9a0d45e7b526a60b7bd8e9540b339fe50a0d001","subject":"fix(brain): codex and jwc leaked their temp directory when setup failed","owner":["030"],"paths":["src/brain/codex.mjs","src/brain/jwc.mjs","test/brain-temp.test.mjs"],"ownerCommit":null},
-    {"commit":"5b8929e1771fd356d0a0912853d1ab90d5582ce1","subject":"refactor(fiverr): onboarding repeated helpers and one field comparison","owner":["080"],"paths":["src/platforms/fiverr/onboarding.mjs","test/onboarding-fiverr.test.mjs"],"ownerCommit":null},
-    {"commit":"4204952f38538c6fc5dcbf9639f6309689c4acc2","subject":"refactor(upwork): onboarding kept its own copy of the month names","owner":["080"],"paths":["src/platforms/upwork/onboarding.mjs"],"ownerCommit":null},
-    {"commit":"4459a1f0be522062408526cfdade6de36fef7ade","subject":"fix(freelancer): skills the search listed late or bare were not added","owner":["080"],"paths":["src/platforms/freelancer/onboarding.mjs","test/onboard.test.mjs"],"ownerCommit":null},
-    {"commit":"e9cb54776078ff4116227efaa1954a01983c466b","subject":"fix(freelancer): a skill whose search stayed empty was typed again","owner":["080"],"paths":["src/platforms/freelancer/onboarding.mjs","test/onboard.test.mjs"],"ownerCommit":null},
-    {"commit":"cbff7ef34c1c1f835553032699f6261981ffc86c","subject":"fix(browser): a second BrowserSkill browser stopped every session","owner":["010","020"],"paths":["examples/instance/config.json","src/browser/driver.mjs","test/adapters.test.mjs"],"ownerCommit":null},
-    {"commit":"960e59149f366df251bf33e93c986f27a42fa650","subject":"fix(freelancer): the selected skills heading read back as a skill","owner":["080"],"paths":["src/platforms/freelancer/onboarding.mjs","test/onboard.test.mjs"],"ownerCommit":null},
-    {"commit":"dac593cddcfff3ab5e2c159dad5ac14a5be837ea","subject":"feat(freelancer): the wizard stopped at the linked accounts step","owner":["080"],"paths":["src/platforms/freelancer/onboarding.mjs","test/onboard.test.mjs"],"ownerCommit":null},
-    {"commit":"22fbb4b9754125a475739f542a484e7b0b9a1e1d","subject":"fix(pipeline): parked lessons stayed parked after lessons were enabled","owner":["010","030"],"paths":["docs/DESIGN.md","src/pipeline/thread.mjs","src/supervisor/run.mjs","test/services-setting.test.mjs","test/triage.test.mjs"],"ownerCommit":null},
-    {"commit":"239943405714defbb0656b8f8fdd69268d78f2cd","subject":"feat(catalog): soomgo game development requests were left unanswered","owner":["010","030","040"],"paths":["recipes/game_dev.json","src/economics/services.json","src/jobs/recipe.mjs","test/doctor.test.mjs","test/triage.test.mjs"],"ownerCommit":null},
-    {"commit":"c5ace72423170da85a22f86df0e6a7cdc95d9237","subject":"feat(wishket): the required portfolio item was left to the operator","owner":["080"],"paths":["src/platforms/wishket/onboarding.mjs","test/onboarding-wishket.test.mjs"],"ownerCommit":null},
-    {"commit":"486aa4b11ea7819e95dabb31959de262363457ab","subject":"fix(brain): services with no past work were declined as not offered","owner":["030"],"paths":["src/brain/prompts.mjs"],"ownerCommit":null},
-    {"commit":"59ebe3d8f1b0a8813a27e16e496b991afac9ef26","subject":"feat(freelancer): the wizard stopped at the photo and name step","owner":["080"],"paths":["src/platforms/freelancer/onboarding.mjs","src/platforms/onboarding.mjs","test/onboard.test.mjs"],"ownerCommit":null},
-    {"commit":"3e63cbc568aa780c2b3949f1ba0c7f10b3bc502e","subject":"fix(wishket): the portfolio form threw on events and refused the image","owner":["080"],"paths":["src/platforms/wishket/onboarding.mjs"],"ownerCommit":null},
-    {"commit":"c3e81b61f3aa39f722022daa5a9010e97fc5906c","subject":"fix(freelancer): the photo step tried an upload the camera page lacks","owner":["080"],"paths":["src/platforms/freelancer/onboarding.mjs","test/onboard.test.mjs"],"ownerCommit":null},
-    {"commit":"e5d20eb1d31252d581be9576c1cb4775a4ff3706","subject":"fix(pipeline): a chat with nothing to send was re-decided every tick","owner":["010","030","040"],"paths":["docs/DESIGN.md","src/pipeline/thread.mjs","src/supervisor/run.mjs","test/supervisor.test.mjs"],"ownerCommit":null},
-    {"commit":"7b9524e87111e5cdbafff10773f775da46e4803e","subject":"fix(soomgo): quotes read as unobserved slipped past the daily cash cap","owner":["010","020","030"],"paths":["README.md","src/cli/approvals.mjs","src/pipeline/thread.mjs","src/platforms/soomgo/adapter.mjs","src/platforms/soomgo/parse.mjs","test/adapters.test.mjs","test/approve-sent.test.mjs","test/triage.test.mjs"],"ownerCommit":null},
-    {"commit":"426cb9d924aca09b596ba9b6aa74c2459337823c","subject":"fix(pipeline): unsupported buyer requests were queued as paid quotes","owner":["030"],"paths":["src/pipeline/thread.mjs","test/triage.test.mjs"],"ownerCommit":null},
-    {"commit":"b81882e423dbcacbbd42c010c5e7dc08388c70fa","subject":"feat(freelancer): the wizard stopped at the headline and summary step","owner":["010","080"],"paths":["examples/instance/config.json","src/platforms/freelancer/onboarding.mjs","test/onboard.test.mjs"],"ownerCommit":null},
-    {"commit":"55b1066bfb395584ce67a56924b49173e52a4a56","subject":"fix(brain): requests missing scope or schedule went to the operator","owner":["030"],"paths":["src/brain/prompts.mjs"],"ownerCommit":null},
-    {"commit":"9dc861848624fd887a3ed27f66ae0fc45c912af6","subject":"feat(freelancer): the wizard stopped at the languages and birthdate step","owner":["080"],"paths":["src/platforms/freelancer/onboarding.mjs","test/onboard.test.mjs"],"ownerCommit":null},
-    {"commit":"4523ff9750cb093ca7589c5877aca34443a5d636","subject":"fix(freelancer): a language listed late or with a note was not picked","owner":["080"],"paths":["src/platforms/freelancer/onboarding.mjs","test/onboard.test.mjs"],"ownerCommit":null},
-    {"commit":"0107457aab7bec6d3cb366deebd3cc8cb4d7a9bd","subject":"fix(freelancer): a language the list never shows stopped the wizard","owner":["080"],"paths":["src/platforms/freelancer/onboarding.mjs","test/onboard.test.mjs"],"ownerCommit":null},
-    {"commit":"b223ed7cb2c75a0e10cfb15051c4fb51ad94ebed","subject":"fix(pipeline): soomgo kept reading requests after the day cash was spent","owner":["030"],"paths":["docs/DESIGN.md","src/brain/approvals.mjs","src/pipeline/thread.mjs","src/supervisor/run.mjs","test/budget-defer.test.mjs","test/pipeline.test.mjs","test/triage.test.mjs"],"ownerCommit":null},
-    {"commit":"b340a42ef84fdd810ac4e5b2263d9e9c0be19680","subject":"feat(freelancer): the wizard stopped at the payment verification step","owner":["010","080"],"paths":["examples/instance/config.json","src/platforms/freelancer/onboarding.mjs","test/onboard.test.mjs"],"ownerCommit":null},
-    {"commit":"59cb38181010a2cf42c29dd77e6b4472e3abdbba","subject":"fix(supervisor): a wake just short of its mark ran every job a mark late","owner":["040"],"paths":["src/supervisor/run.mjs","test/handover.test.mjs"],"ownerCommit":null},
-    {"commit":"9b23f5fcd47677041816afa584037317eb5c5f2d","subject":"fix(pipeline): a deferred quote went out for a service turned off","owner":["030"],"paths":["src/pipeline/thread.mjs","test/budget-defer.test.mjs"],"ownerCommit":null},
-    {"commit":"36400c466e9d2adbcfe797fec174de183409eb24","subject":"feat(kmong): a signed-out kmong waited for the operator to sign in","owner":["010","020","040"],"paths":["README.md","docs/DESIGN.md","examples/instance/config.json","src/platforms/kmong/adapter.mjs","src/supervisor/run.mjs","test/adapters.test.mjs","test/supervisor.test.mjs"],"ownerCommit":null},
-    {"commit":"31e9f93bde34ecfc956c93aa95343430fa5d9f92","subject":"fix(freelancer): the language search was lost once a language was chosen","owner":["080"],"paths":["src/platforms/freelancer/onboarding.mjs","test/onboard.test.mjs"],"ownerCommit":null},
-    {"commit":"b062fd74c2c682b384f7d0b09de21dad850455ed","subject":"feat(freelancer): the wizard stopped at the paid membership offer","owner":["080"],"paths":["src/platforms/freelancer/onboarding.mjs","test/onboard.test.mjs"],"ownerCommit":null},
-    {"commit":"d69aa3142504e53d2a5fda89128dfe68b2c17537","subject":"fix(fiverr): a skill was typed before its input rendered","owner":["080"],"paths":["src/platforms/fiverr/onboarding.mjs","test/onboarding-fiverr.test.mjs"],"ownerCommit":null},
-    {"commit":"8c74b568f173d5ef9f44c6240ba85cf8152b0dd3","subject":"fix(fiverr): a spent hourly action budget crashed the onboarding run","owner":["080"],"paths":["src/platforms/fiverr/onboarding.mjs","test/onboarding-fiverr.test.mjs"],"ownerCommit":null},
-    {"commit":"fa1bac3d32278e9535048029dfdd60103a11638c","subject":"fix(onboard): a page that redirected at once read as an unmapped step","owner":["080"],"paths":["src/platforms/onboarding.mjs","test/onboard.test.mjs"],"ownerCommit":null},
-    {"commit":"6aad7706a919815bfe4ab55f546ea130aaa62562","subject":"fix(fiverr): every profile skill phrase was tried and spent the hour","owner":["040","080"],"paths":["examples/instance/config.json","src/platforms/fiverr/onboarding.mjs","test/onboarding-fiverr.test.mjs"],"ownerCommit":null},
-    {"commit":"808d6dc1934f6cc4a8e5179216f9a7692d5b2d65","subject":"feat(freelancer): the wizard stopped at the experience step","owner":["080"],"paths":["src/platforms/freelancer/onboarding.mjs","test/onboard.test.mjs"],"ownerCommit":null},
-    {"commit":"424403a91bca23e7c4326e94082e8d6e8ce3e2e4","subject":"fix(freelancer): the experience fields refused the focus call","owner":["080"],"paths":["src/platforms/freelancer/onboarding.mjs","test/onboard.test.mjs"],"ownerCommit":null},
-    {"commit":"a353ce3a813b09afdd58b8978d041f2e4d763149","subject":"fix(freelancer): an experience field read hit a wrapper with the same id","owner":["080"],"paths":["src/platforms/freelancer/onboarding.mjs","test/onboard.test.mjs"],"ownerCommit":null},
-    {"commit":"b6dd01e0c5111101b4994cdc10e2f69909ae85e8","subject":"feat(freelancer): the wizard stopped at the references step","owner":["080"],"paths":["src/platforms/freelancer/onboarding.mjs","test/onboard.test.mjs"],"ownerCommit":null},
-    {"commit":"a8ae31cd070fa4c9f04c7ea95bc74d9041946113","subject":"fix(fiverr): the generic avatar read as a profile picture","owner":["080"],"paths":["src/platforms/fiverr/onboarding.mjs","test/onboarding-fiverr.test.mjs"],"ownerCommit":null}
+    {
+      "commit": "7574533cf1c134c69eced954109f0a2c7d9e1cc8",
+      "subject": "fix(soomgo): added services were marked but never registered",
+      "owner": [
+        "020"
+      ],
+      "paths": [
+        "src/platforms/soomgo/services.mjs",
+        "test/soomgo-services.test.mjs"
+      ],
+      "ownerCommit": "53be15b591a143b03ece6a18a26c14508401a139"
+    },
+    {
+      "commit": "0c64cbd5d17d4f73545e950fe95d1d688bdc404d",
+      "subject": "fix(supervisor): polls failed for an hour after every code handover",
+      "owner": [
+        "040"
+      ],
+      "paths": [
+        "src/supervisor/run.mjs",
+        "test/supervisor.test.mjs"
+      ],
+      "ownerCommit": "0137ff12543514c968600ab91947915937e862a0"
+    },
+    {
+      "commit": "276d496d00472a1725f987bef1657778048bd88e",
+      "subject": "fix(kmong): approved proposals stopped at the final confirm dialog",
+      "owner": [
+        "040"
+      ],
+      "paths": [
+        "src/platforms/kmong/projects.mjs",
+        "test/projects.test.mjs"
+      ],
+      "ownerCommit": "0137ff12543514c968600ab91947915937e862a0"
+    },
+    {
+      "commit": "14d2f17a9c67cd31926a468add4bc2531c16d4f2",
+      "subject": "feat(catalog): instances could not choose the services they answer",
+      "owner": [
+        "010",
+        "030",
+        "040"
+      ],
+      "paths": [
+        "README.md",
+        "docs/DESIGN.md",
+        "examples/instance/config.json",
+        "scripts/check-example.mjs",
+        "scripts/check-recipes.mjs",
+        "src/brain/prompts.mjs",
+        "src/brain/respond.mjs",
+        "src/cli/doctor.mjs",
+        "src/economics/catalog.mjs",
+        "src/economics/services.json",
+        "src/jobs/recipe.mjs",
+        "src/orders/money.mjs",
+        "src/orders/run.mjs",
+        "src/pipeline/thread.mjs",
+        "src/supervisor/run.mjs",
+        "test/recipe.test.mjs",
+        "test/services-setting.test.mjs",
+        "test/triage.test.mjs"
+      ],
+      "ownerCommit": "0137ff12543514c968600ab91947915937e862a0"
+    },
+    {
+      "commit": "0556ebb6ed4f8fe6995c18f7a315403ead6fe760",
+      "subject": "fix(market): a guide with only an average gave the service no price row",
+      "owner": [
+        "010",
+        "020"
+      ],
+      "paths": [
+        "docs/DESIGN.md",
+        "src/economics/pricing.mjs",
+        "src/platforms/soomgo/market.mjs",
+        "test/lesson-pricing.test.mjs"
+      ],
+      "ownerCommit": "53be15b591a143b03ece6a18a26c14508401a139"
+    },
+    {
+      "commit": "206d36050301eb9f643ac74b966db563323cc1fa",
+      "subject": "feat(orders): a paid lesson had no path to the operator",
+      "owner": [
+        "010",
+        "030"
+      ],
+      "paths": [
+        "docs/DESIGN.md",
+        "src/jobs/run.mjs",
+        "src/orders/delivery.mjs",
+        "src/orders/requests.mjs",
+        "src/orders/run.mjs",
+        "test/operator-delivery.test.mjs"
+      ],
+      "ownerCommit": "b8fd213735536c0f9cbb6d7c1c7b28056fb75002"
+    },
+    {
+      "commit": "e5bc34fdd4637dec0e6830b82d8f1eeb6c991afc",
+      "subject": "feat(market): fiverr samples could only load in the blocked owned page",
+      "owner": [
+        "010",
+        "020",
+        "040"
+      ],
+      "paths": [
+        "docs/DESIGN.md",
+        "examples/instance/config.json",
+        "src/browser/archive.mjs",
+        "src/cli/market.mjs",
+        "src/platforms/descriptors/fiverr.json",
+        "src/platforms/fiverr/market.mjs",
+        "src/platforms/registry.mjs",
+        "test/overseas-market.test.mjs"
+      ],
+      "ownerCommit": "0137ff12543514c968600ab91947915937e862a0"
+    },
+    {
+      "commit": "96018867ab639cd22ce13e4a74ca76e0953e6c1f",
+      "subject": "fix(market): a missing archive snapshot was loaded again on the retry",
+      "owner": [
+        "010",
+        "040"
+      ],
+      "paths": [
+        "src/browser/archive.mjs",
+        "src/cli/market.mjs",
+        "src/platforms/kit.mjs",
+        "test/overseas-market.test.mjs"
+      ],
+      "ownerCommit": "0137ff12543514c968600ab91947915937e862a0"
+    },
+    {
+      "commit": "cd38a710a62ffc647c107fcf1571b8db8d99a2ed",
+      "subject": "feat(market): a run read every category through the operator Chrome",
+      "owner": [
+        "010",
+        "040"
+      ],
+      "paths": [
+        "docs/DESIGN.md",
+        "examples/instance/config.json",
+        "src/cli/market.mjs",
+        "src/platforms/descriptors/fiverr.json",
+        "src/platforms/registry.mjs",
+        "test/overseas-market.test.mjs"
+      ],
+      "ownerCommit": "0137ff12543514c968600ab91947915937e862a0"
+    },
+    {
+      "commit": "9101c1c533b46021cb316b9f6154ec460f73af3e",
+      "subject": "feat(market): a daily run got one fiverr search past its bot wall",
+      "owner": [
+        "010",
+        "040"
+      ],
+      "paths": [
+        "docs/DESIGN.md",
+        "examples/instance/config.json",
+        "src/cli/market.mjs",
+        "src/platforms/descriptors/fiverr.json",
+        "src/platforms/registry.mjs",
+        "src/supervisor/run.mjs",
+        "src/supervisor/schedule.mjs",
+        "test/overseas-market.test.mjs",
+        "test/supervisor.test.mjs"
+      ],
+      "ownerCommit": "0137ff12543514c968600ab91947915937e862a0"
+    },
+    {
+      "commit": "b2ec31dc3348337fe8e9b12805b53f26da482192",
+      "subject": "fix(supervisor): a job that ran before the poll had no browser daemon",
+      "owner": [
+        "040"
+      ],
+      "paths": [
+        "src/supervisor/run.mjs",
+        "test/supervisor.test.mjs"
+      ],
+      "ownerCommit": "0137ff12543514c968600ab91947915937e862a0"
+    },
+    {
+      "commit": "f6005453912e5e24a1729aeeb8b8250a5d74c719",
+      "subject": "fix(supervisor): a request whose pass threw was never passed again",
+      "owner": [
+        "030",
+        "040"
+      ],
+      "paths": [
+        "src/brain/prompts.mjs",
+        "src/supervisor/run.mjs",
+        "test/supervisor.test.mjs"
+      ],
+      "ownerCommit": "0137ff12543514c968600ab91947915937e862a0"
+    },
+    {
+      "commit": "8fbaeee330174866fc93dfbd7a494d879364be19",
+      "subject": "docs(agents): one operator's choices could land in code as constants",
+      "owner": [
+        "010"
+      ],
+      "paths": [
+        "AGENTS.md"
+      ],
+      "ownerCommit": "568d6d24c2925c82248671d578a741106c6cc260"
+    },
+    {
+      "commit": "2d9d0c8c89e3597b7e4c8ee6bc7be682be1942c9",
+      "subject": "docs(design): the keeper was described as an hourly check only",
+      "owner": [
+        "040"
+      ],
+      "paths": [
+        "docs/DESIGN.md"
+      ],
+      "ownerCommit": "0137ff12543514c968600ab91947915937e862a0"
+    },
+    {
+      "commit": "7482c0f4081d9b4eaf9ffa810146e3d76dd64b31",
+      "subject": "fix(publish): a failed deploy left only a stack trace in the job record",
+      "owner": [
+        "040",
+        "070"
+      ],
+      "paths": [
+        "scripts/publish.mjs",
+        "test/publish-cli.test.mjs"
+      ],
+      "ownerCommit": "0137ff12543514c968600ab91947915937e862a0"
+    },
+    {
+      "commit": "1a952d1f74f5ea6967e3a902ff7e824a18dc1ec0",
+      "subject": "fix(projects): proposals counted toward the wall-clock day",
+      "owner": [
+        "040"
+      ],
+      "paths": [
+        "src/projects/job.mjs"
+      ],
+      "ownerCommit": "0137ff12543514c968600ab91947915937e862a0"
+    },
+    {
+      "commit": "40bf4024fab6a61fa741a40916bed47323a15e35",
+      "subject": "feat(wishket): a partner profile drifted from the instance unchecked",
+      "owner": [
+        "080"
+      ],
+      "paths": [
+        "examples/instance/config.json",
+        "src/platforms/wishket/onboarding.mjs",
+        "test/onboarding-wishket.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "3c024f923fde21548c8d95339aceeac529ebca10",
+      "subject": "feat(fiverr): seller onboarding had no script",
+      "owner": [
+        "080"
+      ],
+      "paths": [
+        "examples/instance/config.json",
+        "src/platforms/fiverr/onboarding.mjs",
+        "test/onboarding-fiverr.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "6196122cb374c3a9eb9497c4404e7d82a2eef9bb",
+      "subject": "fix(onboarding): a challenge page or spent budget crashed a run",
+      "owner": [
+        "080"
+      ],
+      "paths": [
+        "src/platforms/fiverr/onboarding.mjs",
+        "src/platforms/wishket/onboarding.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "a050a703591e1c132fd1811e6620cdaf21f6d47e",
+      "subject": "fix(wishket): a run kept writing after the site signed it out",
+      "owner": [
+        "010",
+        "080"
+      ],
+      "paths": [
+        "examples/instance/config.json",
+        "src/platforms/descriptors/fiverr.json",
+        "src/platforms/descriptors/wishket.json",
+        "src/platforms/wishket/onboarding.mjs",
+        "test/onboarding-wishket.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "ab51c77d3a9e3b1d926089e8d75949ecbd78aa2d",
+      "subject": "fix(fiverr): the descriptor gave the human check to the operator",
+      "owner": [
+        "010"
+      ],
+      "paths": [
+        "src/platforms/descriptors/fiverr.json"
+      ],
+      "ownerCommit": "568d6d24c2925c82248671d578a741106c6cc260"
+    },
+    {
+      "commit": "e8ea6a6f396707f8f083ab080da13dcd64f24a32",
+      "subject": "fix(soomgo): a quote soomgo listed as sent was recorded as unsent",
+      "owner": [
+        "020",
+        "030"
+      ],
+      "paths": [
+        "src/pipeline/thread.mjs",
+        "src/platforms/soomgo/adapter.mjs",
+        "test/adapters.test.mjs"
+      ],
+      "ownerCommit": "b8fd213735536c0f9cbb6d7c1c7b28056fb75002"
+    },
+    {
+      "commit": "98f78e28d759cae17483426fa923061231436573",
+      "subject": "fix(driver): typeKeys sent an empty key name for a space",
+      "owner": [
+        "020"
+      ],
+      "paths": [
+        "src/browser/driver.mjs"
+      ],
+      "ownerCommit": "53be15b591a143b03ece6a18a26c14508401a139"
+    },
+    {
+      "commit": "25d195aa9324b093ceeda592a3111506f5ed3b64",
+      "subject": "feat(onboard): seller onboarding had no command and no shared interface",
+      "owner": [
+        "010",
+        "080"
+      ],
+      "paths": [
+        "bin/fsw.mjs",
+        "src/cli/onboard.mjs",
+        "src/platforms/descriptors/freelancer.json",
+        "src/platforms/descriptors/upwork.json",
+        "src/platforms/onboarding.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "297a8497cae9856e571b1cb1fa0b561d3b543b0e",
+      "subject": "feat(upwork): the create-profile wizard had to be filled by hand",
+      "owner": [
+        "010",
+        "080"
+      ],
+      "paths": [
+        "examples/instance/config.json",
+        "src/economics/services.json",
+        "src/platforms/upwork/onboarding.mjs",
+        "test/onboard.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "35ca40daa9a9b755a1721f47278db7ab28e0e863",
+      "subject": "feat(upwork): later wizard steps stopped the walk as unmapped",
+      "owner": [
+        "010",
+        "080"
+      ],
+      "paths": [
+        "examples/instance/config.json",
+        "src/platforms/onboarding.mjs",
+        "src/platforms/upwork/onboarding.mjs",
+        "test/onboard.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "52f0fdc78eac4dcb9ee09ae3f6e6f55e2ac0e624",
+      "subject": "refactor(onboard): each platform would copy the upwork wizard walker",
+      "owner": [
+        "080"
+      ],
+      "paths": [
+        "src/platforms/onboarding.mjs",
+        "src/platforms/upwork/onboarding.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "c46324b34dc049042e83ff0ee746565017842c66",
+      "subject": "feat(freelancer): the new-freelancer wizard had no onboarding script",
+      "owner": [
+        "080"
+      ],
+      "paths": [
+        "src/platforms/freelancer/onboarding.mjs",
+        "test/onboard.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "3378885536aa47942a7c8db2d7845e29dbc902fb",
+      "subject": "fix(example): onboarding keys the scripts read were missing",
+      "owner": [
+        "010"
+      ],
+      "paths": [
+        "examples/instance/config.json"
+      ],
+      "ownerCommit": "568d6d24c2925c82248671d578a741106c6cc260"
+    },
+    {
+      "commit": "f5f6d9a81ffd433beb0212c4b113b7a8f834db6d",
+      "subject": "fix(onboard): sites signed out a wizard driven at machine speed",
+      "owner": [
+        "010",
+        "020",
+        "080"
+      ],
+      "paths": [
+        "src/browser/driver.mjs",
+        "src/cli/onboard.mjs",
+        "src/platforms/descriptors/freelancer.json",
+        "src/platforms/descriptors/upwork.json",
+        "src/platforms/onboarding.mjs",
+        "test/onboard.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "946a02bd6f2ff93d2f101298440628e1c755b8c2",
+      "subject": "feat(upwork): the last wizard step needed private details typed by hand",
+      "owner": [
+        "010",
+        "080"
+      ],
+      "paths": [
+        "examples/instance/config.json",
+        "src/platforms/onboarding.mjs",
+        "src/platforms/upwork/onboarding.mjs",
+        "test/onboard.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "e28f44b3ce0cc4b806fe0e9a684e157ed399cbf5",
+      "subject": "feat(onboard): a signed-out wizard waited for the operator to sign in",
+      "owner": [
+        "080"
+      ],
+      "paths": [
+        "src/platforms/onboarding.mjs",
+        "src/platforms/upwork/onboarding.mjs",
+        "test/onboard.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "1e57f4a3602f221860a3ff205e7007cf027eb4a7",
+      "subject": "feat(upwork): the walk stopped at the preview page before submitting",
+      "owner": [
+        "080"
+      ],
+      "paths": [
+        "src/platforms/onboarding.mjs",
+        "src/platforms/upwork/onboarding.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "119f6decfaa004ded769a3f3ed42908bc27f9d5c",
+      "subject": "feat(freelancer): the Google button in a frame could not be clicked",
+      "owner": [
+        "080"
+      ],
+      "paths": [
+        "src/platforms/freelancer/onboarding.mjs",
+        "src/platforms/onboarding.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "8eacaa72d62df3579f855d99a3f548975bf8ec8e",
+      "subject": "fix(test): the suite left a temp directory per fixture behind",
+      "owner": [
+        "010",
+        "020",
+        "030",
+        "040",
+        "080"
+      ],
+      "paths": [
+        "test/adapters.test.mjs",
+        "test/brain.test.mjs",
+        "test/check-privacy.test.mjs",
+        "test/decide-cli.test.mjs",
+        "test/digest.test.mjs",
+        "test/doctor.test.mjs",
+        "test/economics.test.mjs",
+        "test/fx.test.mjs",
+        "test/handover.test.mjs",
+        "test/init.test.mjs",
+        "test/instance.test.mjs",
+        "test/jobs.test.mjs",
+        "test/ledger.test.mjs",
+        "test/listings.test.mjs",
+        "test/market.test.mjs",
+        "test/onboard.test.mjs",
+        "test/operator-delivery.test.mjs",
+        "test/orders.test.mjs",
+        "test/overseas-market.test.mjs",
+        "test/pipeline.test.mjs",
+        "test/portfolio.test.mjs",
+        "test/price-cli.test.mjs",
+        "test/priority.test.mjs",
+        "test/profile.test.mjs",
+        "test/project-score.test.mjs",
+        "test/projects.test.mjs",
+        "test/recipe.test.mjs",
+        "test/resume.test.mjs",
+        "test/revision.test.mjs",
+        "test/services-cli.test.mjs",
+        "test/services-setting.test.mjs",
+        "test/site.test.mjs",
+        "test/soomgo-edits.test.mjs",
+        "test/supervisor.test.mjs",
+        "test/temp-leak.test.mjs",
+        "test/tmp.mjs",
+        "test/triage.test.mjs",
+        "test/wishket-projects.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "b9a0d45e7b526a60b7bd8e9540b339fe50a0d001",
+      "subject": "fix(brain): codex and jwc leaked their temp directory when setup failed",
+      "owner": [
+        "030"
+      ],
+      "paths": [
+        "src/brain/codex.mjs",
+        "src/brain/jwc.mjs",
+        "test/brain-temp.test.mjs"
+      ],
+      "ownerCommit": "b8fd213735536c0f9cbb6d7c1c7b28056fb75002"
+    },
+    {
+      "commit": "5b8929e1771fd356d0a0912853d1ab90d5582ce1",
+      "subject": "refactor(fiverr): onboarding repeated helpers and one field comparison",
+      "owner": [
+        "080"
+      ],
+      "paths": [
+        "src/platforms/fiverr/onboarding.mjs",
+        "test/onboarding-fiverr.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "4204952f38538c6fc5dcbf9639f6309689c4acc2",
+      "subject": "refactor(upwork): onboarding kept its own copy of the month names",
+      "owner": [
+        "080"
+      ],
+      "paths": [
+        "src/platforms/upwork/onboarding.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "4459a1f0be522062408526cfdade6de36fef7ade",
+      "subject": "fix(freelancer): skills the search listed late or bare were not added",
+      "owner": [
+        "080"
+      ],
+      "paths": [
+        "src/platforms/freelancer/onboarding.mjs",
+        "test/onboard.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "e9cb54776078ff4116227efaa1954a01983c466b",
+      "subject": "fix(freelancer): a skill whose search stayed empty was typed again",
+      "owner": [
+        "080"
+      ],
+      "paths": [
+        "src/platforms/freelancer/onboarding.mjs",
+        "test/onboard.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "cbff7ef34c1c1f835553032699f6261981ffc86c",
+      "subject": "fix(browser): a second BrowserSkill browser stopped every session",
+      "owner": [
+        "010",
+        "020"
+      ],
+      "paths": [
+        "examples/instance/config.json",
+        "src/browser/driver.mjs",
+        "test/adapters.test.mjs"
+      ],
+      "ownerCommit": "53be15b591a143b03ece6a18a26c14508401a139"
+    },
+    {
+      "commit": "960e59149f366df251bf33e93c986f27a42fa650",
+      "subject": "fix(freelancer): the selected skills heading read back as a skill",
+      "owner": [
+        "080"
+      ],
+      "paths": [
+        "src/platforms/freelancer/onboarding.mjs",
+        "test/onboard.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "dac593cddcfff3ab5e2c159dad5ac14a5be837ea",
+      "subject": "feat(freelancer): the wizard stopped at the linked accounts step",
+      "owner": [
+        "080"
+      ],
+      "paths": [
+        "src/platforms/freelancer/onboarding.mjs",
+        "test/onboard.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "22fbb4b9754125a475739f542a484e7b0b9a1e1d",
+      "subject": "fix(pipeline): parked lessons stayed parked after lessons were enabled",
+      "owner": [
+        "010",
+        "030",
+        "040"
+      ],
+      "paths": [
+        "docs/DESIGN.md",
+        "src/pipeline/thread.mjs",
+        "src/supervisor/run.mjs",
+        "test/services-setting.test.mjs",
+        "test/triage.test.mjs"
+      ],
+      "ownerCommit": "0137ff12543514c968600ab91947915937e862a0"
+    },
+    {
+      "commit": "239943405714defbb0656b8f8fdd69268d78f2cd",
+      "subject": "feat(catalog): soomgo game development requests were left unanswered",
+      "owner": [
+        "010",
+        "030",
+        "040"
+      ],
+      "paths": [
+        "recipes/game_dev.json",
+        "src/economics/services.json",
+        "src/jobs/recipe.mjs",
+        "test/doctor.test.mjs",
+        "test/triage.test.mjs"
+      ],
+      "ownerCommit": "0137ff12543514c968600ab91947915937e862a0"
+    },
+    {
+      "commit": "c5ace72423170da85a22f86df0e6a7cdc95d9237",
+      "subject": "feat(wishket): the required portfolio item was left to the operator",
+      "owner": [
+        "080"
+      ],
+      "paths": [
+        "src/platforms/wishket/onboarding.mjs",
+        "test/onboarding-wishket.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "486aa4b11ea7819e95dabb31959de262363457ab",
+      "subject": "fix(brain): services with no past work were declined as not offered",
+      "owner": [
+        "030"
+      ],
+      "paths": [
+        "src/brain/prompts.mjs"
+      ],
+      "ownerCommit": "b8fd213735536c0f9cbb6d7c1c7b28056fb75002"
+    },
+    {
+      "commit": "59ebe3d8f1b0a8813a27e16e496b991afac9ef26",
+      "subject": "feat(freelancer): the wizard stopped at the photo and name step",
+      "owner": [
+        "080"
+      ],
+      "paths": [
+        "src/platforms/freelancer/onboarding.mjs",
+        "src/platforms/onboarding.mjs",
+        "test/onboard.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "3e63cbc568aa780c2b3949f1ba0c7f10b3bc502e",
+      "subject": "fix(wishket): the portfolio form threw on events and refused the image",
+      "owner": [
+        "080"
+      ],
+      "paths": [
+        "src/platforms/wishket/onboarding.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "c3e81b61f3aa39f722022daa5a9010e97fc5906c",
+      "subject": "fix(freelancer): the photo step tried an upload the camera page lacks",
+      "owner": [
+        "080"
+      ],
+      "paths": [
+        "src/platforms/freelancer/onboarding.mjs",
+        "test/onboard.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "e5d20eb1d31252d581be9576c1cb4775a4ff3706",
+      "subject": "fix(pipeline): a chat with nothing to send was re-decided every tick",
+      "owner": [
+        "010",
+        "030",
+        "040"
+      ],
+      "paths": [
+        "docs/DESIGN.md",
+        "src/pipeline/thread.mjs",
+        "src/supervisor/run.mjs",
+        "test/supervisor.test.mjs"
+      ],
+      "ownerCommit": "0137ff12543514c968600ab91947915937e862a0"
+    },
+    {
+      "commit": "7b9524e87111e5cdbafff10773f775da46e4803e",
+      "subject": "fix(soomgo): quotes read as unobserved slipped past the daily cash cap",
+      "owner": [
+        "010",
+        "020",
+        "030"
+      ],
+      "paths": [
+        "README.md",
+        "src/cli/approvals.mjs",
+        "src/pipeline/thread.mjs",
+        "src/platforms/soomgo/adapter.mjs",
+        "src/platforms/soomgo/parse.mjs",
+        "test/adapters.test.mjs",
+        "test/approve-sent.test.mjs",
+        "test/triage.test.mjs"
+      ],
+      "ownerCommit": "b8fd213735536c0f9cbb6d7c1c7b28056fb75002"
+    },
+    {
+      "commit": "426cb9d924aca09b596ba9b6aa74c2459337823c",
+      "subject": "fix(pipeline): unsupported buyer requests were queued as paid quotes",
+      "owner": [
+        "030"
+      ],
+      "paths": [
+        "src/pipeline/thread.mjs",
+        "test/triage.test.mjs"
+      ],
+      "ownerCommit": "b8fd213735536c0f9cbb6d7c1c7b28056fb75002"
+    },
+    {
+      "commit": "b81882e423dbcacbbd42c010c5e7dc08388c70fa",
+      "subject": "feat(freelancer): the wizard stopped at the headline and summary step",
+      "owner": [
+        "010",
+        "080"
+      ],
+      "paths": [
+        "examples/instance/config.json",
+        "src/platforms/freelancer/onboarding.mjs",
+        "test/onboard.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "55b1066bfb395584ce67a56924b49173e52a4a56",
+      "subject": "fix(brain): requests missing scope or schedule went to the operator",
+      "owner": [
+        "030"
+      ],
+      "paths": [
+        "src/brain/prompts.mjs"
+      ],
+      "ownerCommit": "b8fd213735536c0f9cbb6d7c1c7b28056fb75002"
+    },
+    {
+      "commit": "9dc861848624fd887a3ed27f66ae0fc45c912af6",
+      "subject": "feat(freelancer): the wizard stopped at the languages and birthdate step",
+      "owner": [
+        "080"
+      ],
+      "paths": [
+        "src/platforms/freelancer/onboarding.mjs",
+        "test/onboard.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "4523ff9750cb093ca7589c5877aca34443a5d636",
+      "subject": "fix(freelancer): a language listed late or with a note was not picked",
+      "owner": [
+        "080"
+      ],
+      "paths": [
+        "src/platforms/freelancer/onboarding.mjs",
+        "test/onboard.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "0107457aab7bec6d3cb366deebd3cc8cb4d7a9bd",
+      "subject": "fix(freelancer): a language the list never shows stopped the wizard",
+      "owner": [
+        "080"
+      ],
+      "paths": [
+        "src/platforms/freelancer/onboarding.mjs",
+        "test/onboard.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "b223ed7cb2c75a0e10cfb15051c4fb51ad94ebed",
+      "subject": "fix(pipeline): soomgo kept reading requests after the day cash was spent",
+      "owner": [
+        "030",
+        "040"
+      ],
+      "paths": [
+        "docs/DESIGN.md",
+        "src/brain/approvals.mjs",
+        "src/pipeline/thread.mjs",
+        "src/supervisor/run.mjs",
+        "test/budget-defer.test.mjs",
+        "test/pipeline.test.mjs",
+        "test/triage.test.mjs"
+      ],
+      "ownerCommit": "0137ff12543514c968600ab91947915937e862a0"
+    },
+    {
+      "commit": "b340a42ef84fdd810ac4e5b2263d9e9c0be19680",
+      "subject": "feat(freelancer): the wizard stopped at the payment verification step",
+      "owner": [
+        "010",
+        "080"
+      ],
+      "paths": [
+        "examples/instance/config.json",
+        "src/platforms/freelancer/onboarding.mjs",
+        "test/onboard.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "59cb38181010a2cf42c29dd77e6b4472e3abdbba",
+      "subject": "fix(supervisor): a wake just short of its mark ran every job a mark late",
+      "owner": [
+        "040"
+      ],
+      "paths": [
+        "src/supervisor/run.mjs",
+        "test/handover.test.mjs"
+      ],
+      "ownerCommit": "0137ff12543514c968600ab91947915937e862a0"
+    },
+    {
+      "commit": "9b23f5fcd47677041816afa584037317eb5c5f2d",
+      "subject": "fix(pipeline): a deferred quote went out for a service turned off",
+      "owner": [
+        "030"
+      ],
+      "paths": [
+        "src/pipeline/thread.mjs",
+        "test/budget-defer.test.mjs"
+      ],
+      "ownerCommit": "b8fd213735536c0f9cbb6d7c1c7b28056fb75002"
+    },
+    {
+      "commit": "36400c466e9d2adbcfe797fec174de183409eb24",
+      "subject": "feat(kmong): a signed-out kmong waited for the operator to sign in",
+      "owner": [
+        "010",
+        "020",
+        "040"
+      ],
+      "paths": [
+        "README.md",
+        "docs/DESIGN.md",
+        "examples/instance/config.json",
+        "src/platforms/kmong/adapter.mjs",
+        "src/supervisor/run.mjs",
+        "test/adapters.test.mjs",
+        "test/supervisor.test.mjs"
+      ],
+      "ownerCommit": "0137ff12543514c968600ab91947915937e862a0"
+    },
+    {
+      "commit": "31e9f93bde34ecfc956c93aa95343430fa5d9f92",
+      "subject": "fix(freelancer): the language search was lost once a language was chosen",
+      "owner": [
+        "080"
+      ],
+      "paths": [
+        "src/platforms/freelancer/onboarding.mjs",
+        "test/onboard.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "b062fd74c2c682b384f7d0b09de21dad850455ed",
+      "subject": "feat(freelancer): the wizard stopped at the paid membership offer",
+      "owner": [
+        "080"
+      ],
+      "paths": [
+        "src/platforms/freelancer/onboarding.mjs",
+        "test/onboard.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "d69aa3142504e53d2a5fda89128dfe68b2c17537",
+      "subject": "fix(fiverr): a skill was typed before its input rendered",
+      "owner": [
+        "080"
+      ],
+      "paths": [
+        "src/platforms/fiverr/onboarding.mjs",
+        "test/onboarding-fiverr.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "8c74b568f173d5ef9f44c6240ba85cf8152b0dd3",
+      "subject": "fix(fiverr): a spent hourly action budget crashed the onboarding run",
+      "owner": [
+        "080"
+      ],
+      "paths": [
+        "src/platforms/fiverr/onboarding.mjs",
+        "test/onboarding-fiverr.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "fa1bac3d32278e9535048029dfdd60103a11638c",
+      "subject": "fix(onboard): a page that redirected at once read as an unmapped step",
+      "owner": [
+        "080"
+      ],
+      "paths": [
+        "src/platforms/onboarding.mjs",
+        "test/onboard.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "6aad7706a919815bfe4ab55f546ea130aaa62562",
+      "subject": "fix(fiverr): every profile skill phrase was tried and spent the hour",
+      "owner": [
+        "040",
+        "080"
+      ],
+      "paths": [
+        "examples/instance/config.json",
+        "src/platforms/fiverr/onboarding.mjs",
+        "test/onboarding-fiverr.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "808d6dc1934f6cc4a8e5179216f9a7692d5b2d65",
+      "subject": "feat(freelancer): the wizard stopped at the experience step",
+      "owner": [
+        "080"
+      ],
+      "paths": [
+        "src/platforms/freelancer/onboarding.mjs",
+        "test/onboard.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "424403a91bca23e7c4326e94082e8d6e8ce3e2e4",
+      "subject": "fix(freelancer): the experience fields refused the focus call",
+      "owner": [
+        "080"
+      ],
+      "paths": [
+        "src/platforms/freelancer/onboarding.mjs",
+        "test/onboard.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "a353ce3a813b09afdd58b8978d041f2e4d763149",
+      "subject": "fix(freelancer): an experience field read hit a wrapper with the same id",
+      "owner": [
+        "080"
+      ],
+      "paths": [
+        "src/platforms/freelancer/onboarding.mjs",
+        "test/onboard.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "b6dd01e0c5111101b4994cdc10e2f69909ae85e8",
+      "subject": "feat(freelancer): the wizard stopped at the references step",
+      "owner": [
+        "080"
+      ],
+      "paths": [
+        "src/platforms/freelancer/onboarding.mjs",
+        "test/onboard.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    },
+    {
+      "commit": "a8ae31cd070fa4c9f04c7ea95bc74d9041946113",
+      "subject": "fix(fiverr): the generic avatar read as a profile picture",
+      "owner": [
+        "080"
+      ],
+      "paths": [
+        "src/platforms/fiverr/onboarding.mjs",
+        "test/onboarding-fiverr.test.mjs"
+      ],
+      "ownerCommit": "85c5e9aafa322b27bcfed3fa4a652273dd1b2e4d"
+    }
   ],
   "pathMap": [
-    {"old":"src/platforms/kmong/adapter.mjs","v0":null,"reason":"020 splits it into src/platforms/kmong/page.mjs, listing-page.mjs, conversation.mjs and listing.mjs (2.2); 36400c4 lands in page.mjs and conversation.mjs"},
-    {"old":"src/jobs/recipe.mjs","v0":"src/work/recipe.mjs","reason":"030 moves the recipe module (3.24)"},
-    {"old":"src/jobs/run.mjs","v0":"src/work/run.mjs","reason":"030 moves the runner and drops its status writes (3.23)"},
-    {"old":"src/orders/delivery.mjs","v0":null,"reason":"030 splits it: the delivery text into src/deal/delivery-text.mjs and the rules into src/deal/advance.mjs (3.17, 3.19)"},
-    {"old":"src/orders/money.mjs","v0":null,"reason":"030 moves its rules into src/deal/signals.mjs, levels.mjs and advance.mjs (3.15 to 3.19)"},
-    {"old":"src/orders/requests.mjs","v0":null,"reason":"030 moves its rules into src/deal/advance.mjs effects (3.19)"},
-    {"old":"src/orders/run.mjs","v0":null,"reason":"030 replaces it with src/loop/orders.mjs and the deal handover (3.19, 3.30)"},
-    {"old":"src/pipeline/thread.mjs","v0":null,"reason":"030 replaces it with src/triage, src/brain/respond.mjs, src/outbox and src/loop/step.mjs (3.6 to 3.14, 3.28)"},
-    {"old":"test/jobs.test.mjs","v0":"test/work.test.mjs","reason":"030 carries the cases (7.7)"},
-    {"old":"test/orders.test.mjs","v0":null,"reason":"030 moves its cases into test/deal.test.mjs, test/loop.test.mjs and test/notices.test.mjs (7.1, 7.6, 7.8)"},
-    {"old":"test/pipeline.test.mjs","v0":null,"reason":"030 moves its cases into test/triage.test.mjs, test/authorize.test.mjs and test/outbox.test.mjs (7.2, 7.4, 7.5)"},
-    {"old":"test/revision.test.mjs","v0":null,"reason":"030 moves its cases into test/deal.test.mjs and test/loop.test.mjs (7.6, 7.8)"},
-    {"old":"test/operator-delivery.test.mjs","v0":null,"reason":"030 moves its cases into test/deal.test.mjs and test/loop.test.mjs (7.6, 7.8)"},
-    {"old":"test/services-setting.test.mjs","v0":null,"reason":"010 and 030 move its cases into test/catalog.test.mjs, test/triage.test.mjs and test/brain.test.mjs"},
-    {"old":"test/approve-sent.test.mjs","v0":null,"reason":"030 moves its cases into test/outbox.test.mjs and test/approve-cli.test.mjs (7.5, 7.9)"},
-    {"old":"test/wishket-projects.test.mjs","v0":null,"reason":"not carried: 002 Discard set (src/platforms/wishket/projects.mjs and its cases return in 080)"},
-    {"old":"test/decide-cli.test.mjs","v0":null,"reason":"not carried: 002 Discard set (fsw decide is retired)"},
-    {"old":"test/price-cli.test.mjs","v0":"test/price-table.test.mjs","reason":"010 moves the price table code and its cases (2.8)"}
+    {
+      "old": "src/platforms/kmong/adapter.mjs",
+      "v0": null,
+      "reason": "020 splits it into src/platforms/kmong/page.mjs, listing-page.mjs, conversation.mjs and listing.mjs (2.2); 36400c4 lands in page.mjs and conversation.mjs"
+    },
+    {
+      "old": "src/jobs/recipe.mjs",
+      "v0": "src/work/recipe.mjs",
+      "reason": "030 moves the recipe module (3.24)"
+    },
+    {
+      "old": "src/jobs/run.mjs",
+      "v0": "src/work/run.mjs",
+      "reason": "030 moves the runner and drops its status writes (3.23)"
+    },
+    {
+      "old": "src/orders/delivery.mjs",
+      "v0": null,
+      "reason": "030 splits it: the delivery text into src/deal/delivery-text.mjs and the rules into src/deal/advance.mjs (3.17, 3.19)"
+    },
+    {
+      "old": "src/orders/money.mjs",
+      "v0": null,
+      "reason": "030 moves its rules into src/deal/signals.mjs, levels.mjs and advance.mjs (3.15 to 3.19)"
+    },
+    {
+      "old": "src/orders/requests.mjs",
+      "v0": null,
+      "reason": "030 moves its rules into src/deal/advance.mjs effects (3.19)"
+    },
+    {
+      "old": "src/orders/run.mjs",
+      "v0": null,
+      "reason": "030 replaces it with src/loop/orders.mjs and the deal handover (3.19, 3.30)"
+    },
+    {
+      "old": "src/pipeline/thread.mjs",
+      "v0": null,
+      "reason": "030 replaces it with src/triage, src/brain/respond.mjs, src/outbox and src/loop/step.mjs (3.6 to 3.14, 3.28)"
+    },
+    {
+      "old": "test/jobs.test.mjs",
+      "v0": "test/work.test.mjs",
+      "reason": "030 carries the cases (7.7)"
+    },
+    {
+      "old": "test/orders.test.mjs",
+      "v0": null,
+      "reason": "030 moves its cases into test/deal.test.mjs, test/loop.test.mjs and test/notices.test.mjs (7.1, 7.6, 7.8)"
+    },
+    {
+      "old": "test/pipeline.test.mjs",
+      "v0": null,
+      "reason": "030 moves its cases into test/triage.test.mjs, test/authorize.test.mjs and test/outbox.test.mjs (7.2, 7.4, 7.5)"
+    },
+    {
+      "old": "test/revision.test.mjs",
+      "v0": null,
+      "reason": "030 moves its cases into test/deal.test.mjs and test/loop.test.mjs (7.6, 7.8)"
+    },
+    {
+      "old": "test/operator-delivery.test.mjs",
+      "v0": null,
+      "reason": "030 moves its cases into test/deal.test.mjs and test/loop.test.mjs (7.6, 7.8)"
+    },
+    {
+      "old": "test/services-setting.test.mjs",
+      "v0": null,
+      "reason": "010 and 030 move its cases into test/catalog.test.mjs, test/triage.test.mjs and test/brain.test.mjs"
+    },
+    {
+      "old": "test/approve-sent.test.mjs",
+      "v0": null,
+      "reason": "030 moves its cases into test/outbox.test.mjs and test/approve-cli.test.mjs (7.5, 7.9)"
+    },
+    {
+      "old": "test/wishket-projects.test.mjs",
+      "v0": null,
+      "reason": "not carried: 002 Discard set (src/platforms/wishket/projects.mjs and its cases return in 080)"
+    },
+    {
+      "old": "test/decide-cli.test.mjs",
+      "v0": null,
+      "reason": "not carried: 002 Discard set (fsw decide is retired)"
+    },
+    {
+      "old": "test/price-cli.test.mjs",
+      "v0": "test/price-table.test.mjs",
+      "reason": "010 moves the price table code and its cases (2.8)"
+    },
+    {
+      "old": "src/brain/approvals.mjs",
+      "v0": null,
+      "reason": "030 replaces the approval store with the outbox (3.10 to 3.14); 010 imports the old files once (src/core/approvals-import.mjs)"
+    },
+    {
+      "old": "test/budget-defer.test.mjs",
+      "v0": null,
+      "reason": "030 moves its cases into test/authorize.test.mjs and test/outbox.test.mjs; test/approvals-deferred.test.mjs covers the imported deferred files (cd070ce)"
+    }
   ]
 }

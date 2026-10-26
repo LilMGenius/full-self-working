@@ -63,9 +63,8 @@ test('an absolute --manifest path is read where it is, not under --v0', () => {
   assert.equal(JSON.parse(readFileSync(file, 'utf8')).entries[0].ownerCommit, TARGET);
 });
 
-test('the committed manifest lists full unique ids, each with an owner doc and no owner commit yet', () => {
+test('the committed manifest lists full unique ids, each with an owner doc and an owner commit', () => {
   const manifest = JSON.parse(readFileSync('docs/live-commits.json', 'utf8'));
   const ids = manifest.entries.map((e) => e.commit);
-  const findings = check(manifest, { liveIds: ids, ...yes });
-  assert.deepEqual(findings, ids.map((c) => c.slice(0, 7) + ' has no owner commit'));
+  assert.deepEqual(check(manifest, { liveIds: ids, ...yes }), []);
 });

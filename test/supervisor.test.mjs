@@ -110,6 +110,28 @@ test('the real liveness check sees this process alive and a finished one dead', 
   assert.equal(pidAlive(done.pid), false);
 });
 
+test('a lock holder is live only while its pid has the recorded start time; an old pid-only lock keeps the node rule', () => {
+  const instance = makeInstance();
+  const procs = { 111: { image: 'node', startedAt: '2026-10-26T01:00:00.0000000Z' } };
+  const processInfo = (p) => procs[p] ?? null;
+  assert.deepEqual(acquireLock(instance, { pid: 111, processInfo }), { acquired: true, pid: 111, tookOverFrom: null });
+  const text = readFileSync(readLock(instance).file, 'utf8');
+  assert.equal(text, '111\n2026-10-26T01:00:00.0000000Z\n');
+  // The 2c77326 readLock parses the whole file with Number.parseInt, which still reads the pid.
+  assert.equal(Number.parseInt(text, 10), 111);
+  procs[222] = { image: 'node', startedAt: '2026-10-26T02:00:00.0000000Z' };
+  assert.deepEqual(acquireLock(instance, { pid: 222, processInfo }), { acquired: false, heldBy: 111 });
+  // The supervisor crashed and another node process got pid 111.
+  procs[111] = { image: 'node', startedAt: '2026-10-26T03:00:00.0000000Z' };
+  assert.deepEqual(acquireLock(instance, { pid: 222, processInfo }), { acquired: true, pid: 222, tookOverFrom: 111 });
+  assert.deepEqual([readLock(instance).pid, readLock(instance).startedAt], [222, '2026-10-26T02:00:00.0000000Z']);
+  writeFileSync(readLock(instance).file, '444\n');
+  procs[444] = { image: 'node', startedAt: '2026-10-26T04:00:00.0000000Z' };
+  assert.deepEqual(acquireLock(instance, { pid: 555, processInfo }), { acquired: false, heldBy: 444 });
+  procs[444] = { image: 'Code', startedAt: '2026-10-26T04:00:00.0000000Z' };
+  assert.deepEqual(acquireLock(instance, { pid: 555, processInfo }), { acquired: true, pid: 555, tookOverFrom: 444 });
+});
+
 test('runTick isolates a throwing platform step and records its error', async () => {
   const instance = makeInstance({ kmong: { enabled: true, mode: 'auto' }, soomgo: { enabled: true, mode: 'auto' } });
   const ledger = openLedger(':memory:');

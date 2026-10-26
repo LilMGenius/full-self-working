@@ -46,7 +46,8 @@ test('a tick beside a live supervisor refuses and records nothing; with no live 
     await new Promise((r) => child.once('exit', r));
   }
   const passes = [];
-  assert.equal(await run(['--once'], { instance, log: () => {}, runTick: async (ctx) => (passes.push(readFileSync(lockFile, 'utf8').trim()), { at: 'x', jobs: [], failures: 0 }) }), 0);
+  // The lock's first line is the pid; the holder's start time follows it.
+  assert.equal(await run(['--once'], { instance, log: () => {}, runTick: async (ctx) => (passes.push(readFileSync(lockFile, 'utf8').split('\n')[0]), { at: 'x', jobs: [], failures: 0 }) }), 0);
   assert.deepEqual(passes, [String(process.pid)]);
   assert.equal(existsSync(lockFile), false);
 });

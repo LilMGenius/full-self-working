@@ -132,33 +132,53 @@ export function writeState(instance, state) {
 
 // ---- pid lock ----
 
-// A pid answers process.kill(pid, 0) while some process holds it. Windows recycles pids quickly, so a
-// lock left by a crash before a reboot can name an unrelated process; on Windows the image must also be
-// node.exe for the holder to count as a live supervisor.
-export function pidAlive(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
+// The process holding pid now: {image, startedAt} or null when none does. On Windows the image is the
+// process name (node) and startedAt its start time as Windows reports it, '' when Windows will not say
+// (another user's elevated process); elsewhere only process.kill(pid, 0) answers, so both are null.
+export function processInfo(pid) {
   try {
     process.kill(pid, 0);
   } catch (err) {
-    if (err.code !== 'EPERM') return false;
+    if (err.code !== 'EPERM') return null;
   }
-  if (process.platform !== 'win32') return true;
-  const out = execFileSync('tasklist', ['/FI', 'PID eq ' + pid, '/FO', 'CSV', '/NH'], { encoding: 'utf8', windowsHide: true });
-  return /^"node\.exe"/im.test(out);
+  if (process.platform !== 'win32') return { image: null, startedAt: null };
+  const script = '$p = Get-Process -Id ' + pid + ' -ErrorAction SilentlyContinue; if ($p) { $p.ProcessName + "|" + $(if ($p.StartTime) { $p.StartTime.ToUniversalTime().ToString("o") } else { "" }) }';
+  const out = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', windowsHide: true }).trim();
+  if (!out) return null;
+  const [image, startedAt] = out.split('|');
+  return { image, startedAt: startedAt || null };
 }
+
+// A lock holder is live while a node process holds its pid. Windows recycles pids quickly and this
+// machine runs many node processes, so a lock that recorded its holder's start time is live only while
+// the process on that pid has that start time; a lock without one (written by the 2c77326 code) keeps the
+// node rule. A part the reader cannot tell (null) is not checked.
+export function pidAlive(pid, startedAt = null, read = processInfo) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  const info = read(pid);
+  if (!info) return false;
+  if (info.image != null && !/^node(\.exe)?$/i.test(info.image)) return false;
+  return !startedAt || info.startedAt == null || info.startedAt === startedAt;
+}
+
+// The lock file is the pid on its first line, then the holder's start time when known. The 2c77326
+// readLock parses the file with Number.parseInt, which still reads the pid from the first line.
+const parseLock = (text) => {
+  const [first, second] = String(text).split(/\r?\n/);
+  const pid = Number.parseInt(first, 10);
+  return { pid: Number.isInteger(pid) ? pid : null, startedAt: second?.trim() || null };
+};
 
 export function readLock(instance) {
   const file = lockFile(instance);
   if (!existsSync(file)) return null;
-  const pid = Number.parseInt(readFileSync(file, 'utf8'), 10);
-  return { file, pid: Number.isInteger(pid) ? pid : null };
+  return { file, ...parseLock(readFileSync(file, 'utf8')) };
 }
 
 const LOCK_FS = { openSync, writeFileSync, closeSync, readFileSync, renameSync, linkSync, unlinkSync };
-const pidIn = (fs, file) => {
+const holderIn = (fs, file) => {
   try {
-    const n = Number.parseInt(fs.readFileSync(file, 'utf8'), 10);
-    return Number.isInteger(n) ? n : null;
+    return parseLock(fs.readFileSync(file, 'utf8'));
   } catch (err) {
     if (err.code === 'ENOENT') return undefined;
     throw err;
@@ -170,35 +190,36 @@ const pidIn = (fs, file) => {
 // only one moves that file. The one whose renamed file turns out to hold another pid (a contender already
 // took the lock between the read and the rename) links it back, which fails rather than overwrite a newer
 // lock, and tries again. Every lock is then created exclusively. fs is injectable so a test can interleave
-// two contenders.
-export function acquireLock(instance, { pid = process.pid, alive = pidAlive, fs = LOCK_FS } = {}) {
+// two contenders, and processInfo so a test needs no real process.
+export function acquireLock(instance, { pid = process.pid, processInfo: read = processInfo, alive = (p, startedAt) => pidAlive(p, startedAt, read), fs = LOCK_FS } = {}) {
   const file = lockFile(instance);
   mkdirSync(runDir(instance), { recursive: true });
   const aside = file + '.' + pid + '.stale';
+  const startedAt = read(pid)?.startedAt ?? null;
   let stale = null;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const fd = fs.openSync(file, 'wx');
-      fs.writeFileSync(fd, pid + '\n');
+      fs.writeFileSync(fd, pid + '\n' + (startedAt ? startedAt + '\n' : ''));
       fs.closeSync(fd);
       return { acquired: true, pid, tookOverFrom: stale };
     } catch (err) {
       if (err.code !== 'EEXIST') throw err;
     }
-    const held = pidIn(fs, file);
+    const held = holderIn(fs, file);
     if (held === undefined) continue;
-    if (held === pid) return { acquired: true, pid, tookOverFrom: null };
-    if (held && alive(held)) return { acquired: false, heldBy: held };
+    if (held.pid === pid) return { acquired: true, pid, tookOverFrom: null };
+    if (held.pid && alive(held.pid, held.startedAt)) return { acquired: false, heldBy: held.pid };
     try {
       fs.renameSync(file, aside);
     } catch (err) {
       if (err.code === 'ENOENT') continue;
       throw err;
     }
-    const moved = pidIn(fs, aside);
-    if (moved === held) {
+    const moved = holderIn(fs, aside);
+    if (moved?.pid === held.pid && moved.startedAt === held.startedAt) {
       fs.unlinkSync(aside);
-      stale = held;
+      stale = held.pid;
       continue;
     }
     try {
@@ -208,7 +229,7 @@ export function acquireLock(instance, { pid = process.pid, alive = pidAlive, fs 
     }
     fs.unlinkSync(aside);
   }
-  return { acquired: false, heldBy: pidIn(fs, file) ?? null };
+  return { acquired: false, heldBy: holderIn(fs, file)?.pid ?? null };
 }
 
 export function releaseLock(instance, pid = process.pid) {

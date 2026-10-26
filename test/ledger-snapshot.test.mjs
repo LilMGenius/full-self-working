@@ -6,7 +6,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSyn
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { openLedger } from '../src/core/ledger.mjs';
-import { compare, inspect, restore, sha256, snapshot, taskBlocks, taskInstance } from '../scripts/ledger-snapshot.mjs';
+import { compare, inside, inspect, restore, sha256, snapshot, taskBlocks, taskInstance } from '../scripts/ledger-snapshot.mjs';
 import { tempDir } from './tmp.mjs';
 
 const cli = (...args) => spawnSync(process.execPath, ['scripts/ledger-snapshot.mjs', ...args], { encoding: 'utf8', windowsHide: true });
@@ -156,4 +156,19 @@ test('the task instance is read from the launcher path task.ps1 registers', () =
   assert.equal(taskInstance(''), null);
   assert.equal(taskBlocks({ state: 'Ready', instance: null }, 'C:\\x'), null);
   assert.equal(taskBlocks({ state: '', instance: null }, 'C:\\x'), null);
+});
+
+test('--restore refuses a --to outside --instance, since the lock it checked belongs to --instance', () => {
+  const { instance, file, ledger } = liveLedger();
+  const out = join(instance, 'snap.sqlite');
+  snapshot(file, out);
+  ledger.close();
+  const idleDir = tempDir('fsw-snap-idle-');
+  const before = sha256(file);
+  const r = cli('--restore', out, '--to', file, '--instance', idleDir, '--task', 'fsw-test-no-such-task');
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /is not inside the instance/);
+  assert.equal(sha256(file), before);
+  assert.ok(inside(join(instance, 'drill', 'restored.sqlite'), instance.toUpperCase()));
+  assert.ok(!inside(instance, instance) && !inside(join(instance, '..', 'x.sqlite'), instance));
 });

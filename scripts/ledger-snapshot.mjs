@@ -12,7 +12,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, existsSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { pidAlive } from '../src/supervisor/run.mjs';
@@ -98,7 +98,15 @@ export function taskBlocks(task, instance) {
   return 'the scheduled task reads Running' + (task.instance ? ' for this instance' : ' and its instance cannot be read') + '; stop it first (Stop-ScheduledTask fsw-supervisor); nothing was replaced';
 }
 
+// Whether file lies inside dir, compared case-insensitively as Windows paths are.
+export function inside(file, dir) {
+  const rel = relative(resolve(dir).toLowerCase(), resolve(file).toLowerCase());
+  return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
+}
+
 export function restore(snap, to, instance, { alive = pidAlive, task = () => readTask('fsw-supervisor') } = {}) {
+  // The lock and the task checks speak for --instance only, so --to must be a file of that instance.
+  if (!inside(to, instance)) throw new Error(resolve(to) + ' is not inside the instance ' + resolve(instance) + ', whose lock and task were checked; nothing was replaced');
   const record = JSON.parse(readFileSync(snap + '.json', 'utf8'));
   if (sha256(snap) !== record.sha256) throw new Error('the snapshot does not match its recorded sha256; nothing was replaced');
   const holder = liveLockHolder(instance, alive);

@@ -148,7 +148,7 @@ test('a timing or condition word in any sentence around the yes holds it, except
 });
 
 test('a thank-you line after a plain yes is no condition', () => {
-  const lines = ['지금까지 감사했습니다.', '끝까지 신경 써 주셔서 감사합니다.', '기다려 주셔서 감사합니다.', '결과물 보고 나서 너무 좋았어요.', 'Good afternoon!', "Can't wait to see it live.", '다음에 또 맡길게요.'];
+  const lines = ['지금까지 감사했습니다.', '끝까지 신경 써 주셔서 감사합니다.', '기다려 주셔서 감사합니다.', '결과물 보고 나서 너무 좋았어요.', 'Good afternoon!', "Can't wait to see it live.", '다음에 또 맡길게요.', '감사합니다 기다려 주셔서요!'];
   for (const line of lines) {
     for (const texts of [[GRANT + ' ' + line], [GRANT, line]]) {
       const r = single({ thread: thread(texts.map((x, k) => msg('in', x, '2026-10-20T11:0' + k + ':00+09:00'))), job, decision: decision('granted', GRANT) });
@@ -185,6 +185,32 @@ test('a sign-off is exempt only as a whole phrase; a condition about posting hol
   // A clean yes about posting beside a plain yes still grants.
   const both = single({ thread: thread([msg('in', '네 좋아요. 포트폴리오에 올리셔도 돼요.', at(0))]), job, decision: decision('granted', '네 좋아요.') });
   assert.equal(both.signal?.type, 'permission_granted');
+});
+
+test('an edit request anywhere since the delivery holds the grant, before the yes and two messages back too', () => {
+  const at = (k) => '2026-10-20T11:0' + k + ':00+09:00';
+  const requests = [
+    '메인 이미지는 다른 걸로 바꿔서 올려 주세요.',
+    '회사명 노출 없이 부탁드려요.',
+    '로고는 지워 주세요.',
+    '얼굴은 흐리게 처리해 주세요.',
+    '업체명은 가명으로 바꿔 주세요.',
+    '포트폴리오에는 2차 수정본으로 올려 주세요.',
+    'Please use the second version.',
+    'Just swap our logo for a placeholder first.',
+    'Sure, as a case study with our name removed.',
+    '오픈 이후에 올려 주세요.',
+  ];
+  for (const line of requests) {
+    for (const texts of [[GRANT, line], [line, GRANT], [line, '정산 확인했습니다.', GRANT]]) {
+      const r = single({ thread: thread(texts.map((x, k) => msg('in', x, at(k)))), job, decision: decision('granted', GRANT) });
+      assert.equal(r.signal, null, texts.join(' | '));
+      assert.ok(r.reason, texts.join(' | '));
+    }
+  }
+  // A plain note between the request and the yes does not reset it, and without the request the yes grants.
+  const plain = single({ thread: thread([msg('in', '정산 확인했습니다.', at(0)), msg('in', GRANT, at(1))]), job, decision: decision('granted', GRANT) });
+  assert.equal(plain.signal?.type, 'permission_granted');
 });
 
 test('a refusal needs no quote and becomes permission_refused', () => {

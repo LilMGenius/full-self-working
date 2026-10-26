@@ -92,6 +92,7 @@
     {"old":"test/operator-delivery.test.mjs","v0":null,"reason":"030 moves its cases into test/deal.test.mjs and test/loop.test.mjs (7.6, 7.8)"},
     {"old":"test/services-setting.test.mjs","v0":null,"reason":"010 and 030 move its cases into test/catalog.test.mjs, test/triage.test.mjs and test/brain.test.mjs"},
     {"old":"test/approve-sent.test.mjs","v0":null,"reason":"030 moves its cases into test/outbox.test.mjs and test/approve-cli.test.mjs (7.5, 7.9)"},
+    {"old":"test/wishket-projects.test.mjs","v0":null,"reason":"not carried: 002 Discard set (src/platforms/wishket/projects.mjs and its cases return in 080)"},
     {"old":"test/decide-cli.test.mjs","v0":null,"reason":"not carried: 002 Discard set (fsw decide is retired)"},
     {"old":"test/price-cli.test.mjs","v0":"test/price-table.test.mjs","reason":"010 moves the price table code and its cases (2.8)"}
   ]

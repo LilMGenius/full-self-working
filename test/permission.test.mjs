@@ -69,10 +69,13 @@ test('a refusal needs no quote and becomes permission_refused', () => {
   assert.deepEqual(r.signal.evidence, { quote: null, source: 'brain' });
 });
 
-test('no answer, or a job that is not delivered or closed, gives no signal and no reason', () => {
+test('no answer gives nothing; a grant waits for delivered work; a refusal before any delivery is named, after one it holds', () => {
   assert.deepEqual(permissionSignal({ thread: thread([]), job, decision: decision(null, null) }), { signal: null, reason: null });
-  assert.deepEqual(permissionSignal({ thread: thread([]), job: { ...job, status: 'in_progress' }, decision: decision('refused', null) }), { signal: null, reason: null });
-  assert.deepEqual(permissionSignal({ thread: thread([]), job: null, decision: decision('refused', null) }), { signal: null, reason: null });
+  assert.deepEqual(permissionSignal({ thread: thread([msg('in', GRANT, '2026-10-20T11:00:00+09:00')]), job: { ...job, status: 'revision' }, decision: decision('granted', GRANT) }), { signal: null, reason: null });
+  const never = 'refusal on a thread whose job was never delivered';
+  assert.deepEqual(permissionSignal({ thread: thread([]), job: { ...job, status: 'in_progress', deliveredAt: null }, decision: decision('refused', null) }), { signal: null, reason: never });
+  assert.deepEqual(permissionSignal({ thread: thread([]), job: null, decision: decision('refused', null) }), { signal: null, reason: never });
+  for (const status of ['revision', 'in_progress']) assert.equal(permissionSignal({ thread: thread([]), job: { ...job, status }, decision: decision('refused', null) }).signal.type, 'permission_refused');
 });
 
 test('a brain grant never replaces a denial, needs nothing over a grant, and quotes only messages after the last answer', () => {
@@ -155,6 +158,28 @@ test('the deal refuses a grant that is not the operator and carries no client se
   }
   assert.deepEqual(s.events('deal.refused').map((e) => e.reason), [reason, reason, reason, reason]);
   assert.equal(s.ledger.getJob('kmong-k1').meta.portfolio.permission, 'pending');
+});
+
+test('a refusal sent with a change request ends denied, and the redelivery keeps it', async () => {
+  const s = setup();
+  await s.run(GRANT, { portfolioPermission: 'granted', permissionQuote: GRANT }, 11);
+  assert.equal(s.ledger.getJob('kmong-k1').meta.portfolio.permission, 'granted');
+  await s.run('글꼴 바꿔 주세요. 포트폴리오에는 올리지 말아 주세요.', { intent: 'revision', reply: '글꼴을 바꿔 다시 보내 드리겠습니다.', portfolioPermission: 'refused', permissionQuote: '포트폴리오에는 올리지 말아 주세요.' }, 13);
+  const job = s.ledger.getJob('kmong-k1');
+  assert.deepEqual([job.status, job.meta.portfolio.permission, job.meta.revisions.length], ['revision', 'denied', 1]);
+  s.deal({ type: 'run_started', at: '2026-10-20T14:00:00+09:00', evidence: {} });
+  s.deal({ type: 'delivery_observed', at: '2026-10-20T15:00:00+09:00', evidence: {} });
+  assert.deepEqual([s.ledger.getJob('kmong-k1').status, s.ledger.getJob('kmong-k1').meta.portfolio.permission], ['delivered', 'denied']);
+});
+
+test('the operator denial holds on a job reopened for a revision, and a refusal that cannot apply is an event', async () => {
+  const s = setup();
+  s.ledger.upsertJob({ id: 'kmong-k1', status: 'revision' });
+  s.deal({ type: 'permission_refused', at: '2026-10-20T12:00:00+09:00', evidence: { source: 'operator' } });
+  assert.equal(s.ledger.getJob('kmong-k1').meta.portfolio.permission, 'denied');
+  s.ledger.upsertJob({ id: 'kmong-k1', status: 'in_progress', deliveredAt: null, meta: {} });
+  await s.run('포트폴리오에는 올리지 말아 주세요.', { portfolioPermission: 'refused', permissionQuote: null }, 13);
+  assert.deepEqual(s.events('permission.refusal_unapplied').map((e) => e.reason), ['refusal on a thread whose job was never delivered']);
 });
 
 test('a model grant without the client sentence keeps the thread reply and is recorded as permission.unverified', async () => {

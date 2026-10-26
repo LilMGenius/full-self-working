@@ -17,11 +17,13 @@ const NEGATION = /않|못|말아|말고|마세요|마시고|마십시오|싫|아
 export function permissionSignal({ thread, job, decision, at = new Date().toISOString() }) {
   if (decision?.permissionIssue) return { signal: null, reason: decision.permissionIssue };
   const answer = decision?.portfolioPermission ?? null;
-  if (!answer || !job || !['delivered', 'closed'].includes(job.status)) return { signal: null, reason: null };
+  if (!answer) return { signal: null, reason: null };
+  const signal = (type, evidence) => ({ signal: { type, platform: thread.platform, threadId: job.threadId, jobId: job.id, at, evidence: { ...evidence, source: 'brain' } }, reason: null });
+  // A refusal holds on any job delivered once, a revision or a rerun included.
+  if (answer === 'refused') return job?.deliveredAt ? signal('permission_refused', { quote: null }) : { signal: null, reason: 'refusal on a thread whose job was never delivered' };
+  if (!job || !['delivered', 'closed'].includes(job.status)) return { signal: null, reason: null };
   const after = Date.parse(job.deliveredAt ?? '');
   const inbound = (thread.messages ?? []).filter((m) => m.direction === 'in' && Number.isFinite(Date.parse(m.at ?? '')) && Date.parse(m.at) > after);
-  const signal = (type, evidence) => ({ signal: { type, platform: thread.platform, threadId: job.threadId, jobId: job.id, at, evidence: { ...evidence, source: 'brain' } }, reason: null });
-  if (answer === 'refused') return signal('permission_refused', { quote: null });
   // A denial stands until the operator lifts it, and a grant already recorded needs nothing more.
   const prior = job.meta?.portfolio ?? {};
   if (prior.permission === 'denied') return { signal: null, reason: 'the client refused before; only the operator lifts it with fsw deal ' + job.id + ' permission granted' };

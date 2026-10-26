@@ -203,7 +203,7 @@ test('a parsed review read on two ticks is one review, keyed by its evidence key
   assert.match(s.ledger.listMoneyEvents({ event: 'review' }).at(-1).key, /^soomgo:c1:review:\d{4}-/);
 });
 
-test('permission granted on a delivered job syncs the portfolio; on an ordered job it is refused', () => {
+test('permission granted on a delivered job syncs the portfolio; a refusal on a job never delivered is refused', () => {
   const s = setup();
   delivered(s);
   const g = s.step({ type: 'permission_granted', platform: 'soomgo', jobId: 'soomgo-c1', at: at('15:00'), evidence: { source: 'operator' } });
@@ -213,7 +213,7 @@ test('permission granted on a delivered job syncs the portfolio; on an ordered j
   s.step({ type: 'hired', platform: 'soomgo', threadId: t2.id, at: at('10:00'), evidence: { text: NOTICE.hired, source: 'thread', rowQuote: { unit: 'total', priceKRW: 100000 } } });
   const refused = s.step({ type: 'permission_refused', platform: 'soomgo', threadId: t2.id, at: at('15:00'), evidence: {} });
   assert.deepEqual(refused.effects, []);
-  assert.equal(s.events('deal.refused').at(-1).reason, 'portfolio permission needs a delivered or closed job');
+  assert.equal(s.events('deal.refused').at(-1).reason, 'a portfolio refusal needs a job that was delivered');
 });
 
 test('a grant keeps the customer quote and its source on the portfolio meta; a refusal is denied and ranks no item', () => {

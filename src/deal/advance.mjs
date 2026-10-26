@@ -343,7 +343,10 @@ function money(ledger, out, signal, thread, { instance, descriptor, now }) {
 // Only the operator's word (fsw deal, source operator) grants without a checked quote or lifts a denial; any
 // other grant must carry the client's sentence from after the delivery and after the last recorded answer.
 const permission = (value) => (ledger, out, s, { job }) => {
-  if (!job || !['delivered', 'closed'].includes(job.status)) return refuse(ledger, out, s, job, 'portfolio permission needs a delivered or closed job');
+  // A refusal keeps the work private on any job delivered once (a revision or its rerun included); a grant
+  // needs the delivered or closed work it publishes.
+  if (value === 'denied' && !job?.deliveredAt) return refuse(ledger, out, s, job, 'a portfolio refusal needs a job that was delivered');
+  if (value === 'granted' && !(job && ['delivered', 'closed'].includes(job.status))) return refuse(ledger, out, s, job, 'portfolio permission needs a delivered or closed job');
   const prior = job.meta?.portfolio ?? {};
   if (value === 'granted' && s.evidence?.source !== 'operator') {
     if (prior.permission === 'denied') return refuse(ledger, out, s, job, 'only the operator lifts a portfolio denial');
@@ -404,7 +407,9 @@ const RULES = {
   },
   delivery_observed(ledger, out, s, { job, descriptor, now }) {
     if (!job || job.status !== 'in_progress') return refuse(ledger, out, s, job, 'a delivery lands only on an in_progress job');
-    const delivered = move(ledger, out, job, 'delivered', { deliveredAt: s.at, meta: { ...(job.meta ?? {}), delivery: { at: s.at, outboxId: s.evidence?.outboxId ?? null, files: s.evidence?.files ?? null }, portfolio: { permission: 'pending', askedAt: s.at } } });
+    // A redelivery after a revision asks again but keeps the answer the client already gave.
+    const portfolio = { ...(job.meta?.portfolio ?? {}), permission: job.meta?.portfolio?.permission ?? 'pending', askedAt: s.at };
+    const delivered = move(ledger, out, job, 'delivered', { deliveredAt: s.at, meta: { ...(job.meta ?? {}), delivery: { at: s.at, outboxId: s.evidence?.outboxId ?? null, files: s.evidence?.files ?? null }, portfolio } });
     // The delivery message asked the client about the portfolio (deliveryText); their answer and a review
     // reach the deal through the operator's fsw deal verbs wherever no parser reads them (060 U6.7).
     out.effects.push(notifyEffect(job.platform + ' job ' + job.id + ' delivered: record the client\'s answers', 'The delivery asked the client whether the work may be shown in the portfolio. Record their answer with: fsw deal ' + job.id + ' permission granted (or denied)\nRecord a review they leave with: fsw deal ' + job.id + ' review --rating <1-5> --text "<review>"', 'portfolio-answer:' + job.id));

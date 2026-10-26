@@ -12,7 +12,7 @@ import { openLedger } from '../src/core/ledger.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { step } from '../src/loop/index.mjs';
 import { openSoomgoSurface } from '../src/surface/soomgo.mjs';
-import { supplyReport } from '../src/supervisor/supply.mjs';
+import { supplyLines, supplyReport } from '../src/supervisor/supply.mjs';
 import { tempDir } from './tmp.mjs';
 
 const pacing = loadDescriptor('soomgo').pacing;
@@ -155,4 +155,46 @@ test('an hour of polls that each list new requests leaves the hourly reads and t
   // What is left for the hour's sends: a quote press costs up to 8 (its request page, the price, the text,
   // the send and up to four cash history loads).
   assert.ok(pacing.maxActionsPerHour - used(acct) >= 10, 'room left ' + (pacing.maxActionsPerHour - used(acct)));
+});
+
+
+test('requests beyond the read share wait and are reported, while a customer chat is read at once', async () => {
+  const instance = makeInstance();
+  const ledger = openLedger(':memory:');
+  const acct = account({ chats: [] });
+  // Spend the hour's read share on request reads.
+  acct.page.requests = Array.from({ length: pacing.readActionsPerHour }, (_, k) => requestRow('a' + k));
+  await poll(instance, ledger, acct);
+  assert.equal(acct.guard.readRoom(), 0);
+  acct.at(START + 5 * 60_000);
+  acct.page.requests = [requestRow('late')];
+  acct.page.chats = [chatRow(801, { newMessages: 1 })];
+  const r = await poll(instance, ledger, acct);
+  assert.equal(r.status, 'ok', JSON.stringify(r.errors ?? r.error));
+  assert.deepEqual([r.threads.paced, r.deferred], [1, 1]);
+  const decided = ledger.db.prepare("SELECT ref FROM events WHERE kind = 'brain.decision' ORDER BY id").all().map((e) => e.ref);
+  assert.ok(decided.includes('801'), 'the customer chat was read and decided');
+  assert.ok(!decided.includes('late'));
+  const report = await supplyReport('soomgo', { instance, ledger, now: acct.now(), openSurface: acct.surface });
+  assert.deepEqual(report.paced, { waited: 1, parkedUnread: 0 });
+  assert.match(supplyLines({ reports: [report] })[0], /1 requests waited for the hourly read share/);
+});
+
+
+test('a request that waited for the read share and then expired is parked as unread and counted', async () => {
+  const instance = makeInstance();
+  const ledger = openLedger(':memory:');
+  const acct = account({ chats: [] });
+  acct.page.requests = Array.from({ length: pacing.readActionsPerHour }, (_, k) => requestRow('a' + k));
+  await poll(instance, ledger, acct);
+  acct.at(START + 5 * 60_000);
+  acct.page.requests = [requestRow('late')];
+  await poll(instance, ledger, acct);
+  acct.at(START + 10 * 60_000);
+  acct.page.requests = [requestRow('late', { isQuotable: false })];
+  const r = await poll(instance, ledger, acct);
+  assert.equal(r.threads.parked, 1);
+  const park = ledger.db.prepare("SELECT payload FROM events WHERE kind = 'thread.skipped' AND ref = 'late'").get();
+  assert.equal(JSON.parse(park.payload).paced, true);
+  assert.deepEqual((await supplyReport('soomgo', { instance, ledger, now: acct.now(), openSurface: acct.surface })).paced, { waited: 1, parkedUnread: 1 });
 });

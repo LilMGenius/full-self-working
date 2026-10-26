@@ -135,6 +135,7 @@ export async function step(platform, ctx) {
     const work = prioritize(inbound, { allocation: latestAllocation(instance), descriptor });
     let opened = 0;
     let done = 0;
+    let paced = 0;
     // The session's pacing guard keeps a share of the hour's actions for thread reads (descriptor
     // pacing.readActionsPerHour); a replay or scripted session has none, and reads are not limited there.
     const guard = surface.session?.guard;
@@ -154,7 +155,9 @@ export async function step(platform, ctx) {
         // Parked from its list row with the list time and the settings key it was parked under; it waits for
         // a newer message or a settings change.
         ledger.upsertThread({ platform, externalId: ref, kind: ib.kind ?? 'message', meta: { ...(ledger.getThread(row.id).meta ?? {}), skipped: { at: ib.at ?? null, reason: t.reason, key } } });
-        event(parkEvent(t.reason), ref, { reason: t.reason, service: ib.service ?? null });
+        // An item parked while it was still waiting for the read share was never read; the park says so,
+        // and the supply report lists it, instead of a silent stale or expired park.
+        event(parkEvent(t.reason), ref, { reason: t.reason, service: ib.service ?? null, ...(ledger.getThread(row.id).meta?.paced ? { paced: true } : {}) });
         bump('threads', 'parked');
         const quoted = t.reason === 'expired' ? ledger.listJobs({ platform, status: 'quoted' }).find((j) => j.threadId === row.id) : null;
         if (quoted) applyAdvance({ type: 'expired', platform, threadId: row.id, jobId: quoted.id, at: now.toISOString(), evidence: { reason: t.reason } });
@@ -172,10 +175,16 @@ export async function step(platform, ctx) {
         bump('threads', 'budget');
         continue;
       }
-      // With the hour's read share spent, the item waits for a later poll unread and unparked, so the list
-      // loads, the hourly reads and the sends keep their room in the action cap.
-      if (readsLeft() <= 0) {
+      // With the hour's read share spent, a request waits for a later poll unread and unparked, keeping its
+      // place in the order, so the list loads, the hourly reads and the sends keep their room in the action
+      // cap. A customer chat is never held: its page loads still count toward the share. The wait is an event
+      // and a mark on the thread, which the supply report reads.
+      if (ib.kind === 'request' && readsLeft() <= 0) {
+        paced += 1;
         bump('threads', 'paced');
+        event('thread.paced', ref, { kind: ib.kind, service: ib.service ?? null });
+        const pacedMeta = ledger.getThread(row.id).meta ?? {};
+        if (!pacedMeta.paced) ledger.upsertThread({ platform, externalId: ref, kind: ib.kind, meta: { ...pacedMeta, paced: { at: now.toISOString() } } });
         continue;
       }
       opened += 1;
@@ -242,13 +251,14 @@ export async function step(platform, ctx) {
         if (err.code === 'FSW_PACING_LIMIT' || err.code === 'FSW_CONFIG_MISSING') break;
       } finally {
         const meta = ledger.getThread(row.id).meta ?? {};
-        if (!threw && meta.failed) {
-          const { failed, ...rest } = meta;
+        if (!threw && (meta.failed || meta.paced)) {
+          const { failed, paced: wasPaced, ...rest } = meta;
           ledger.upsertThread({ platform, externalId: ref, kind: ledger.getThread(row.id).kind, meta: rest });
         }
       }
     }
-    result.deferred = work.length - done;
+    // Items the per-tick cap did not reach, and requests that waited for the read share.
+    result.deferred = work.length - done + paced;
     await applyEffects(effects.splice(0), effCtx);
     if (mode !== 'observe') {
       // Sends observed in an earlier pass whose deal signal was lost (a stop between the drain's commit and

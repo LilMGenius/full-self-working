@@ -54,6 +54,16 @@ export function expansionCandidates(ledger, descriptor, now, limit = CANDIDATES_
 }
 
 // Published kmong gigs by the review state the listings job last saw (src/listings/review.mjs codes).
+// Requests that waited for the hourly read share (thread.paced) over the window, and those of them parked
+// stale or expired without ever being read (a park event marked paced).
+export function pacedCounts(ledger, platform, now) {
+  const since = now.getTime() - SUPPLY_DAYS * DAY_MS;
+  const inWindow = (r) => Date.parse(r.at) >= since && Date.parse(r.at) <= now.getTime();
+  const waited = new Set(ledger.db.prepare("SELECT ref, at FROM events WHERE platform = ? AND kind = 'thread.paced'").all(platform).filter(inWindow).map((r) => r.ref));
+  const parkedUnread = new Set(ledger.db.prepare("SELECT ref, at, payload FROM events WHERE platform = ? AND kind = 'thread.skipped'").all(platform).filter((r) => inWindow(r) && JSON.parse(r.payload ?? '{}')?.paced === true).map((r) => r.ref));
+  return { waited: waited.size, parkedUnread: parkedUnread.size };
+}
+
 export function listingStates(instance) {
   const published = readPublished(instance);
   if (!published.length) return null;
@@ -80,6 +90,7 @@ export async function supplyReport(platform, { instance, ledger, now = new Date(
     listings: platform === 'kmong' ? listingStates(instance) : null,
     services: null,
     parked: parkedCounts(ledger, platform, now),
+    paced: pacedCounts(ledger, platform, now),
     candidates: expansionCandidates(ledger, descriptor, now),
     awaitingReply: settings ? ledger.listThreads({ platform }).filter((t) => t.kind !== 'project' && awaitingReply(t, ledger.threadMessages(t.id), { now, settings })).length : null,
     waiting, notes,
@@ -157,6 +168,7 @@ export function supplyLines(supply) {
   return supply.reports.map((r) => {
     const parts = [(r.awaitingReply ?? 'unknown') + ' awaiting reply', 'parked in ' + SUPPLY_DAYS + ' days: ' + counts({ 'out of catalog': r.parked.outOfCatalog, stale: r.parked.stale, expired: r.parked.expired, notices: r.parked.notice })];
     if (r.candidates?.length) parts.push('labels no service covers yet: ' + r.candidates.map((c) => c.label + ' ' + c.threads).join(', '));
+    if (r.paced?.waited) parts.push(r.paced.waited + ' requests waited for the hourly read share' + (r.paced.parkedUnread ? ', ' + r.paced.parkedUnread + ' of them parked unread' : ''));
     if (r.listings) parts.push('gigs: ' + counts(r.listings.byStatus) + ' of ' + r.listings.published);
     if (r.services) parts.push(r.services.withoutItems.length ? 'offered services without request items: ' + r.services.withoutItems.join(', ') : 'every offered service has request items');
     if (r.spend) parts.push(...spendParts(r.spend));

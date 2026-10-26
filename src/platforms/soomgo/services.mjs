@@ -9,11 +9,12 @@ import { AdapterRefusal } from '../kit.mjs';
 
 const BASE = 'https://soomgo.com';
 // In-page: offered services in page order, {ref, name, itemsSet}; ref is the selector of the row's own
-// button, which this read marks with data-fsw-service.
+// button, which this read marks with data-fsw-service. The snapshot named these rows by their accessible
+// role and name, so an element with role button counts as a button and its aria-label as its name.
 export const pageServiceRows = () => {
   const rows = [];
-  for (const b of document.querySelectorAll('button')) {
-    const m = b.innerText.replace(/\s+/g, ' ').trim().match(/^(.+?) (세부 항목 설정됨|항목 미설정)$/);
+  for (const b of document.querySelectorAll('button,[role=button]')) {
+    const m = (b.getAttribute('aria-label') || b.innerText).replace(/\s+/g, ' ').trim().match(/^(.+?) (세부 항목 설정됨|항목 미설정)$/);
     if (!m) continue;
     b.setAttribute('data-fsw-service', String(rows.length));
     rows.push({ ref: '[data-fsw-service="' + rows.length + '"]', name: m[1], itemsSet: m[2] === '세부 항목 설정됨' });
@@ -96,9 +97,13 @@ const pageSave = () => {
   return true;
 };
 
+// A pro on soomgo offers at least one service, so a page that shows no row was not read: an empty list
+// would report every offered service as set. It is a refusal the caller reports by name.
 export async function readServices(s) {
   await s.navigate(`${BASE}/profile/services`);
-  return s.evaluate(pageServiceRows);
+  const rows = await s.evaluate(pageServiceRows);
+  if (!rows.length) throw new AdapterRefusal('FSW_SERVICES_UNREAD', 'no offered service row was found on /profile/services');
+  return rows;
 }
 
 async function openModal(s, name, wait) {

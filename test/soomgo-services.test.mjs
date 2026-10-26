@@ -47,6 +47,7 @@ function el(tagName, { text = '', id = null, checked = false, disabled = false, 
   for (const c of children) c.parentElement = e;
   e.getBoundingClientRect = () => ({ width: 40, height: 20 });
   e.setAttribute = (k, v) => { e.attrs[k] = v; };
+  e.getAttribute = (k) => e.attrs[k] ?? null;
   e.click = () => { e.clicks += 1; };
   const all = () => e.children.flatMap((c) => [c, ...c.all()]);
   e.all = all;
@@ -56,6 +57,7 @@ function el(tagName, { text = '', id = null, checked = false, disabled = false, 
 }
 function matches(e, s) {
   if (s === '[role=heading]') return e.role === 'heading';
+  if (s === '[role=button]') return e.role === 'button';
   if (s === 'input[type=checkbox]') return e.tagName === 'INPUT';
   const label = s.match(/^label\[for="(.*)"\]$/);
   if (label) return e.tagName === 'LABEL' && e.htmlFor === label[1];
@@ -110,6 +112,13 @@ test('service rows read every offered service with its item state by DOM query a
     { name: '웹 개발', itemsSet: false },
   ]);
   assert.deepEqual(rows.map((r) => doc.querySelector(r.ref)?.innerText), ['프로그래밍/코딩 레슨 세부 항목 설정됨', '웹 개발 항목 미설정'], 'each ref selects the row\'s own button');
+});
+
+test('a row drawn as a role button with an aria-label reads the same, and a page with no row is a refusal', async () => {
+  const row = el('DIV', { role: 'button', text: '웹 개발\n편집' });
+  row.attrs['aria-label'] = '웹 개발 항목 미설정';
+  assert.deepEqual((await readServices(sessionOn(el('BODY', { children: [row] })))).map(({ name, itemsSet }) => [name, itemsSet]), [['웹 개발', false]]);
+  await assert.rejects(readServices(sessionOn(el('BODY', { children: [el('BUTTON', { text: '서비스 추가' })] }))), { code: 'FSW_SERVICES_UNREAD' });
 });
 
 test('the item modal groups checkboxes under their headings and leaves the occluded page out', async () => {
@@ -169,7 +178,7 @@ test('a label repeated in two groups is matched only inside the wanted group', (
 // service, and 등록하기 registers every marked one. Page functions run against a minimal document.
 function addServicePage(offered) {
   const state = { offered: [...offered], modal: null, marked: new Set() };
-  const button = (label, click) => ({ innerText: label, disabled: false, getBoundingClientRect: () => ({ width: 40, height: 20 }), setAttribute: () => {}, click });
+  const button = (label, click) => ({ innerText: label, disabled: false, getBoundingClientRect: () => ({ width: 40, height: 20 }), setAttribute: () => {}, getAttribute: () => null, click });
   const buttons = () => {
     if (!state.modal) return [...state.offered.map((name) => button(name + ' 항목 미설정', () => {})), button('서비스 추가', () => { state.modal = 'tabs'; })];
     if (state.modal === 'tabs') return [button('외주', () => { state.modal = '외주'; })];
@@ -182,7 +191,7 @@ function addServicePage(offered) {
     navigate: async () => { state.modal = null; state.marked.clear(); },
     snapshot: async () => { throw new Error('a soomgo read took a whole-page snapshot'); },
     evaluate: async (fn, arg) => {
-      globalThis.document = { querySelectorAll: (selector) => (selector === 'button' ? buttons() : []) };
+      globalThis.document = { querySelectorAll: (selector) => (selector.split(',').includes('button') ? buttons() : []) };
       try { return fn(arg); } finally { delete globalThis.document; }
     },
   };

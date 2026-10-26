@@ -50,7 +50,7 @@ test('stop ends the daemon the keeper started even after a second start lost the
 
 // A bsk stand-in run as node <file>: 'status' never answers, 'daemon' records its pid and runs until
 // killed. A real named pipe stands for the live daemon's IPC, with a daemon.json naming it.
-async function busyDaemon(t, { listening }) {
+async function busyDaemon(t, { listening, listPipes }) {
   const work = tempDir('fsw-keeper-busy-');
   writeFileSync(join(work, 'status'), 'setInterval(() => {}, 1000);\n');
   writeFileSync(join(work, 'daemon'), "require('node:fs').appendFileSync('pids', process.pid + '\\n');\nsetInterval(() => {}, 1000);\n");
@@ -72,7 +72,7 @@ async function busyDaemon(t, { listening }) {
       } catch {}
     }
   });
-  const status = (o) => bskStatus({ ...o, bin: process.execPath, timeoutMs: 1000, home: work });
+  const status = (o) => bskStatus({ ...o, bin: process.execPath, timeoutMs: 1000, home: work, ...(listPipes ? { listPipes } : {}) });
   const keeper = createBrowserKeeper({ instance: { config: {}, paths: { logs: work } }, bin: process.execPath, status, notify: async () => ({ written: false }), settleMs: 200 });
   return { work, keeper };
 }
@@ -93,6 +93,18 @@ test('a status read that times out with a stale daemon.json and no pipe still st
   assert.equal(r.status, 'daemon start failed');
   assert.match(r.detail, /did not answer within 1000 ms/, 'the timeout is reported as a timeout');
   assert.equal(readFileSync(join(work, 'pids'), 'utf8').trim().split(/\s+/).length, 1);
+});
+
+test('a pipe listing that throws after a status timeout reads as unknown, starts a daemon as before and says why', async (t) => {
+  const listPipes = () => {
+    throw Object.assign(new Error('pipe listing refused'), { code: 'EPERM' });
+  };
+  const { work, keeper } = await busyDaemon(t, { listening: false, listPipes });
+  const r = await keeper.check();
+  assert.equal(readFileSync(join(work, 'pids'), 'utf8').trim().split(/\s+/).length, 1, 'a daemon was started as before');
+  assert.equal(r.status, 'daemon start failed');
+  assert.match(r.liveness, /could not be listed \(EPERM pipe listing refused\).*unknown/);
+  assert.match(r.detail, /did not answer within 1000 ms; the daemon pipe could not be listed/);
 });
 
 test('a daemon that cannot be spawned is reported with its cause and does not end the supervisor', async () => {

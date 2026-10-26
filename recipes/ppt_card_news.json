@@ -1,0 +1,96 @@
+{
+  "service": "ppt_card_news",
+  "version": 1,
+  "hours": {
+    "standard": 3,
+    "deluxe": 7,
+    "premium": 14
+  },
+  "steps": [
+    {
+      "id": "outline",
+      "type": "invoke-model-skill",
+      "input": "brief.md, ../inputs/",
+      "output": "notes/outline.md",
+      "does": "Split the supplied content into slides or cards with one message each."
+    },
+    {
+      "id": "slides",
+      "skill": "omo:frontend",
+      "type": "invoke-model-skill",
+      "input": "notes/outline.md",
+      "output": "slides/",
+      "does": "Build one HTML file per slide, each declaring its size in a fsw-size meta tag: 1920x1080 for slides, 1080x1080 for cards."
+    },
+    {
+      "id": "export",
+      "type": "script",
+      "run": "render",
+      "input": "slides/*.html",
+      "output": "export/{stem}.png",
+      "args": {
+        "size": "page",
+        "format": "png"
+      }
+    },
+    {
+      "id": "deck",
+      "skill": "presentations:presentations",
+      "type": "invoke-model-skill",
+      "input": "export/, notes/outline.md",
+      "output": "deck/",
+      "does": "Assemble the exported slides into a PPTX in slide order."
+    },
+    {
+      "id": "accept",
+      "type": "script",
+      "run": "accept",
+      "input": "work/",
+      "output": "qa/"
+    },
+    {
+      "id": "review",
+      "type": "user-handoff",
+      "input": "export/",
+      "output": "operator decision",
+      "ask": "The operator pages through the export and checks the content against the supplied material."
+    }
+  ],
+  "deliverables": [
+    {
+      "path": "slides/*.html",
+      "format": "html"
+    },
+    {
+      "path": "export/*.png",
+      "format": "png",
+      "constraints": {
+        "minWidth": 1080,
+        "maxWidth": 1920,
+        "maxHeight": 1920
+      }
+    },
+    {
+      "path": "deck/*.pptx",
+      "format": "pptx"
+    }
+  ],
+  "acceptance": [
+    {
+      "check": "files"
+    },
+    {
+      "check": "image"
+    },
+    {
+      "check": "sloplint",
+      "paths": [
+        "slides/*.html"
+      ]
+    }
+  ],
+  "payment": {
+    "beforeStart": "deposit",
+    "beforeDelivery": "full"
+  }
+}

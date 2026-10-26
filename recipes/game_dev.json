@@ -1,0 +1,108 @@
+{
+  "service": "game_dev",
+  "version": 1,
+  "hours": {
+    "standard": 24,
+    "deluxe": 60,
+    "premium": 120
+  },
+  "steps": [
+    {
+      "id": "foundations",
+      "skill": "game-studio:web-game-foundations",
+      "type": "invoke-model-skill",
+      "input": "brief.md",
+      "output": "notes/architecture.md",
+      "does": "Set the engine, the simulation and render split, the input model and the asset list for the agreed scope."
+    },
+    {
+      "id": "build",
+      "skill": "game-studio:phaser-2d-game",
+      "type": "invoke-model-skill",
+      "input": "brief.md, notes/architecture.md",
+      "output": "game/",
+      "does": "Build the game as a Node project whose npm test script runs its tests; assets are drawn or generated locally, since the sandbox has no network."
+    },
+    {
+      "id": "ui",
+      "skill": "game-studio:game-ui-frontend",
+      "type": "invoke-model-skill",
+      "input": "game/",
+      "output": "game/",
+      "does": "Fit the HUD, menus and touch controls to phone and desktop widths without covering the playfield."
+    },
+    {
+      "id": "playtest",
+      "skill": "game-studio:game-playtest",
+      "type": "invoke-model-skill",
+      "input": "game/",
+      "output": "notes/playtest.md",
+      "does": "Play the build in a browser, record what breaks and fix it."
+    },
+    {
+      "id": "deslop",
+      "skill": "omo:remove-ai-slops",
+      "type": "invoke-model-skill",
+      "input": "game/",
+      "output": "game/",
+      "does": "Remove dead code, swallowed errors and narration comments behind the tests."
+    },
+    {
+      "id": "handover",
+      "type": "invoke-model-skill",
+      "input": "game/, notes/",
+      "output": "notes/handover.md",
+      "does": "Write how to run, build and host the game, the controls and known limits in the brief language."
+    },
+    {
+      "id": "accept",
+      "type": "script",
+      "run": "accept",
+      "input": "work/",
+      "output": "qa/"
+    },
+    {
+      "id": "review",
+      "type": "user-handoff",
+      "input": "notes/playtest.md",
+      "output": "operator decision",
+      "ask": "The operator plays the build on a phone and a desktop and checks it against the brief before delivery."
+    }
+  ],
+  "deliverables": [
+    {
+      "path": "game/package.json",
+      "format": "json"
+    },
+    {
+      "path": "game/README.md",
+      "format": "md"
+    },
+    {
+      "path": "notes/handover.md",
+      "format": "md"
+    }
+  ],
+  "acceptance": [
+    {
+      "check": "files"
+    },
+    {
+      "check": "command",
+      "run": "npm install --no-audit --no-fund && npm test",
+      "cwd": "game",
+      "timeoutMs": 900000
+    },
+    {
+      "check": "sloplint",
+      "paths": [
+        "notes/handover.md",
+        "game/README.md"
+      ]
+    }
+  ],
+  "payment": {
+    "beforeStart": "deposit",
+    "beforeDelivery": "full"
+  }
+}

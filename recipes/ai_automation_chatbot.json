@@ -1,0 +1,97 @@
+{
+  "service": "ai_automation_chatbot",
+  "version": 1,
+  "hours": {
+    "standard": 12,
+    "deluxe": 30,
+    "premium": 60
+  },
+  "steps": [
+    {
+      "id": "design",
+      "skill": "codexclaw:cxc-dev-architecture",
+      "type": "invoke-model-skill",
+      "input": "brief.md",
+      "output": "notes/design.md",
+      "does": "Write the conversation flows, tools, data sources and the channel the bot runs on."
+    },
+    {
+      "id": "build",
+      "skill": "codexclaw:cxc-dev-backend",
+      "type": "invoke-model-skill",
+      "input": "brief.md, notes/design.md",
+      "output": "bot/",
+      "does": "Build the bot as a Node project with prompts in bot/prompts and tool configuration in bot/config."
+    },
+    {
+      "id": "evaluate",
+      "skill": "codexclaw:cxc-dev-testing",
+      "type": "invoke-model-skill",
+      "input": "bot/",
+      "output": "eval/report.md",
+      "does": "Run the bot against sample conversations from the brief and report each answer with pass or fail."
+    },
+    {
+      "id": "deslop",
+      "skill": "omo:remove-ai-slops",
+      "type": "invoke-model-skill",
+      "input": "bot/",
+      "output": "bot/",
+      "does": "Remove dead code and swallowed errors behind the tests."
+    },
+    {
+      "id": "accept",
+      "type": "script",
+      "run": "accept",
+      "input": "work/",
+      "output": "qa/"
+    },
+    {
+      "id": "review",
+      "type": "user-handoff",
+      "input": "eval/report.md",
+      "output": "operator decision",
+      "ask": "The operator reads the evaluation report and connects the customer API keys and channel accounts."
+    }
+  ],
+  "deliverables": [
+    {
+      "path": "bot/package.json",
+      "format": "json"
+    },
+    {
+      "path": "bot/README.md",
+      "format": "md"
+    },
+    {
+      "path": "bot/prompts/*.md",
+      "format": "md"
+    },
+    {
+      "path": "eval/report.md",
+      "format": "md"
+    }
+  ],
+  "acceptance": [
+    {
+      "check": "files"
+    },
+    {
+      "check": "command",
+      "run": "npm install --no-audit --no-fund && npm test",
+      "cwd": "bot",
+      "timeoutMs": 900000
+    },
+    {
+      "check": "sloplint",
+      "paths": [
+        "bot/README.md",
+        "eval/report.md"
+      ]
+    }
+  ],
+  "payment": {
+    "beforeStart": "deposit",
+    "beforeDelivery": "full"
+  }
+}

@@ -1,0 +1,108 @@
+{
+  "service": "web_app_dev",
+  "version": 1,
+  "hours": {
+    "standard": 30,
+    "deluxe": 70,
+    "premium": 140
+  },
+  "steps": [
+    {
+      "id": "architecture",
+      "skill": "codexclaw:cxc-dev-architecture",
+      "type": "invoke-model-skill",
+      "input": "brief.md",
+      "output": "notes/architecture.md",
+      "does": "Write the data model, routes, auth approach and deploy target for the agreed scope."
+    },
+    {
+      "id": "build",
+      "skill": "codexclaw:cxc-dev",
+      "type": "invoke-model-skill",
+      "input": "brief.md, notes/architecture.md",
+      "output": "app/",
+      "does": "Build the app as a Node project whose npm test script runs its tests."
+    },
+    {
+      "id": "tests",
+      "skill": "codexclaw:cxc-dev-testing",
+      "type": "invoke-model-skill",
+      "input": "app/",
+      "output": "app/",
+      "does": "Cover every route and permission rule with tests that fail when the behavior breaks."
+    },
+    {
+      "id": "security",
+      "skill": "codexclaw:cxc-dev-security",
+      "type": "invoke-model-skill",
+      "input": "app/",
+      "output": "notes/security.md",
+      "does": "Review auth, input handling and secrets; fix findings and list what remains."
+    },
+    {
+      "id": "deslop",
+      "skill": "omo:remove-ai-slops",
+      "type": "invoke-model-skill",
+      "input": "app/",
+      "output": "app/",
+      "does": "Remove dead code, swallowed errors and narration comments behind the tests."
+    },
+    {
+      "id": "handover",
+      "type": "invoke-model-skill",
+      "input": "app/, notes/",
+      "output": "notes/handover.md",
+      "does": "Write setup, environment variables, deploy steps and known limits in the brief language."
+    },
+    {
+      "id": "accept",
+      "type": "script",
+      "run": "accept",
+      "input": "work/",
+      "output": "qa/"
+    },
+    {
+      "id": "review",
+      "type": "user-handoff",
+      "input": "notes/architecture.md, notes/security.md",
+      "output": "operator decision",
+      "ask": "The operator reviews the data model and security notes, then deploys under the customer account, which needs the customer credentials."
+    }
+  ],
+  "deliverables": [
+    {
+      "path": "app/package.json",
+      "format": "json"
+    },
+    {
+      "path": "app/README.md",
+      "format": "md"
+    },
+    {
+      "path": "notes/handover.md",
+      "format": "md"
+    }
+  ],
+  "acceptance": [
+    {
+      "check": "files"
+    },
+    {
+      "check": "command",
+      "run": "npm install --no-audit --no-fund && npm test",
+      "cwd": "app",
+      "timeoutMs": 900000
+    },
+    {
+      "check": "sloplint",
+      "paths": [
+        "notes/handover.md",
+        "app/README.md"
+      ]
+    }
+  ],
+  "payment": {
+    "beforeStart": "deposit",
+    "beforeDelivery": "full"
+  }
+}

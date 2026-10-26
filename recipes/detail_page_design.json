@@ -1,0 +1,95 @@
+{
+  "service": "detail_page_design",
+  "version": 1,
+  "hours": {
+    "standard": 5,
+    "deluxe": 12,
+    "premium": 24
+  },
+  "steps": [
+    {
+      "id": "direction",
+      "skill": "noslopdesign:noslop-uiux",
+      "type": "invoke-model-skill",
+      "input": "brief.md, ../inputs/",
+      "output": "notes/direction.md",
+      "does": "Choose the section order, type and palette for the product from the supplied copy and photos."
+    },
+    {
+      "id": "build",
+      "skill": "noslopdesign:noslop-frontend",
+      "type": "invoke-model-skill",
+      "input": "notes/direction.md, ../inputs/",
+      "output": "page/detail.html",
+      "does": "Build the detail page as one HTML file 860 px wide, with the supplied photos copied into page/ and no external requests."
+    },
+    {
+      "id": "copy",
+      "skill": "codexclaw:cxc-kwrite",
+      "type": "invoke-model-skill",
+      "input": "page/detail.html",
+      "output": "page/detail.html",
+      "does": "Polish the Korean copy; keep every product fact from the supplied copy and add none."
+    },
+    {
+      "id": "export",
+      "type": "script",
+      "run": "render",
+      "input": "page/*.html",
+      "output": "export/{stem}.jpg",
+      "args": {
+        "width": 860,
+        "fullPage": true,
+        "format": "jpeg"
+      }
+    },
+    {
+      "id": "accept",
+      "type": "script",
+      "run": "accept",
+      "input": "work/",
+      "output": "qa/"
+    },
+    {
+      "id": "review",
+      "type": "user-handoff",
+      "input": "export/",
+      "output": "operator decision",
+      "ask": "The operator judges the page and checks each product claim against the customer materials."
+    }
+  ],
+  "deliverables": [
+    {
+      "path": "page/detail.html",
+      "format": "html"
+    },
+    {
+      "path": "export/detail.jpg",
+      "format": "jpeg",
+      "constraints": {
+        "width": 860
+      }
+    }
+  ],
+  "acceptance": [
+    {
+      "check": "files"
+    },
+    {
+      "check": "image"
+    },
+    {
+      "check": "sloplint"
+    },
+    {
+      "check": "viewports",
+      "widths": [
+        860
+      ]
+    }
+  ],
+  "payment": {
+    "beforeStart": "deposit",
+    "beforeDelivery": "full"
+  }
+}

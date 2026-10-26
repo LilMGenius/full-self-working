@@ -1,0 +1,73 @@
+{
+  "service": "translation_ko_en",
+  "version": 1,
+  "hours": {
+    "standard": 1.5,
+    "deluxe": 4,
+    "premium": 8
+  },
+  "steps": [
+    {
+      "id": "terms",
+      "type": "invoke-model-skill",
+      "input": "brief.md, ../inputs/",
+      "output": "terms.csv",
+      "does": "List the domain terms with the English rendering chosen for each."
+    },
+    {
+      "id": "translate",
+      "type": "invoke-model-skill",
+      "input": "terms.csv, ../inputs/",
+      "output": "translation/translated.md",
+      "does": "Translate the document into natural English, keeping the structure and the chosen terms."
+    },
+    {
+      "id": "tighten",
+      "skill": "paperthin:debloat",
+      "type": "invoke-model-skill",
+      "input": "translation/translated.md",
+      "output": "translation/translated.md",
+      "does": "Remove padding the translation added without dropping any meaning of the source."
+    },
+    {
+      "id": "accept",
+      "type": "script",
+      "run": "accept",
+      "input": "work/",
+      "output": "qa/"
+    },
+    {
+      "id": "proofread",
+      "type": "user-handoff",
+      "input": "translation/, terms.csv",
+      "output": "operator decision",
+      "ask": "A person proofreads tone and terms against the source before delivery."
+    }
+  ],
+  "deliverables": [
+    {
+      "path": "translation/translated.md",
+      "format": "md"
+    },
+    {
+      "path": "terms.csv",
+      "format": "csv"
+    }
+  ],
+  "acceptance": [
+    {
+      "check": "files"
+    },
+    {
+      "check": "sloplint",
+      "lang": "en",
+      "paths": [
+        "translation/translated.md"
+      ]
+    }
+  ],
+  "payment": {
+    "beforeStart": "deposit",
+    "beforeDelivery": "full"
+  }
+}

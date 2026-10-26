@@ -1,0 +1,91 @@
+{
+  "service": "data_crawling",
+  "version": 1,
+  "executor": "jwc",
+  "hours": {
+    "standard": 4,
+    "deluxe": 10,
+    "premium": 20
+  },
+  "steps": [
+    {
+      "id": "survey",
+      "skill": "codexclaw:cxc-dev-data",
+      "type": "invoke-model-skill",
+      "input": "brief.md",
+      "output": "notes/survey.md",
+      "does": "Read the target pages, list fields, pagination and rate limits, and record the site rules on automated access."
+    },
+    {
+      "id": "build",
+      "skill": "codexclaw:cxc-dev",
+      "type": "invoke-model-skill",
+      "input": "notes/survey.md",
+      "output": "scraper/",
+      "does": "Build the scraper as a Node project with a polite delay between requests and an npm test that checks the parser on saved pages."
+    },
+    {
+      "id": "run",
+      "type": "invoke-model-skill",
+      "input": "scraper/",
+      "output": "data/",
+      "does": "Run the scraper within the agreed scope and export the rows to CSV."
+    },
+    {
+      "id": "guide",
+      "type": "invoke-model-skill",
+      "input": "scraper/",
+      "output": "scraper/README.md",
+      "does": "Write a rerun guide in the brief language: setup, the command, the output and what to change when the site changes."
+    },
+    {
+      "id": "accept",
+      "type": "script",
+      "run": "accept",
+      "input": "work/",
+      "output": "qa/"
+    },
+    {
+      "id": "review",
+      "type": "user-handoff",
+      "input": "data/, notes/survey.md",
+      "output": "operator decision",
+      "ask": "The operator checks the data sample and that the site rules allow the customer use before delivery."
+    }
+  ],
+  "deliverables": [
+    {
+      "path": "scraper/package.json",
+      "format": "json"
+    },
+    {
+      "path": "scraper/README.md",
+      "format": "md"
+    },
+    {
+      "path": "data/*.csv",
+      "format": "csv"
+    }
+  ],
+  "acceptance": [
+    {
+      "check": "files"
+    },
+    {
+      "check": "command",
+      "run": "npm install --no-audit --no-fund && npm test",
+      "cwd": "scraper",
+      "timeoutMs": 600000
+    },
+    {
+      "check": "sloplint",
+      "paths": [
+        "scraper/README.md"
+      ]
+    }
+  ],
+  "payment": {
+    "beforeStart": "deposit",
+    "beforeDelivery": "full"
+  }
+}

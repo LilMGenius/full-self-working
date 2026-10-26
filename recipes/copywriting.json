@@ -1,0 +1,82 @@
+{
+  "service": "copywriting",
+  "version": 1,
+  "hours": {
+    "standard": 2,
+    "deluxe": 5,
+    "premium": 10
+  },
+  "steps": [
+    {
+      "id": "claims",
+      "skill": "paperthin:factchk",
+      "type": "invoke-model-skill",
+      "input": "brief.md, ../inputs/",
+      "output": "notes/claims.md",
+      "does": "List every claim the copy may make and the customer material that backs it."
+    },
+    {
+      "id": "draft",
+      "skill": "codexclaw:cxc-kwrite",
+      "type": "invoke-model-skill",
+      "input": "notes/claims.md",
+      "output": "copy/",
+      "does": "Write two variants as copy/variant-a.md and copy/variant-b.md using only backed claims."
+    },
+    {
+      "id": "dedash",
+      "skill": "paperthin:dedash",
+      "type": "invoke-model-skill",
+      "input": "copy/",
+      "output": "copy/",
+      "does": "Replace dashes standing in for punctuation."
+    },
+    {
+      "id": "dedot",
+      "skill": "paperthin:dedot",
+      "type": "invoke-model-skill",
+      "input": "copy/",
+      "output": "copy/",
+      "does": "Replace middle dots that join enumerations."
+    },
+    {
+      "id": "accept",
+      "type": "script",
+      "run": "accept",
+      "input": "work/",
+      "output": "qa/"
+    },
+    {
+      "id": "claims-review",
+      "type": "user-handoff",
+      "input": "copy/, notes/claims.md",
+      "output": "operator decision",
+      "ask": "The operator checks each claim against the customer material before delivery."
+    }
+  ],
+  "deliverables": [
+    {
+      "path": "copy/variant-a.md",
+      "format": "md"
+    },
+    {
+      "path": "copy/variant-b.md",
+      "format": "md"
+    }
+  ],
+  "acceptance": [
+    {
+      "check": "files"
+    },
+    {
+      "check": "sloplint",
+      "paths": [
+        "copy/*.md"
+      ]
+    }
+  ],
+  "payment": {
+    "beforeStart": "deposit",
+    "beforeDelivery": "full"
+  }
+}

@@ -1,0 +1,77 @@
+{
+  "service": "excel_macro",
+  "version": 1,
+  "hours": {
+    "standard": 3,
+    "deluxe": 8,
+    "premium": 16
+  },
+  "steps": [
+    {
+      "id": "build",
+      "skill": "spreadsheets:spreadsheets",
+      "type": "invoke-model-skill",
+      "input": "brief.md, ../inputs/",
+      "output": "workbook/",
+      "does": "Build the sample workbook with the customer layout and test data."
+    },
+    {
+      "id": "macro",
+      "skill": "codexclaw:cxc-dev",
+      "type": "invoke-model-skill",
+      "input": "brief.md, workbook/",
+      "output": "macro/",
+      "does": "Write the VBA module the brief asks for as a .bas file, with every sheet and range named as in the workbook."
+    },
+    {
+      "id": "usage",
+      "type": "invoke-model-skill",
+      "input": "macro/, workbook/",
+      "output": "USAGE.md",
+      "does": "Write usage notes in the brief language: how to import the module, run it and what it changes."
+    },
+    {
+      "id": "accept",
+      "type": "script",
+      "run": "accept",
+      "input": "work/",
+      "output": "qa/"
+    },
+    {
+      "id": "run-macro",
+      "type": "user-handoff",
+      "input": "macro/, workbook/",
+      "output": "operator decision",
+      "ask": "The operator imports the module into desktop Excel and runs it once on the sample workbook, since VBA does not run on this machine."
+    }
+  ],
+  "deliverables": [
+    {
+      "path": "macro/*.bas",
+      "format": "bas"
+    },
+    {
+      "path": "workbook/*.xlsx",
+      "format": "xlsx"
+    },
+    {
+      "path": "USAGE.md",
+      "format": "md"
+    }
+  ],
+  "acceptance": [
+    {
+      "check": "files"
+    },
+    {
+      "check": "sloplint",
+      "paths": [
+        "USAGE.md"
+      ]
+    }
+  ],
+  "payment": {
+    "beforeStart": "deposit",
+    "beforeDelivery": "full"
+  }
+}

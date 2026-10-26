@@ -42,6 +42,14 @@ test('experience claims need an approved entry', () => {
   assert.ok(rules(run('kmong', '저는 대기업 출신입니다')).includes('claims.forbidden'));
 });
 
+test('an approved claim passes only for a service whose serviceFit names past work', () => {
+  const inst = { ...instance, profile: { ...instance.profile, approvedClaims: ['10년 경력'], serviceFit: { web_app_dev: { strength: 'strong', evidence: ['예시 프로젝트'] }, mobile_app_dev: { strength: 'none', evidence: [] } } } };
+  const reply = (service) => gateOutbound({ platform: 'soomgo', kind: 'quote', text: '10년 경력의 개발자로 진행합니다.', thread: ko, amountKRW: 1000000, decision: { service } }, { descriptor: loadDescriptor('soomgo'), instance: inst });
+  assert.deepEqual(rules(reply('mobile_app_dev')), ['claims.no_fit']);
+  assert.deepEqual(rules(reply('erp_dev')), ['claims.no_fit']);
+  assert.deepEqual(rules(reply('web_app_dev')), []);
+});
+
 test('a Korean reply to an English inbound is blocked', () => {
   const r = run('kmong', '네, 가능합니다. 일정 알려 주세요.', { thread: { stage: 'pre_order', lastInboundText: 'Hi, can you build a landing page for my store?' } });
   assert.deepEqual(rules(r), ['shape.language']);

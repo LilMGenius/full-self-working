@@ -179,13 +179,21 @@ export function gateOutbound(item, ctx = {}) {
   const profile = instance.profile ?? {};
   const approved = (profile.approvedClaims ?? []).map(norm);
   const claimSpans = [];
+  const cited = [];
   for (const re of CLAIM_RES) {
     for (const s of spansOf(re, text)) {
       if (overlaps(s, claimSpans)) continue;
       claimSpans.push(s);
       if (s.value.includes('%') && PERCENT_TERMS.test(text.slice(Math.max(0, s.index - 12), s.end + 12))) continue;
       if (!approved.some((a) => a.includes(norm(s.value)))) add(violations, 'claims.unapproved', `"${s.value.trim()}" is not in profile.approvedClaims`);
+      else cited.push(s.value.trim());
     }
+  }
+  // An approved claim is experience the profile backs for the services its serviceFit ties to past work;
+  // in a reply for a service whose serviceFit names none, it claims experience in that service.
+  const service = item.decision?.service;
+  if (service && cited.length && !(profile.serviceFit?.[service]?.evidence ?? []).length) {
+    add(violations, 'claims.no_fit', `"${cited.join('", "')}" cites experience, but profile.serviceFit names no past work for ${service}`);
   }
   for (const banned of profile.claimsNotToMake ?? []) {
     if (banned && text.includes(banned)) add(violations, 'claims.forbidden', `"${banned}" is in profile.claimsNotToMake`);

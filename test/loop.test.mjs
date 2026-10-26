@@ -69,6 +69,16 @@ test('an observe step reads nothing unread and never calls the model', async () 
   assert.equal(r.threads.observed, 2);
 });
 
+test('a forced observe pass never signs a signed-out platform in, and a platform configured observe still does', async () => {
+  const s = setup((c) => ({ ...c, platforms: { ...c.platforms, kmong: { ...c.platforms.kmong, mode: 'observe' } } }));
+  const signIns = [];
+  const signInAgain = async ({ id }) => (signIns.push(id), null);
+  const forced = await s.run('kmong', scriptedSurface({ login: { loggedIn: false } }), { forceMode: 'observe', signInAgain });
+  assert.deepEqual([forced.status, signIns], ['failed', []]);
+  const configured = await s.run('kmong', scriptedSurface({ login: { loggedIn: false } }), { signInAgain });
+  assert.deepEqual([configured.status, signIns], ['failed', ['kmong']]);
+});
+
 test('a login notice names chromeName(config): Chrome, or Chrome with the configured profile', async () => {
   for (const [profile, want] of [[null, /Sign in to .* in Chrome;/], ['X', /in Chrome \(profile X\);/]]) {
     const s = setup((c) => ({ ...c, browser: { ...c.browser, chromeProfile: profile } }));

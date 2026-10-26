@@ -5,11 +5,14 @@
 // alone would miss the WAL), then records sha256, PRAGMA integrity_check, user_version and per-table
 // counts beside it as <snapshot>.json. --verify rechecks a snapshot against its record; --check reads a
 // live ledger's integrity and, with --against, that no table shrank below the snapshot; --restore puts a
-// snapshot back only while no live node process holds the instance lock, keeping the replaced files.
+// snapshot back only while no live node process holds the instance lock and the scheduled task serving
+// the instance does not read Running (between the launcher's restarts the lock is stale while the task
+// runs), keeping the replaced files.
 import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { copyFileSync, existsSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { pidAlive } from '../src/supervisor/run.mjs';
@@ -71,11 +74,37 @@ export function liveLockHolder(instance, alive = pidAlive) {
   return alive(pid) ? pid : null;
 }
 
-export function restore(snap, to, instance, alive = pidAlive) {
+// The scheduled task's state and the instance its launcher serves: scripts/task.ps1 starts wscript on
+// <instance>/run/fsw-run.vbs, so the instance is two folders above the .vbs its action names. instance is
+// null when the action names no .vbs; state is '' when the task does not exist.
+export function readTask(name) {
+  const cmd = '$t = Get-ScheduledTask -TaskName ' + "'" + name.replace(/'/g, "''") + "'" + ' -ErrorAction SilentlyContinue; if ($t) { [string]$t.State; [string]$t.Actions[0].Arguments }';
+  const [state = '', args = ''] = execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', cmd], { encoding: 'utf8', windowsHide: true }).split(/\r?\n/);
+  return { state: state.trim(), instance: taskInstance(args) };
+}
+
+export function taskInstance(args) {
+  const m = /"([^"]+\.vbs)"/i.exec(String(args ?? ''));
+  return m ? dirname(dirname(m[1])) : null;
+}
+
+const sameDir = (x, y) => resolve(x).toLowerCase() === resolve(y).toLowerCase();
+
+// Why the task stops a restore under instance, or null: it reads Running and serves this instance, or
+// runs a launcher whose instance cannot be read.
+export function taskBlocks(task, instance) {
+  if (task.state !== 'Running') return null;
+  if (task.instance && !sameDir(task.instance, instance)) return null;
+  return 'the scheduled task reads Running' + (task.instance ? ' for this instance' : ' and its instance cannot be read') + '; stop it first (Stop-ScheduledTask fsw-supervisor); nothing was replaced';
+}
+
+export function restore(snap, to, instance, { alive = pidAlive, task = () => readTask('fsw-supervisor') } = {}) {
   const record = JSON.parse(readFileSync(snap + '.json', 'utf8'));
   if (sha256(snap) !== record.sha256) throw new Error('the snapshot does not match its recorded sha256; nothing was replaced');
   const holder = liveLockHolder(instance, alive);
   if (holder) throw new Error('pid ' + holder + ' holds the instance lock; stop the supervisor first (Stop-ScheduledTask fsw-supervisor, then Stop-Process); nothing was replaced');
+  const blocked = taskBlocks(task(), instance);
+  if (blocked) throw new Error(blocked);
   const tmp = to + '.restore.tmp';
   copyFileSync(snap, tmp);
   if (sha256(tmp) !== record.sha256) throw new Error('the copied snapshot does not match its sha256; nothing was replaced');
@@ -94,7 +123,7 @@ export function restore(snap, to, instance, alive = pidAlive) {
 }
 
 if (process.argv[1] && pathToFileURL(realpathSync(process.argv[1])).href === import.meta.url) {
-  const { values: a } = parseArgs({ options: { ledger: { type: 'string' }, out: { type: 'string' }, verify: { type: 'string' }, check: { type: 'string' }, against: { type: 'string' }, restore: { type: 'string' }, to: { type: 'string' }, instance: { type: 'string' } } });
+  const { values: a } = parseArgs({ options: { ledger: { type: 'string' }, out: { type: 'string' }, verify: { type: 'string' }, check: { type: 'string' }, against: { type: 'string' }, restore: { type: 'string' }, to: { type: 'string' }, instance: { type: 'string' }, task: { type: 'string', default: 'fsw-supervisor' } } });
   let findings = [];
   let report;
   try {
@@ -103,9 +132,9 @@ if (process.argv[1] && pathToFileURL(realpathSync(process.argv[1])).href === imp
     else if (a.check) {
       report = inspect(a.check);
       findings = a.against ? compare(report, JSON.parse(readFileSync(a.against, 'utf8'))) : report.integrity === 'ok' ? [] : ['integrity_check: ' + report.integrity];
-    } else if (a.restore && a.to && a.instance) report = restore(a.restore, a.to, a.instance);
+    } else if (a.restore && a.to && a.instance) report = restore(a.restore, a.to, a.instance, { task: () => readTask(a.task) });
     else {
-      console.error('usage: ledger-snapshot.mjs --ledger <db> --out <file> | --verify <file> | --check <db> [--against <file.json>] | --restore <file> --to <db> --instance <dir>');
+      console.error('usage: ledger-snapshot.mjs --ledger <db> --out <file> | --verify <file> | --check <db> [--against <file.json>] | --restore <file> --to <db> --instance <dir> [--task fsw-supervisor]');
       process.exit(2);
     }
   } catch (err) {

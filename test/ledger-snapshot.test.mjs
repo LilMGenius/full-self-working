@@ -6,7 +6,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSyn
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { openLedger } from '../src/core/ledger.mjs';
-import { compare, inspect, restore, sha256, snapshot } from '../scripts/ledger-snapshot.mjs';
+import { compare, inspect, restore, sha256, snapshot, taskBlocks, taskInstance } from '../scripts/ledger-snapshot.mjs';
 import { tempDir } from './tmp.mjs';
 
 const cli = (...args) => spawnSync(process.execPath, ['scripts/ledger-snapshot.mjs', ...args], { encoding: 'utf8', windowsHide: true });
@@ -112,7 +112,7 @@ test('--restore with the supervisor stopped puts the snapshot back and keeps the
   const bytes = readFileSync(tampered);
   bytes[bytes.length - 100] ^= 0xff;
   writeFileSync(tampered, bytes);
-  assert.throws(() => restore(tampered, file, instance, () => false), /does not match its recorded sha256/);
+  assert.throws(() => restore(tampered, file, instance, idle), /does not match its recorded sha256/);
 });
 
 test('the kept file is <to>.replaced-<stamp> with its -wal beside it, so a row that lived only in the WAL opens with it', () => {
@@ -125,11 +125,35 @@ test('the kept file is <to>.replaced-<stamp> with its -wal beside it, so a row t
   copyFileSync(file, to);
   copyFileSync(file + '-wal', to + '-wal');
   ledger.close();
-  const r = restore(out, to, instance, () => false);
+  const r = restore(out, to, instance, idle);
   assert.match(r.kept[0], /stopped\.sqlite\.replaced-[0-9TZ-]+$/);
   assert.equal(r.kept[1], r.kept[0] + '-wal');
   const kept = new DatabaseSync(r.kept[0]);
   assert.equal(kept.prepare("SELECT count(*) AS n FROM events WHERE kind = 'wal.only'").get().n, 1);
   kept.close();
   assert.equal(inspect(to).counts.events, 3);
+});
+
+const idle = { alive: () => false, task: () => ({ state: 'Ready', instance: null }) };
+
+test('--restore refuses while the task serving this instance reads Running, even with a stale lock', () => {
+  const { instance, file, ledger } = liveLedger();
+  const out = join(instance, 'snap.sqlite');
+  snapshot(file, out);
+  ledger.close();
+  writeFileSync(join(instance, 'run', 'supervisor.pid'), '999999\n');
+  const before = sha256(file);
+  const serving = { alive: () => false, task: () => ({ state: 'Running', instance: instance.toUpperCase() }) };
+  assert.throws(() => restore(out, file, instance, serving), /the scheduled task reads Running for this instance/);
+  assert.throws(() => restore(out, file, instance, { alive: () => false, task: () => ({ state: 'Running', instance: null }) }), /its instance cannot be read/);
+  assert.equal(sha256(file), before);
+  assert.ok(!readdirSync(instance).some((f) => f.includes('.replaced-')));
+  assert.equal(restore(out, file, instance, { alive: () => false, task: () => ({ state: 'Running', instance: join(instance, 'elsewhere') }) }).restored, file);
+});
+
+test('the task instance is read from the launcher path task.ps1 registers', () => {
+  assert.equal(taskInstance('//B //Nologo "C:\\fsw\\instance.local\\run\\fsw-run.vbs"'), 'C:\\fsw\\instance.local');
+  assert.equal(taskInstance(''), null);
+  assert.equal(taskBlocks({ state: 'Ready', instance: null }, 'C:\\x'), null);
+  assert.equal(taskBlocks({ state: '', instance: null }, 'C:\\x'), null);
 });

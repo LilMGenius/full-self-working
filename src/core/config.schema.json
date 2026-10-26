@@ -53,6 +53,15 @@
           "default": null,
           "x-choice": true
         },
+        "platformSpendMaxPerDay": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "description": "the most cash in KRW a day the platform's own automatic sending (smart quote campaigns) may budget here; a campaign over it is reported to you once a day, null reports budgets without a limit",
+          "default": null
+        },
         "services": {
           "type": [
             "array",
@@ -280,6 +289,7 @@
           "profileEdits": "approval",
           "maxQuotesPerDay": 5,
           "maxCashPerDay": 0,
+          "platformSpendMaxPerDay": null,
           "services": null
         },
         "wishket": {

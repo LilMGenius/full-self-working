@@ -295,7 +295,7 @@ export const JOB_HANDLERS = {
     // Observe platforms are not polled every 5 minutes, so their login and read pass runs here.
     const observeIds = Object.entries(ctx.instance.config.platforms ?? {}).filter(([, q]) => q.enabled && q.mode === 'observe').map(([id]) => id);
     const observed = observeIds.length ? await runPlatforms(observeIds, ctx) : { status: 'ok', platforms: [] };
-    const supply = await writeSupply({ instance: ctx.instance, ledger: ctx.ledger, now: ctx.now, ...(ctx.openSurface ? { openSurface: ctx.openSurface } : {}) });
+    const supply = await writeSupply({ instance: ctx.instance, ledger: ctx.ledger, now: ctx.now, ...(ctx.openSurface ? { openSurface: ctx.openSurface } : {}), ...(ctx.notify ? { notify: ctx.notify } : {}) });
     const bad = ['daemon start failed', 'no daemon', 'keeper check failed'].includes(browser.status) || observed.status !== 'ok' || supply.status !== 'ok';
     return { status: bad ? 'partial' : 'ok', self, browser, observe: observed.platforms.map((q) => ({ platform: q.platform, status: q.status })), supply: { file: supply.file, platforms: supply.reports.map((r) => ({ platform: r.platform, status: r.status, awaitingReply: r.awaitingReply })) } };
   },

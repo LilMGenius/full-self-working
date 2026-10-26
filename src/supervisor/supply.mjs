@@ -7,7 +7,8 @@
 // Supply, and builds the rest from the ledger and the listing review files.
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { hourKey } from '../core/clock.mjs';
+import { dayKey, hourKey } from '../core/clock.mjs';
+import { notifyOperator } from '../core/notify.mjs';
 import { pipelineSettings } from '../core/settings.mjs';
 import { answeredServices, catalogServicesFor } from '../economics/catalog.mjs';
 import { loadDescriptor } from '../platforms/registry.mjs';
@@ -96,6 +97,13 @@ export async function supplyReport(platform, { instance, ledger, now = new Date(
       // fsw doctor's items check (src/cli/doctor.mjs:186-191 at 14d2f17).
       const answered = answeredServices(instance.config, platform);
       if (offered) report.services = { offered: offered.length, withoutItems: offered.filter((s) => !s.itemsSet && catalogServicesFor(descriptor, s.name)?.some((sv) => answered.includes(sv))).map((s) => s.name) };
+      // What the platform spends on the account by itself beside fsw's own quotes (AGENTS.md rule): the
+      // day's charges by source and each automatic campaign's daily budget against platformSpendMaxPerDay.
+      if (typeof surface.spend === 'function') {
+        const { today, campaigns } = await surface.spend({ now });
+        const limitKRW = instance.config.platforms?.[platform]?.platformSpendMaxPerDay ?? null;
+        report.spend = { today, campaigns, limitKRW, over: limitKRW == null ? [] : campaigns.filter((c) => c.dailyBudgetKRW == null || c.dailyBudgetKRW > limitKRW) };
+      }
     }
   } catch (err) {
     report.status = 'partial';
@@ -107,7 +115,7 @@ export async function supplyReport(platform, { instance, ledger, now = new Date(
 }
 
 // The hourly job's write: one file per Seoul hour, the period it covers (roundClockSchedules).
-export async function writeSupply({ instance, ledger, now = new Date(), openSurface }) {
+export async function writeSupply({ instance, ledger, now = new Date(), openSurface, notify = notifyOperator }) {
   const ids = Object.entries(instance.config.platforms ?? {}).filter(([, p]) => p.enabled).map(([id]) => id);
   const reports = [];
   for (const id of ids) reports.push(await supplyReport(id, { instance, ledger, now, ...(openSurface ? { openSurface } : {}) }));
@@ -117,6 +125,9 @@ export async function writeSupply({ instance, ledger, now = new Date(), openSurf
   writeFileSync(file + '.tmp', JSON.stringify({ hour: hourKey(now), reports }, null, 2) + '\n');
   renameSync(file + '.tmp', file);
   ledger.addEvent({ kind: 'supervisor.supply', payload: { file, reports: reports.map((r) => ({ platform: r.platform, status: r.status, awaitingReply: r.awaitingReply, parked: r.parked })) } });
+  for (const r of reports.filter((x) => x.spend?.over.length)) {
+    await notify(instance, { kind: 'operator', title: r.platform + ' automatic sending may spend more than platformSpendMaxPerDay', body: [...campaignLines(r.spend.over), 'platformSpendMaxPerDay: ' + krw(r.spend.limitKRW), 'Lower the campaign budget on the platform or change the setting (fsw settings set platforms.' + r.platform + '.platformSpendMaxPerDay <KRW>).'].join('\n'), dedupeKey: 'platform-spend:' + r.platform + ':' + dayKey(now) });
+  }
   return { status: reports.every((r) => r.status === 'ok') ? 'ok' : 'partial', file, reports };
 }
 
@@ -127,6 +138,17 @@ export function latestSupply(instance) {
 }
 
 const counts = (m) => Object.entries(m).filter(([, v]) => v).map(([k, v]) => k + ' ' + v).join(', ') || 'none';
+const krw = (n) => Number(n).toLocaleString('en-US') + ' KRW';
+const campaignLines = (campaigns) => campaigns.map((c) => 'campaign ' + (c.name ?? c.id) + ': ' + (c.dailyBudgetKRW == null ? 'daily budget unread' : krw(c.dailyBudgetKRW) + ' a day') + (c.maxPerDay != null ? ', at most ' + c.maxPerDay + ' quotes' : ''));
+
+// The spend part of a platform's line: the day's charges by source, then each automatic campaign.
+function spendParts(s) {
+  const t = s.today;
+  const parts = ['cash spent ' + t.day + ': quotes ' + krw(t.quotesKRW) + ' (' + t.quotes + '), smart quotes ' + krw(t.smartQuotesKRW) + ' (' + t.smartQuotes + '), other ' + krw(t.otherKRW) + (t.complete ? '' : ', more rows than the page lists')];
+  parts.push(s.campaigns.length ? campaignLines(s.campaigns).join(', ') : 'no smart quote campaign');
+  if (s.over.length) parts.push(s.over.length + ' over platformSpendMaxPerDay ' + krw(s.limitKRW));
+  return parts;
+}
 
 // Digest lines, one per platform, plain figures only.
 export function supplyLines(supply) {
@@ -137,6 +159,7 @@ export function supplyLines(supply) {
     if (r.candidates?.length) parts.push('labels no service covers yet: ' + r.candidates.map((c) => c.label + ' ' + c.threads).join(', '));
     if (r.listings) parts.push('gigs: ' + counts(r.listings.byStatus) + ' of ' + r.listings.published);
     if (r.services) parts.push(r.services.withoutItems.length ? 'offered services without request items: ' + r.services.withoutItems.join(', ') : 'every offered service has request items');
+    if (r.spend) parts.push(...spendParts(r.spend));
     if (r.waiting.awaiting_operator) parts.push(r.waiting.awaiting_operator + ' waiting for your approval');
     if (r.status !== 'ok') parts.push('read failed: ' + r.notes.join('; '));
     return '- ' + r.platform + ': ' + parts.join('; ');

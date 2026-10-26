@@ -38,6 +38,7 @@
       "profileEdits": "approval",
       "maxQuotesPerDay": 5,
       "maxCashPerDay": 0,
+      "platformSpendMaxPerDay": null,
       "services": null
     },
     "wishket": {

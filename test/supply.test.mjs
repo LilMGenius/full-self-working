@@ -5,6 +5,7 @@ import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
+import { notifyOperator } from '../src/core/notify.mjs';
 import { plan, setStatus } from '../src/outbox/index.mjs';
 import { expansionCandidates, latestSupply, parkedCounts, supplyLines, supplyReport, writeSupply } from '../src/supervisor/supply.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
@@ -155,4 +156,31 @@ test('approvals waiting in the digest counts outbox rows awaiting the operator',
   const d = await writeDigest({ instance, ledger, now: new Date('2026-10-26T00:00:00Z'), notify: quiet });
   assert.equal(d.numbers.approvalsWaiting, 1);
   assert.match(readFileSync(d.file, 'utf8'), /- approvals waiting now: 1/);
+});
+
+
+// A soomgo account whose smart quote campaigns spend beside fsw: one campaign within the limit, one over it.
+const SPEND = { today: { day: '2026-10-25', quotesKRW: 4490, quotes: 1, smartQuotesKRW: 5980, smartQuotes: 3, otherKRW: 0, complete: true }, campaigns: [{ id: 'a1', name: '웹 개발 스마트견적', dailyBudgetKRW: 20000, maxPerDay: 10 }, { id: 'b2', name: '앱 개발', dailyBudgetKRW: 1000000, maxPerDay: 502 }] };
+
+test('the supply report prints spend by source and each campaign budget, and a budget over the setting is told once a day', async () => {
+  const instance = makeInstance((c) => ({ ...c, platforms: { soomgo: { ...c.platforms.soomgo, platformSpendMaxPerDay: 30000 } } }));
+  const ledger = openLedger(':memory:');
+  const openSurface = surfaceWith([], { spend: async () => SPEND });
+  const told = [];
+  const notify = async (i, n) => {
+    const r = await notifyOperator(i, n);
+    told.push([n.title, n.dedupeKey, r.written]);
+    return r;
+  };
+  const first = await writeSupply({ instance, ledger, now: NOW, openSurface, notify });
+  const soomgo = first.reports[0];
+  assert.deepEqual(soomgo.spend.over.map((c) => c.id), ['b2']);
+  assert.equal(soomgo.spend.limitKRW, 30000);
+  await writeSupply({ instance, ledger, now: new Date(NOW.getTime() + 3_600_000), openSurface, notify });
+  await writeSupply({ instance, ledger, now: new Date(NOW.getTime() + 86_400_000), openSurface, notify });
+  assert.deepEqual(told.map((t) => [t[1], t[2]]), [['platform-spend:soomgo:20261025', true], ['platform-spend:soomgo:20261025', false], ['platform-spend:soomgo:20261026', true]]);
+  const line = supplyLines({ reports: [soomgo] })[0];
+  assert.match(line, /cash spent 2026-10-25: quotes 4,490 KRW \(1\), smart quotes 5,980 KRW \(3\), other 0 KRW; campaign 웹 개발 스마트견적: 20,000 KRW a day, at most 10 quotes, campaign 앱 개발: 1,000,000 KRW a day, at most 502 quotes; 1 over platformSpendMaxPerDay 30,000 KRW/);
+  const unlimited = await supplyReport('soomgo', { instance: makeInstance(), ledger, now: NOW, openSurface });
+  assert.deepEqual([unlimited.spend.limitKRW, unlimited.spend.over], [null, []]);
 });

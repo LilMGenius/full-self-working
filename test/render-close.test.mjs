@@ -83,7 +83,11 @@ test('close returns within its deadline when the browser never answers and survi
   assert.match(closed.error, /^browser pid \d+ did not exit within the close deadline/);
   assert.deepEqual(removals, [], 'close removed nothing while the browser was alive');
   assert.deepEqual(leftovers.map((l) => l.error), [closed.error]);
-  assert.equal((await releaseProfile(renderer.profile)).removed, true);
+  // Ending a suspended tree while two suites load the machine can outlast a renderer's own 20 s release wait
+  // (a gate run on 2026-10-27 failed here with no reason shown), so this cleanup gets 60 s and names what held
+  // the folder when it still fails.
+  const cleaned = await releaseProfile(renderer.profile, { treeWaitMs: 60000 });
+  assert.equal(cleaned.removed, true, cleaned.error);
   assert.equal(existsSync(renderer.profile), false);
 });
 

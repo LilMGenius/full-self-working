@@ -17,7 +17,15 @@ const msgText = (m) => String(m.text ?? m.body ?? '');
 // work private until the operator records the answer.
 const NEGATION = /않|못|말아|말고|마세요|마시고|마십시오|싫|아니|거절|불가|곤란|어렵|비공개|삼가|자제|내부|(?:^|[\s,.!?])안(?=\s|돼|되|됩)|\b(?:no|not|never|don'?t|rather not|private|confidential)\b|n't\b/iu;
 // A yes with a condition (leave the company name out, show only one page) is the operator's to scope.
-const CONDITION = /빼고|빼서|제외|만\s*올려|\b(?:except|without|only if|as long as)\b/iu;
+// Leaving something out, covering it, or waiting for a later moment are conditions too.
+const CONDITION = /빼고|빼서|빼주|빼\s+주|제외|만\s*올려|가려|가리|모자이크|후에|이후|다음에|\b(?:except|without|only if|as long as|after|once|blur|hide)\b/iu;
+// A Korean question often drops its question mark: a sentence ending in 나요, 가요, 까요 or a 지요 after a
+// syllable closed by ㄴ (는지요, 인지요, 한지요) asks rather than answers.
+const endsWithBatchimN = (s) => {
+  const c = s.codePointAt(s.length - 1) - 0xac00;
+  return c >= 0 && c < 11172 && c % 28 === 4;
+};
+const isQuestion = (u) => /[?？]$/u.test(u) || /(?:나요|가요|까요)$/u.test(bare(u)) || (/지요$/u.test(bare(u)) && endsWithBatchimN(bare(u).slice(0, -2)));
 
 // jobs: every job of the thread, oldest first. Returns the deal signals to apply, or a reason the answer was
 // not applied, with the job it concerns.
@@ -56,7 +64,7 @@ export function permissionSignal({ thread, jobs, decision, at = new Date().toISO
   // My own words echoed back, or a question, answer nothing.
   const mine = (thread.messages ?? []).filter((m) => m.direction === 'out').flatMap((m) => unitsOf(msgText(m)).map(bare));
   if (mine.includes(quote)) return none('grant quoting a sentence of my own message');
-  if (unitsOf(msgText(fresh[i])).some((u) => bare(u) === quote && /[?？]$/u.test(u))) return none('grant quoted from a question');
+  if (unitsOf(msgText(fresh[i])).some((u) => bare(u) === quote && isQuestion(u))) return none('grant quoted from a question');
   if (fresh.slice(i).some((m) => NEGATION.test(msgText(m)))) return none('grant quoted from a message that says no, or followed by one');
   if (fresh.slice(i).some((m) => CONDITION.test(msgText(m)))) return none('grant with a condition, for the operator to scope');
   return { signals: [signal('permission_granted', job, { quote: norm(decision.permissionQuote), quoteAt: fresh[i].at })], reason: null, jobId: job.id };

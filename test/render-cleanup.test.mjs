@@ -74,6 +74,30 @@ test('a folder that cannot be removed is returned with its cause instead of thro
   assert.match(blind.error, /^EPERM .*; powershell not found$/);
 });
 
+test('a kill that fails or never answers during a release is recorded instead of dropped', async () => {
+  const warned = [];
+  const warn = (what, err) => warned.push(what + ': ' + err.message);
+  const proc = { pid: 42, exitCode: null, signalCode: null };
+  const s = scene([[child(7, 'utility')]]);
+  const r = await releaseProfile(PROFILE, {
+    ...s,
+    proc,
+    kill: async (pid) => {
+      if (pid === 42) throw new Error('taskkill exited 255');
+      return new Promise(() => {});
+    },
+    wait: noWait,
+    warn,
+    exitWaitMs: 0,
+    treeWaitMs: 300,
+  });
+  // The hung kill used up the tree wait, so the folder is reported held as well.
+  assert.match(r.error, /still held by pid 7$/);
+  assert.equal(warned.length, 2, warned.join(' | '));
+  assert.match(warned[0], /^ending browser pid 42 of .*fsw-render-AbC123: taskkill exited 255$/);
+  assert.match(warned[1], /^ending pid 7 holding .*fsw-render-AbC123: taskkill did not answer within \d+ ms$/);
+});
+
 
 test('the tree wait ends at its deadline however slow the process list is', async () => {
   const always = () => {

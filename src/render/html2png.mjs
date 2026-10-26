@@ -29,6 +29,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const exited = (proc) => proc.exitCode !== null || proc.signalCode !== null;
 const describe = (err) => (err?.code ? err.code + ' ' : '') + (err?.message ?? String(err));
 const removeDir = (dir) => rmSync(dir, { recursive: true, force: true });
+// A wait that timed out or a kill that failed during cleanup does not fail the caller, but it is recorded:
+// a browser tree that outlives it is a leak, and this warning is where the log shows it began.
+const reportWait = (what, err) => process.emitWarning(what + ': ' + describe(err), { code: 'FSW_RENDER_WAIT' });
 
 // Settles with promise, or rejects once ms pass, so a call that ignores its own timeout cannot outlive a
 // deadline either.
@@ -117,9 +120,9 @@ function killTree(pid, { timeoutMs = KILL_TIMEOUT_MS } = {}) {
 // GPUPersistentCache, DIPS-wal and first_party_sets.db-journal), so the processes naming the folder are
 // ended and awaited before the folder is removed again. treeWaitMs is a deadline on the clock: every
 // process list and kill inside it gets only the time left, so a slow list cannot stretch the wait.
-export async function releaseProfile(profile, { proc = null, processes = profileProcesses, kill = killTree, remove = removeDir, wait = sleep, exitWaitMs = 5000, treeWaitMs = 20000, pollMs = 250 } = {}) {
+export async function releaseProfile(profile, { proc = null, processes = profileProcesses, kill = killTree, remove = removeDir, wait = sleep, warn = reportWait, exitWaitMs = 5000, treeWaitMs = 20000, pollMs = 250 } = {}) {
   if (proc && !exited(proc)) {
-    await within(kill(proc.pid, { timeoutMs: KILL_TIMEOUT_MS }), KILL_TIMEOUT_MS, 'taskkill').catch(() => {});
+    await within(kill(proc.pid, { timeoutMs: KILL_TIMEOUT_MS }), KILL_TIMEOUT_MS, 'taskkill').catch((err) => warn('ending browser pid ' + proc.pid + ' of ' + profile, err));
     const exitBy = Date.now() + exitWaitMs;
     while (!exited(proc) && Date.now() < exitBy) await wait(50);
   }
@@ -153,7 +156,7 @@ export async function releaseProfile(profile, { proc = null, processes = profile
     for (const p of fresh) ended.add(p.pid);
     const killLeft = deadline - Date.now();
     if (killLeft <= 0) break;
-    await within(Promise.all(fresh.map((p) => kill(p.pid, { timeoutMs: Math.min(KILL_TIMEOUT_MS, killLeft) }))), killLeft, 'taskkill').catch(() => {});
+    await within(Promise.all(fresh.map((p) => kill(p.pid, { timeoutMs: Math.min(KILL_TIMEOUT_MS, killLeft) }))), killLeft, 'taskkill').catch((err) => warn('ending pid ' + fresh.map((p) => p.pid).join(', ') + ' holding ' + profile, err));
     const pause = Math.min(pollMs, deadline - Date.now());
     if (pause > 0) await wait(pause);
   }
@@ -275,7 +278,7 @@ const SETTLE = '(async () => {' +
   '})()';
 
 // tempRoot, processes, kill, remove and onLeftover are the seams the cleanup runs through (tests replace them).
-export async function openRenderer({ chrome = process.env.FSW_CHROME ?? DEFAULT_CHROME, timeoutMs = 30000, tempRoot = tmpdir(), processes = profileProcesses, kill = killTree, remove = removeDir, onLeftover = reportLeftover } = {}) {
+export async function openRenderer({ chrome = process.env.FSW_CHROME ?? DEFAULT_CHROME, timeoutMs = 30000, tempRoot = tmpdir(), processes = profileProcesses, kill = killTree, remove = removeDir, onLeftover = reportLeftover, warn = reportWait } = {}) {
   if (!existsSync(chrome)) throw new RenderError('FSW_RENDER_NO_CHROME', 'Chrome not found at ' + chrome);
   try {
     for (const left of (await sweepLeftovers({ dir: tempRoot, processes, remove })).failed) onLeftover(left);
@@ -298,7 +301,7 @@ export async function openRenderer({ chrome = process.env.FSW_CHROME ?? DEFAULT_
     proc.once('error', () => ok());
   });
   const release = async () => {
-    const r = await releaseProfile(profile, { proc, processes, kill, remove });
+    const r = await releaseProfile(profile, { proc, processes, kill, remove, warn });
     if (!r.removed) onLeftover(r);
     return r;
   };
@@ -377,13 +380,16 @@ export async function openRenderer({ chrome = process.env.FSW_CHROME ?? DEFAULT_
   }
 
   async function close() {
-    await cdp.send('Browser.close').catch(() => {});
+    // Browser.close usually loses its reply to the connection it closes; any other answer is recorded.
+    await cdp.send('Browser.close').catch((err) => {
+      if (!/connection closed$/.test(err.message)) warn('Browser.close', err);
+    });
     // The profile is released only after the browser's real exit (the exit event, not a poll that gives up),
     // and a browser that ignores Browser.close for 5 s is ended with its tree first.
-    const exitWithin = (ms) => within(browserExit, ms, 'the browser exit').catch(() => {});
+    const exitWithin = (ms) => within(browserExit, ms, 'the browser exit').catch((err) => warn('closing browser pid ' + proc.pid + ' of ' + profile, err));
     await exitWithin(5000);
     if (!exited(proc)) {
-      await within(kill(proc.pid, { timeoutMs: KILL_TIMEOUT_MS }), KILL_TIMEOUT_MS, 'taskkill').catch(() => {});
+      await within(kill(proc.pid, { timeoutMs: KILL_TIMEOUT_MS }), KILL_TIMEOUT_MS, 'taskkill').catch((err) => warn('ending browser pid ' + proc.pid + ' of ' + profile, err));
       await exitWithin(EXIT_WAIT_MS);
     }
     ws?.close();

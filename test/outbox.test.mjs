@@ -419,3 +419,38 @@ test('read-back after an interrupted send ignores an older bubble with the same 
   assert.equal(fresh.ledger.getOutbox(fr.id).status, 'observed');
 });
 
+
+// A driver session behind the real soomgo adapter whose quote form fills, presses and then finds no charge
+// in 충전/사용 내역, so the adapter returns {observed: false, pressed: true, costKRW}.
+function pressedSoomgoSession() {
+  const form = { priceValue: '', textValue: '' };
+  const detail = () => ({ url: 'https://soomgo.com/requests/received/r1?from=request_list', service: '웹 개발', pairs: [], customerText: '', form: { priceInput: true, priceValue: form.priceValue, priceTypes: ['총 비용', '시간 당'], selectedPriceType: '총 비용', textarea: true, textValue: form.textValue, textMaxChars: 1000, fileInput: true, saveTemplateChecked: false, sendLabel: '990 캐시로 견적 보내기', sendDisabled: false } });
+  const answers = { pageRequestDetail: detail, pageText: () => '충전/사용 내역' };
+  return {
+    loads: 0,
+    guard: { beforeLoad: async () => {}, beforeAction: () => {}, beforeMessage: () => {} },
+    navigate: async (url) => url,
+    evaluate: async (fn) => answers[fn.name](),
+    typeKeys: async (_t, v) => { form.priceValue = v ? Number(v).toLocaleString('en') : '0'; },
+    fill: async (_t, v) => { form.textValue = v; },
+    click: async () => {},
+    stop: async () => {},
+  };
+}
+
+test('a quote the real soomgo surface pressed without a found charge stays counted against the cap', { timeout: 60_000 }, async () => {
+  const { openSurface } = await import('../src/surface/index.mjs');
+  const s = setup('soomgo');
+  const first = plan(s.ledger, { platform: 'soomgo', threadId: s.thread('r1', 'request').id, kind: 'quote', payload: quotePayload({ costKRW: 990, text: TEXT + ' first' }) });
+  const surface = await openSurface('soomgo', { session: pressedSoomgoSession() });
+  const out = await s.run(surface);
+  assert.deepEqual(out.map((x) => x.action), ['unobserved']);
+  const row = s.ledger.getOutbox(first.id);
+  assert.deepEqual([row.receipt.pressed, row.receipt.costKRW], [true, 990]);
+  assert.match(row.reason, /the quote charge was not observed/);
+  assert.deepEqual(quotaUsage(s.ledger, 'soomgo', NOON), { quotes: 1, cashKRW: 990 });
+  const second = plan(s.ledger, { platform: 'soomgo', threadId: s.thread('r2', 'request').id, kind: 'quote', payload: quotePayload({ costKRW: 990, text: TEXT + ' second' }) });
+  const again = await s.run(surface);
+  assert.deepEqual(again.map((x) => [x.id, x.action]), [[second.id, 'held']]);
+});
+

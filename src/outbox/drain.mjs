@@ -108,9 +108,10 @@ export async function drain(ledger, { platform, surface, authorize, ctx }) {
   const moved = (row) => out.push({ id: row.id, kind: row.kind, action: 'moved' });
   const cashQuote = (row) => row.kind === 'quote' && spendsCash(ctx.descriptor, row.payload.thread?.kind);
   // A cash quote that reached sending may have spent its cash although nothing confirmed it (an interrupted
-  // drain, a surface that threw after the click), so it counts as pressed at its planned cost until the
-  // operator settles it.
-  const mayHaveSpent = (row, receipt, at) => (cashQuote(row) && !receipt?.pressed ? { ...(receipt ?? {}), pressed: true, costKRW: receipt?.costKRW ?? row.payload.costKRW ?? null, pressedAt: at } : receipt);
+  // drain, a surface that threw after the click, a press whose charge was not found), so unless the receipt
+  // says pressed: false it counts as pressed, at the cost the page reported or else the planned one, until
+  // the operator settles it.
+  const mayHaveSpent = (row, receipt, at) => (cashQuote(row) && receipt?.pressed !== false ? { ...(receipt ?? {}), pressed: true, costKRW: receipt?.costKRW ?? row.payload.costKRW ?? null, pressedAt: receipt?.pressedAt ?? at } : receipt);
   // An unobserved row gets an approval id when it has none, so the operator can settle it by name
   // (fsw approve <id> --sent or --reject is the only way out of unobserved, 7b9524e); a pressed quote keeps
   // the press time, which quotaUsage counts against the day's caps.
@@ -233,7 +234,7 @@ export async function drain(ledger, { platform, surface, authorize, ctx }) {
         }
         out.push({ id: row.id, kind: row.kind, action: 'observed', signal: signalOf(row, receipt, now) });
       } else moved(row);
-    } else await unobserved(row, receipt?.reason ?? 'the surface did not observe the ' + row.kind, receipt ?? null);
+    } else await unobserved(row, receipt?.reason ?? 'the surface did not observe the ' + row.kind, mayHaveSpent(row, receipt ?? { observed: false }, now.toISOString()));
   }
   return out;
 }

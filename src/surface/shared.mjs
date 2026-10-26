@@ -9,6 +9,10 @@ export const receiptOf = (r) => ({
   ...(typeof r?.cashSpentKRW === 'number' ? { cashSpentKRW: r.cashSpentKRW } : {}),
   ...(r?.observedSnippet ? { snippet: r.observedSnippet } : {}),
   ...(r?.reason ? { reason: r.reason } : {}),
+  // A quote the page pressed without a confirmed charge may have spent its cash (7b9524e): the press and its
+  // cost reach the drain, which keeps them on the row for the daily cap.
+  ...(typeof r?.pressed === 'boolean' ? { pressed: r.pressed } : {}),
+  ...(typeof r?.costKRW === 'number' ? { costKRW: r.costKRW } : {}),
 });
 
 // Every surface write (send, quote, payRequest, propose) goes to the page only with authorize()'s verdict

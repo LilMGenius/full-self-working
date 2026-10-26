@@ -92,6 +92,15 @@
     ],
     "인공지능(AI) 개발": [
       "ai_automation_chatbot"
+    ],
+    "안드로이드 개발": [
+      "mobile_app_dev"
+    ],
+    "iOS 개발": [
+      "mobile_app_dev"
+    ],
+    "ERP 개발": [
+      "erp_dev"
     ]
   },
   "sources": [

@@ -29,6 +29,14 @@ test('soomgo files lessons under 프로그래밍/코딩 레슨, which maps to th
   assert.ok(targetsFor('soomgo').some((t) => t.category === '프로그래밍/코딩 레슨'));
 });
 
+test('soomgo game, Android, iOS and ERP requests map to catalog services', () => {
+  const soomgo = loadDescriptor('soomgo');
+  assert.deepEqual(catalogServicesFor(soomgo, '게임 개발'), ['game_dev']);
+  assert.deepEqual(catalogServicesFor(soomgo, '안드로이드 개발'), ['mobile_app_dev']);
+  assert.deepEqual(catalogServicesFor(soomgo, 'iOS 개발'), ['mobile_app_dev']);
+  assert.deepEqual(catalogServicesFor(soomgo, 'ERP 개발'), ['erp_dev']);
+});
+
 test('a setting naming a service the catalog does not hold is a config error', () => {
   assert.throws(() => answeredServices({ platforms: { soomgo: { services: ['lessons'] } } }, 'soomgo'), { code: 'FSW_CONFIG_INVALID', message: /lessons, which the catalog does not hold/ });
   assert.throws(() => answeredServices({ platforms: { soomgo: { services: 'lesson_tutoring' } } }, 'soomgo'), { code: 'FSW_CONFIG_INVALID' });

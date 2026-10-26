@@ -311,3 +311,18 @@ test('the id of a written v0 file goes onto its row only while the row keeps its
   db.close();
   assert.deepEqual(got.map((g) => [g.approval_id, g.id === row.id ? g.updated_at === row.updatedAt : true]), [['20261026-soomgo-00000001', true], [null, true]]);
 });
+
+test('the run ends with one line per open file written for a v0-only planned or awaiting row, and none for approved ones', () => {
+  const instance = tempDir('fsw-writeback-open-');
+  const l = openLedger(join(instance, 'ledger.sqlite'));
+  const t = l.upsertThread({ platform: 'soomgo', externalId: 'r5', kind: 'request' });
+  l.addOutbox({ key: 'ka', platform: 'soomgo', threadId: t.id, kind: 'quote', status: 'awaiting_operator', approvalId: '20261026-soomgo-0000aaaa', payload: { text: 'q', threadRef: 'r5', amountKRW: 1000 } });
+  l.addOutbox({ key: 'kb', platform: 'soomgo', threadId: t.id, kind: 'message', status: 'planned', approvalId: '20261026-soomgo-0000bbbb', payload: { text: 'm', threadRef: 'r5' } });
+  l.addOutbox({ key: 'kc', platform: 'soomgo', threadId: t.id, kind: 'message', status: 'approved', approvalId: '20261026-soomgo-0000cccc', payload: { text: 'go', threadRef: 'r5' } });
+  l.close();
+  const dry = cli(instance).stdout.trim().split(/\r?\n/);
+  assert.deepEqual(dry.slice(-2), ['would be open for the operator: 20261026-soomgo-0000aaaa soomgo quote thread r5', 'would be open for the operator: 20261026-soomgo-0000bbbb soomgo message thread r5']);
+  const applied = cli(instance, '--apply').stdout.trim().split(/\r?\n/);
+  assert.match(applied.at(-3), /^approvals-writeback: 3 outbox rows, 3 file\(s\) written$/);
+  assert.deepEqual(applied.slice(-2), ['open for the operator: 20261026-soomgo-0000aaaa soomgo quote thread r5', 'open for the operator: 20261026-soomgo-0000bbbb soomgo message thread r5']);
+});

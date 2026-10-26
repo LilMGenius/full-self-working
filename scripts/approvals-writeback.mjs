@@ -208,7 +208,7 @@ export function planWriteback(rows, { records, unreadable }) {
       if (found && FINAL_FILE.includes(fileStatus(found.record))) continue;
       const next = found ? { ...found.record, ...made.record } : made.record;
       if (found && JSON.stringify(next) === JSON.stringify(found.record)) continue;
-      writes.push({ id, file: found?.file ?? null, before: found?.text ?? '', from: found ? found.record.status : 'none (v0 row ' + row.id + ')', next, assign: row.approvalId ? null : { rowId: row.id, approvalId: id, status: row.status, updatedAt: row.updatedAt } });
+      writes.push({ id, file: found?.file ?? null, before: found?.text ?? '', from: found ? found.record.status : 'none (v0 row ' + row.id + ')', next, v0Only: true, assign: row.approvalId ? null : { rowId: row.id, approvalId: id, status: row.status, updatedAt: row.updatedAt } });
       continue;
     }
     const found = records.get(row.approvalId);
@@ -324,6 +324,9 @@ export function writeback(instance, mode = 'dry', guard = {}) {
     }
   }
   lines.push('approvals-writeback: ' + rows.length + ' outbox rows, ' + writes.length + ' file(s) ' + (mode === 'apply' ? 'written' : 'to write'));
+  // The approvals the old code holds for the operator after a rollback, one line each, so whoever runs
+  // it can tell the operator without the old code announcing them.
+  for (const w of writes.filter((x) => x.v0Only && x.next.status === 'open')) lines.push((mode === 'apply' ? 'open for the operator: ' : 'would be open for the operator: ') + w.id + ' ' + w.next.platform + ' ' + w.next.kind + ' thread ' + w.next.threadRef);
   return { lines, exit: 0 };
 }
 

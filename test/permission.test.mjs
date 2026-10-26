@@ -79,6 +79,13 @@ test('a private ask, a question, an echo of my question or a conditional yes is 
     [ASK, 'grant quoting a sentence of my own message'],
     ['회사명 빼고 올리시면 돼요.', 'grant with a condition, for the operator to scope'],
     ['Sure, except the dashboard screenshots.', 'grant with a condition, for the operator to scope'],
+    ['회사 이름은 빼주세요.', 'grant with a condition, for the operator to scope'],
+    ['로고는 가려 주세요.', 'grant with a condition, for the operator to scope'],
+    ['정식 오픈 후에 올려 주세요.', 'grant with a condition, for the operator to scope'],
+    ['Sure, once the site launches.', 'grant with a condition, for the operator to scope'],
+    ['혹시 어디에 올리시는 건가요', 'grant quoted from a question'],
+    ['어떤 화면을 쓰실 건지요', 'grant quoted from a question'],
+    ['그럼 언제 올리시나요', 'grant quoted from a question'],
   ];
   for (const [text, reason] of cases) {
     const r = single({ thread: thread([msg('out', ASK, DELIVERED), msg('in', text, at)]), job, decision: decision('granted', text) });
@@ -90,6 +97,8 @@ test('a private ask, a question, an echo of my question or a conditional yes is 
   // A plain yes after my question is still a grant.
   const yes = single({ thread: thread([msg('out', ASK, DELIVERED), msg('in', GRANT, at)]), job, decision: decision('granted', GRANT) });
   assert.equal(yes.signal?.type, 'permission_granted');
+  const plain = single({ thread: thread([msg('out', ASK, DELIVERED), msg('in', '네 올리셔도 됩니다.', at)]), job, decision: decision('granted', '네 올리셔도 됩니다.') });
+  assert.equal(plain.signal?.type, 'permission_granted');
 });
 
 test('a refusal needs no quote and becomes permission_refused', () => {

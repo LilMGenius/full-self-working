@@ -179,6 +179,10 @@ export async function step(platform, ctx) {
         continue;
       }
       opened += 1;
+      // The pass ends a failure an earlier pass recorded (meta.failed) only when every step of it went
+      // through, read, decide, deal and plan alike; a step that throws every tick then still reaches
+      // THREAD_ATTEMPTS instead of restarting the count, and an unchanged thread waits for a newer list time.
+      let threw = false;
       try {
         const thread = await reading(() => surface.read(ref, { willReply: t.action === 'open', kind: ib.kind ?? 'message' }));
         if (thread.notices?.length) for (const s of moneyToSignals({ platform, threadId: row.id, inbound: { requestId: ib.requestId, service: ib.service, quote: ib.quote }, notices: thread.notices, now })) applyAdvance(s);
@@ -187,12 +191,7 @@ export async function step(platform, ctx) {
         // time a platform notice moved past the newest stored message is not decided again every tick; a
         // night read holds only for observe ticks.
         const settled = (by) => ({ at: ib.at ?? null, by, key });
-        // A read that went through ends a failure an earlier pass recorded (meta.failed), which would
-        // otherwise send the unchanged thread back through triage every tick until something went out.
-        const readMeta = (extra) => {
-          const { failed, ...meta } = ledger.getThread(row.id).meta ?? {};
-          return { ...meta, ...extra };
-        };
+        const readMeta = (extra) => ({ ...(ledger.getThread(row.id).meta ?? {}), ...extra });
         if (t.action === 'observe') {
           event('thread.observed', ref, { unread: false, messages: (thread.messages ?? []).length });
           ledger.upsertThread({ platform, externalId: ref, kind: ib.kind ?? 'message', meta: readMeta({ settled: settled('observe') }) });
@@ -233,6 +232,7 @@ export async function step(platform, ctx) {
         const planned = plan(ledger, { platform, threadId: row.id, jobId: job?.id ?? null, kind: r.item.kind, payload: payloadOf(r, view) });
         bump('threads', planned.inserted ? 'planned' : 'known');
       } catch (err) {
+        threw = true;
         result.errors.push({ ref, code: err.code ?? null, message: err.message });
         event('thread.error', ref, { code: err.code ?? null, message: err.message });
         // Recorded so triage passes it again while it has passes left and nothing was sent since
@@ -240,6 +240,12 @@ export async function step(platform, ctx) {
         const failedRow = ledger.getThread(row.id);
         ledger.upsertThread({ platform, externalId: ref, kind: failedRow.kind, meta: { ...(failedRow.meta ?? {}), failed: { count: (failedRow.meta?.failed?.count ?? 0) + 1, at: now.toISOString(), code: err.code ?? null } } });
         if (err.code === 'FSW_PACING_LIMIT' || err.code === 'FSW_CONFIG_MISSING') break;
+      } finally {
+        const meta = ledger.getThread(row.id).meta ?? {};
+        if (!threw && meta.failed) {
+          const { failed, ...rest } = meta;
+          ledger.upsertThread({ platform, externalId: ref, kind: ledger.getThread(row.id).kind, meta: rest });
+        }
       }
     }
     result.deferred = work.length - done;

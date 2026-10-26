@@ -193,6 +193,26 @@ test('a read that succeeds after a failed one clears the failure, so an unchange
   assert.equal(s.ledger.listThreads({ platform: 'kmong' }).find((t) => t.externalId === 'k1').meta.failed, undefined);
 });
 
+
+// A step after decide (the deal or the plan) that throws every tick: the failure count must still reach
+// THREAD_ATTEMPTS, or the thread is read and the model called every five minutes for good.
+test('a pass that fails after decide keeps counting toward THREAD_ATTEMPTS and stops reading the thread', async () => {
+  const s = setup();
+  const at = hoursBefore(NOON, 2);
+  let decided = 0;
+  const brokenPlan = async () => (decided++, { modelCalls: 1, decision: decision(), item: { kind: 'message', thread: { kind: 'message', stage: 'pre_order' }, get text() { throw Object.assign(new Error('payload failed'), { code: 'FSW_TEST_PLAN' }); } } });
+  const surface = () => scriptedSurface({ sense: [inbound('kmong', 'k1', { unread: false, at })], threads: (ref) => chat('kmong', ref, '문의드립니다', at) });
+  const seen = [];
+  for (let i = 0; i < 5; i++) {
+    const sf = surface();
+    await s.run('kmong', sf, { decide: brokenPlan });
+    seen.push(reads(sf).length);
+  }
+  assert.deepEqual(seen, [1, 1, 1, 0, 0]);
+  assert.equal(decided, THREAD_ATTEMPTS);
+  assert.equal(s.ledger.listThreads({ platform: 'kmong' }).find((t) => t.externalId === 'k1').meta.failed.count, THREAD_ATTEMPTS);
+});
+
 test('a deposit request the client paid before the hand-over goes stale and is never sent', async () => {
   const s = setup((c) => ({ ...c, platforms: { ...c.platforms, soomgo: { ...c.platforms.soomgo, services: ['landing_page_web', 'lesson_tutoring'] } } }));
   const descriptor = loadDescriptor('soomgo');

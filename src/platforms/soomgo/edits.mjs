@@ -13,11 +13,17 @@ export const TEMPLATE_TITLE_MAX = 20;
 export const TEMPLATE_TEXT_MAX = 1000;
 const DETAIL_SELECTOR = 'textarea[placeholder="최소 30자 이상 입력해 주세요"]';
 
-const snapText = async (s) => {
-  const snap = await s.snapshot({ interactive: false });
-  return typeof snap === 'string' ? snap : snap.text;
+// In-page: marks the visible button whose text is exactly label and returns its selector, or null. A DOM
+// query, never a whole-page snapshot, which once stalled the shared BrowserSkill extension (corpus row 27).
+export const pageMarkButton = (label) => {
+  const button = [...document.querySelectorAll('button')].find((b) => {
+    const r = b.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 && b.innerText.replace(/\s+/g, ' ').trim() === label;
+  });
+  if (!button) return null;
+  button.setAttribute('data-fsw', 'edit-open');
+  return '[data-fsw="edit-open"]';
 };
-const refOf = (text, pattern) => String(text).split('\n').find((l) => pattern.test(l))?.match(/@e\d+/)?.[0] ?? null;
 
 // In-page: presses the visible button whose text is exactly label; false when there is none or it is disabled.
 const pagePress = (label) => {
@@ -31,10 +37,10 @@ const pagePress = (label) => {
 };
 const pageValue = (selector) => document.querySelector(selector)?.value ?? null;
 
-async function openByButton(s, url, pattern, wait) {
+async function openByButton(s, url, label, wait) {
   await s.navigate(url);
-  const ref = refOf(await snapText(s), pattern);
-  if (!ref) throw new AdapterRefusal('FSW_EDITOR_MISSING', `no control matching ${pattern} on ${url}`);
+  const ref = await s.evaluate(pageMarkButton, label);
+  if (!ref) throw new AdapterRefusal('FSW_EDITOR_MISSING', `no ${label} button on ${url}`);
   await s.click(ref);
   await wait(3000);
 }
@@ -57,7 +63,7 @@ export function appendedDetail(current, paragraph) {
 
 export async function setIntro(s, intro, { dryRun = false, wait = pause } = {}) {
   if (intro.length > INTRO_MAX) throw new AdapterRefusal('FSW_LIMIT', `the intro has ${intro.length} characters, over ${INTRO_MAX}`);
-  await openByButton(s, `${BASE}/profile`, /button "내 소개 편집"/, wait);
+  await openByButton(s, `${BASE}/profile`, '내 소개 편집', wait);
   const before = await s.evaluate(pageValue, 'textarea[name=introduce]');
   if (before === null) throw new AdapterRefusal('FSW_EDITOR_MISSING', 'the intro editor has no introduce field');
   if (before === intro) {
@@ -72,14 +78,14 @@ export async function setIntro(s, intro, { dryRun = false, wait = pause } = {}) 
   }
   await press(s, '저장');
   await wait(3000);
-  await openByButton(s, `${BASE}/profile`, /button "내 소개 편집"/, wait);
+  await openByButton(s, `${BASE}/profile`, '내 소개 편집', wait);
   const after = await s.evaluate(pageValue, 'textarea[name=introduce]');
   await s.navigate(`${BASE}/profile`);
   return { part: 'intro', changed: true, saved: after === intro, before };
 }
 
 export async function appendServiceDetail(s, paragraph, { dryRun = false, wait = pause } = {}) {
-  await openByButton(s, `${BASE}/profile`, /button "서비스 상세 설명"/, wait);
+  await openByButton(s, `${BASE}/profile`, '서비스 상세 설명', wait);
   const before = await s.evaluate(pageValue, DETAIL_SELECTOR);
   if (before === null) throw new AdapterRefusal('FSW_EDITOR_MISSING', 'the service detail editor did not open');
   const next = appendedDetail(before, paragraph);
@@ -95,7 +101,7 @@ export async function appendServiceDetail(s, paragraph, { dryRun = false, wait =
   }
   await press(s, '저장하기');
   await wait(3000);
-  await openByButton(s, `${BASE}/profile`, /button "서비스 상세 설명"/, wait);
+  await openByButton(s, `${BASE}/profile`, '서비스 상세 설명', wait);
   const after = await s.evaluate(pageValue, DETAIL_SELECTOR);
   await s.navigate(`${BASE}/profile`);
   return { part: 'detail', changed: true, saved: String(after).includes(String(paragraph).trim()), length: next.length };
@@ -112,7 +118,7 @@ export async function addQuoteTemplate(s, template, { dryRun = false, wait = pau
   const url = `${BASE}/mypage/quote-template`;
   await s.navigate(url);
   if ((await s.evaluate(pageTemplateTitles)).includes(title)) return { part: 'template', title, changed: false };
-  const add = refOf(await snapText(s), /button "추가하기"/);
+  const add = await s.evaluate(pageMarkButton, '추가하기');
   if (!add) throw new AdapterRefusal('FSW_EDITOR_MISSING', 'no 추가하기 button on the quote template page');
   await s.click(add);
   await wait(3000);

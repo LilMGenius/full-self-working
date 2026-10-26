@@ -1,50 +1,58 @@
 // 숨고 service items at /profile/services. 숨고 sends a pro the customer requests whose answers match the
 // items set on each offered service, so a service still marked 항목 미설정 receives no matched requests.
-// The page and its item modal are read from the accessibility snapshot, where every row and checkbox
-// has a name, and a checkbox is addressed by its group heading and label. Each row also carries an
-// unlabeled trash icon that deletes the service, so rows are opened only by their named button.
+// The page and its item modal are read through DOM queries, never a whole-page snapshot, since one
+// snapshot of a soomgo modal stalled the shared BrowserSkill extension (docs/NEGATIVE-CORPUS.md row 27).
+// A row's own button reads "<service> 세부 항목 설정됨" or "<service> 항목 미설정", and a checkbox is
+// addressed by its group heading and label. Each row also carries an unlabeled trash icon that deletes
+// the service, so rows are opened only by their named button, which the read marks for the click.
 import { AdapterRefusal } from '../kit.mjs';
 
 const BASE = 'https://soomgo.com';
-const ROW = /^\s*(@e\d+) button "(.+?) (세부 항목 설정됨|항목 미설정)"/;
-const HEADING = /^\s*heading "(.+)"\s*$/;
-const CHECKBOX = /^\s*(@e\d+) checkbox "(.+?)"(?: \[ctx:.*?\])? \[(checked|unchecked)\]/;
-const SAVE = /^\s*(@e\d+) button "저장하기"( \[disabled\])?/;
+// In-page: offered services in page order, {ref, name, itemsSet}; ref is the selector of the row's own
+// button, which this read marks with data-fsw-service.
+export const pageServiceRows = () => {
+  const rows = [];
+  for (const b of document.querySelectorAll('button')) {
+    const m = b.innerText.replace(/\s+/g, ' ').trim().match(/^(.+?) (세부 항목 설정됨|항목 미설정)$/);
+    if (!m) continue;
+    b.setAttribute('data-fsw-service', String(rows.length));
+    rows.push({ ref: '[data-fsw-service="' + rows.length + '"]', name: m[1], itemsSet: m[2] === '세부 항목 설정됨' });
+  }
+  return rows;
+};
 
-// Offered services in page order: {ref, name, itemsSet}.
-export function parseServiceRows(text) {
-  return String(text ?? '').split('\n').map((l) => l.match(ROW)).filter(Boolean).map(([, ref, name, state]) => ({ ref, name, itemsSet: state === '세부 항목 설정됨' }));
-}
-
-// The open item modal: its title (the service), checkbox groups under their headings and the save
-// button; null when no modal layer is open.
-export function parseItemModal(text) {
-  const lines = String(text ?? '').split('\n');
-  const start = lines.findIndex((l) => /^L\d+ modal\b/.test(l));
-  if (start < 0) return null;
-  const end = lines.findIndex((l, i) => i > start && /^L\d+ /.test(l));
+// In-page: the open item modal, null when none is open. The modal is the nearest box around its visible
+// 저장하기 button that holds checkboxes, so the services page behind it is never read. Its first heading
+// is the service; each checkbox belongs to the last heading before it and is named by its label.
+export const pageItemModal = () => {
+  const shown = (el) => {
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  };
+  const save = [...document.querySelectorAll('button')].find((b) => shown(b) && b.innerText.trim() === '저장하기');
+  if (!save) return null;
+  let box = save.parentElement;
+  while (box && !box.querySelector('input[type=checkbox]')) box = box.parentElement;
+  if (!box) return null;
+  save.setAttribute('data-fsw', 'item-save');
   let title = null;
   let heading = null;
-  let save = null;
   const groups = [];
-  for (const line of lines.slice(start + 1, end < 0 ? undefined : end)) {
-    const h = line.match(HEADING);
-    if (h) {
-      title ??= h[1];
-      heading = h[1];
+  let n = 0;
+  for (const el of box.querySelectorAll('h1,h2,h3,h4,h5,h6,[role=heading],input[type=checkbox]')) {
+    if (el.tagName !== 'INPUT') {
+      heading = el.innerText.trim();
+      title ??= heading;
       continue;
     }
-    const c = line.match(CHECKBOX);
-    if (c) {
-      if (groups.at(-1)?.heading !== heading) groups.push({ heading, options: [] });
-      groups.at(-1).options.push({ ref: c[1], label: c[2], checked: c[3] === 'checked' });
-      continue;
-    }
-    const sv = line.match(SAVE);
-    if (sv) save = { ref: sv[1], disabled: Boolean(sv[2]) };
+    const tag = document.querySelector('label[for="' + CSS.escape(el.id) + '"]');
+    el.setAttribute('data-fsw-item', String(n));
+    if (groups.at(-1)?.heading !== heading) groups.push({ heading, options: [] });
+    groups.at(-1).options.push({ ref: '[data-fsw-item="' + n + '"]', label: tag ? tag.innerText.trim() : '', checked: el.checked });
+    n += 1;
   }
-  return { title, groups, save };
-}
+  return { title, groups, save: { ref: '[data-fsw="item-save"]', disabled: save.disabled } };
+};
 
 // wanted is {heading: [label]}. Returns the wanted options still unchecked and every wanted option the
 // modal does not show, which callers refuse on, since it means 숨고 renamed an item.
@@ -88,14 +96,9 @@ const pageSave = () => {
   return true;
 };
 
-const snapText = async (s) => {
-  const snap = await s.snapshot({ interactive: false });
-  return typeof snap === 'string' ? snap : snap.text;
-};
-
 export async function readServices(s) {
   await s.navigate(`${BASE}/profile/services`);
-  return parseServiceRows(await snapText(s));
+  return s.evaluate(pageServiceRows);
 }
 
 async function openModal(s, name, wait) {
@@ -104,7 +107,7 @@ async function openModal(s, name, wait) {
   if (!row) throw new AdapterRefusal('FSW_SERVICE_NOT_OFFERED', `${name} is not an offered service (${rows.map((r) => r.name).join(', ')})`);
   await s.click(row.ref);
   await wait(3000);
-  const modal = parseItemModal(await snapText(s));
+  const modal = await s.evaluate(pageItemModal);
   if (modal?.title !== name) throw new AdapterRefusal('FSW_ITEM_MODAL', `the item modal for ${name} did not open`);
   return { row, modal };
 }
@@ -180,7 +183,7 @@ export async function setServiceItems(s, name, wanted, { dryRun = false, wait = 
     await s.evaluate(pageTick, item);
     await wait(500);
   }
-  modal = parseItemModal(await snapText(s));
+  modal = await s.evaluate(pageItemModal);
   const left = planItems(modal, wanted).clicks;
   const report = { name, wasSet: row.itemsSet, ticked: plan.clicks.length };
   if (left.length) {

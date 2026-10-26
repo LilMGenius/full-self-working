@@ -65,3 +65,27 @@ test('a part the outbound gate refuses is never typed', async () => {
   assert.deepEqual(calls, []);
 });
 
+
+// The profile editors open by a button found through a DOM query; a whole-page snapshot throws here.
+test('the intro editor opens by its button through a DOM query, and a dry run saves nothing', async () => {
+  const { setIntro, pageMarkButton } = await import('../src/platforms/soomgo/edits.mjs');
+  const state = { value: '이전 소개', clicked: [], pressed: [] };
+  const button = (label) => { const b = { innerText: label, disabled: false, attrs: {}, getBoundingClientRect: () => ({ width: 40, height: 20 }), setAttribute: (k, v) => { b.attrs[k] = v; }, click: () => state.pressed.push(label) }; return b; };
+  const buttons = [button('내 소개 편집'), button('저장')];
+  const s = {
+    navigate: async () => {},
+    snapshot: async () => { throw new Error('a soomgo read took a whole-page snapshot'); },
+    click: async (ref) => state.clicked.push([ref, buttons.find((b) => b.attrs['data-fsw'] === 'edit-open')?.innerText]),
+    fill: async (_sel, v) => { state.value = v; },
+    evaluate: async (fn, arg) => {
+      globalThis.document = { querySelectorAll: (sel) => (sel === 'button' ? buttons : []), querySelector: () => ({ value: state.value }) };
+      try { return fn(arg); } finally { delete globalThis.document; }
+    },
+  };
+  const r = await setIntro(s, '새 소개', { dryRun: true, wait: async () => {} });
+  assert.deepEqual(r, { part: 'intro', changed: true, saved: false, dryRun: true, before: '이전 소개' });
+  assert.deepEqual(state.clicked, [['[data-fsw="edit-open"]', '내 소개 편집']]);
+  assert.deepEqual(state.pressed, []);
+  globalThis.document = { querySelectorAll: () => [] };
+  try { assert.equal(pageMarkButton('추가하기'), null); } finally { delete globalThis.document; }
+});

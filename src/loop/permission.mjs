@@ -2,8 +2,8 @@
 // src/deal/delivery-text.mjs). The brain classifies the reply; code accepts a grant only when the quote is a
 // whole sentence (or the whole text) of an inbound message sent after the delivery was observed, and neither
 // that message nor a later one says no, because a grant publishes the client's work. Every doubt keeps the
-// work private and goes to the operator as permission.unverified. A refusal needs no quote: hiding work is
-// the safe side.
+// work private; the step records the reason (permission.unverified, permission.refusal_unapplied) and
+// notifies the operator. A refusal needs no quote: hiding work is the safe side.
 const norm = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
 // A sentence without its closing marks, since the model may keep or drop the final period.
 const bare = (s) => norm(s).replace(/[\s.!?。…~]+$/u, '');
@@ -27,7 +27,8 @@ export function permissionSignal({ thread, jobs, decision, at = new Date().toISO
   // older closed one, a revision or a rerun included): hiding work is the safe side.
   if (answer === 'refused') {
     const delivered = jobs.filter((j) => j.deliveredAt);
-    if (!delivered.length) return none('refusal on a thread whose job was never delivered');
+    // Nothing delivered means no job the operator could record it on yet.
+    if (!delivered.length) return { signals: [], reason: 'refusal on a thread whose job was never delivered', jobId: null };
     return { signals: delivered.map((j) => signal('permission_refused', j, { quote: null })), reason: null, jobId: job.id };
   }
   if (!job || !['delivered', 'closed'].includes(job.status)) return none(null);

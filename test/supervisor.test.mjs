@@ -125,6 +125,14 @@ test('a tick with work checks the browser keeper once before its first job opens
   assert.deepEqual([idle.jobs.length, calls.length], [0, 3]);
 });
 
+test('a keeper check that throws is reported on the tick, and every due job still runs', async () => {
+  const instance = makeInstance({});
+  const keeper = { check: async () => { throw Object.assign(new Error('bsk not found at C:/none/bsk.exe'), { code: 'FSW_BSK_MISSING' }); } };
+  const s = await runTick({ instance, ledger: openLedger(':memory:'), now: new Date('2026-10-25T02:03:00Z'), state: { lastRuns: {} }, only: ['hourly', 'orders'], keeper, notify: quiet, persist: false });
+  assert.deepEqual(s.browser, { status: 'keeper check failed', code: 'FSW_BSK_MISSING', detail: 'bsk not found at C:/none/bsk.exe' });
+  assert.deepEqual(s.jobs.map((j) => [j.job, j.status]), [['hourly', 'partial'], ['orders', 'ok']]);
+});
+
 test('a platform without a surface fails its step and counts as a failure', async () => {
   const instance = makeInstance({ kmong: { enabled: true, mode: 'draft' } });
   const openSurface = async () => { throw Object.assign(new Error('no surface for kmong in this build'), { code: 'FSW_SURFACE_MISSING' }); };

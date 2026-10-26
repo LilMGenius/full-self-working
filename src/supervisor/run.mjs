@@ -210,7 +210,7 @@ export const JOB_HANDLERS = {
     const observeIds = Object.entries(ctx.instance.config.platforms ?? {}).filter(([, q]) => q.enabled && q.mode === 'observe').map(([id]) => id);
     const observed = observeIds.length ? await runPlatforms(observeIds, ctx) : { status: 'ok', platforms: [] };
     const supply = await writeSupply({ instance: ctx.instance, ledger: ctx.ledger, now: ctx.now, ...(ctx.openSurface ? { openSurface: ctx.openSurface } : {}) });
-    const bad = browser.status === 'daemon start failed' || browser.status === 'no daemon' || observed.status !== 'ok' || supply.status !== 'ok';
+    const bad = ['daemon start failed', 'no daemon', 'keeper check failed'].includes(browser.status) || observed.status !== 'ok' || supply.status !== 'ok';
     return { status: bad ? 'partial' : 'ok', self, browser, observe: observed.platforms.map((q) => ({ platform: q.platform, status: q.status })), supply: { file: supply.file, platforms: supply.reports.map((r) => ({ platform: r.platform, status: r.status, awaitingReply: r.awaitingReply })) } };
   },
   async poll(ctx) {
@@ -343,7 +343,9 @@ export async function runTick(ctx = {}) {
   // The keeper's daemon is a child of the supervisor that started it and ends with it, so after a code
   // handover nothing answers until a check starts a new one; a tick with work checks before its first job
   // (b2ec31d, which replaced the poll-only check of 0c64cbd).
-  const browser = due.length && ctx.keeper ? await ctx.keeper.check(now) : null;
+  // A keeper check that throws (no bsk binary, a status that does not parse) is reported on the tick and
+  // in the hourly job, and the jobs still run.
+  const browser = due.length && ctx.keeper ? await ctx.keeper.check(now).catch((err) => ({ status: 'keeper check failed', code: err.code ?? null, detail: err.message })) : null;
   const job = { instance, ledger, now, forceMode, keeper: ctx.keeper, browser, log: ctx.log ?? (() => {}), openSurface: ctx.openSurface, decide: ctx.decide, runCodex: ctx.runCodex, spawnJob: ctx.spawnJob, notify: ctx.notify, withPage: ctx.withPage };
   const summary = { at: now.toISOString(), forceMode, jobs: [], ...(browser && browser.status !== 'daemon answering' ? { browser } : {}) };
   try {

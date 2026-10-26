@@ -6,7 +6,7 @@
 // node scripts/verify-live-commits.mjs --repo <old checkout> --old <old tip> --target <v0 commit> [--v0 <v0 checkout>] [--manifest docs/live-commits.json] [--fill <doc> --at <commit>]
 import { execFileSync, spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 
@@ -52,7 +52,7 @@ export function fill(manifest, doc, at) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const { values: a } = parseArgs({ options: { repo: { type: 'string' }, old: { type: 'string' }, target: { type: 'string' }, v0: { type: 'string', default: process.cwd() }, manifest: { type: 'string', default: 'docs/live-commits.json' }, fill: { type: 'string' }, at: { type: 'string' } } });
-  const file = join(a.v0, a.manifest);
+  const file = resolve(a.v0, a.manifest);
   const manifest = JSON.parse(readFileSync(file, 'utf8'));
   if (a.fill) {
     writeFileSync(file, JSON.stringify(fill(manifest, a.fill, a.at), null, 2) + '\n');

@@ -1,8 +1,11 @@
 // Synthetic manifests and stub git predicates only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { check, fill } from '../scripts/verify-live-commits.mjs';
+import { tempDir } from './tmp.mjs';
 
 const id = (c) => c.repeat(40);
 const [A, B, C, OWN, TARGET] = [id('a'), id('b'), id('c'), id('1'), id('2')];
@@ -44,6 +47,14 @@ test('fill sets the owner commit only where the last owner doc matches and none 
   assert.deepEqual(out.entries.map((e) => e.ownerCommit), [null, TARGET, OWN]);
   assert.equal(manifest.entries[1].ownerCommit, null);
   assert.throws(() => fill(manifest, '010', '2222222'), RangeError);
+});
+
+test('an absolute --manifest path is read where it is, not under --v0', () => {
+  const file = join(tempDir('fsw-live-'), 'manifest.json');
+  writeFileSync(file, JSON.stringify({ ...base, entries: [entry(A, { ownerCommit: null })] }));
+  const r = spawnSync(process.execPath, ['scripts/verify-live-commits.mjs', '--v0', tempDir('fsw-v0-'), '--manifest', file, '--fill', '010', '--at', TARGET], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(JSON.parse(readFileSync(file, 'utf8')).entries[0].ownerCommit, TARGET);
 });
 
 test('the committed manifest lists full unique ids, each with an owner doc and no owner commit yet', () => {

@@ -6,13 +6,18 @@
 // notifies the operator. A refusal needs no quote: hiding work is the safe side.
 const norm = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
 // A sentence without its closing marks, since the model may keep or drop the final period.
-const bare = (s) => norm(s).replace(/[\s.!?。…~]+$/u, '');
-// The sentences of one message: split after a closing mark followed by a space, or at a line break.
-const sentencesOf = (text) => String(text ?? '').split(/(?<=[.!?。…~])\s+|\n+/u).map(bare).filter(Boolean);
+const bare = (s) => norm(s).replace(/[\s.!?？。…~]+$/u, '');
+// The sentences of one message with their closing marks: split after a closing mark followed by a space,
+// or at a line break.
+const sentencesOf = (text) => String(text ?? '').split(/(?<=[.!?？。…~])\s+|\n+/u).map(norm).filter(Boolean);
+// The whole text and each sentence of a message, any of which a quote may be.
+const unitsOf = (text) => [norm(text), ...sentencesOf(text)];
 const msgText = (m) => String(m.text ?? m.body ?? '');
 // Words that turn an answer into a no or a condition, in Korean and English. A false match only keeps the
 // work private until the operator records the answer.
-const NEGATION = /않|못|말아|말고|마세요|마시고|마십시오|싫|아니|거절|불가|곤란|어렵|비공개|삼가|(?:^|[\s,.!?])안(?=\s|돼|되|됩)|\b(?:no|not|never|don'?t|rather not)\b|n't\b/iu;
+const NEGATION = /않|못|말아|말고|마세요|마시고|마십시오|싫|아니|거절|불가|곤란|어렵|비공개|삼가|자제|내부|(?:^|[\s,.!?])안(?=\s|돼|되|됩)|\b(?:no|not|never|don'?t|rather not|private|confidential)\b|n't\b/iu;
+// A yes with a condition (leave the company name out, show only one page) is the operator's to scope.
+const CONDITION = /빼고|빼서|제외|만\s*올려|\b(?:except|without|only if|as long as)\b/iu;
 
 // jobs: every job of the thread, oldest first. Returns the deal signals to apply, or a reason the answer was
 // not applied, with the job it concerns.
@@ -42,8 +47,13 @@ export function permissionSignal({ thread, jobs, decision, at = new Date().toISO
   const since = prior.answeredAt ? Date.parse(prior.answeredAt) : -Infinity;
   const fresh = inbound.filter((m) => Date.parse(m.at) > since);
   const quote = bare(decision.permissionQuote);
-  const i = quote.length >= 2 ? fresh.findIndex((m) => bare(msgText(m)) === quote || sentencesOf(msgText(m)).includes(quote)) : -1;
+  const i = quote.length >= 2 ? fresh.findIndex((m) => unitsOf(msgText(m)).some((u) => bare(u) === quote)) : -1;
   if (i < 0) return none('grant whose quote is not a whole sentence of an inbound message after the delivery');
+  // My own words echoed back, or a question, answer nothing.
+  const mine = (thread.messages ?? []).filter((m) => m.direction === 'out').flatMap((m) => unitsOf(msgText(m)).map(bare));
+  if (mine.includes(quote)) return none('grant quoting a sentence of my own message');
+  if (unitsOf(msgText(fresh[i])).some((u) => bare(u) === quote && /[?？]$/u.test(u))) return none('grant quoted from a question');
   if (fresh.slice(i).some((m) => NEGATION.test(msgText(m)))) return none('grant quoted from a message that says no, or followed by one');
+  if (fresh.slice(i).some((m) => CONDITION.test(msgText(m)))) return none('grant with a condition, for the operator to scope');
   return { signals: [signal('permission_granted', job, { quote: norm(decision.permissionQuote), quoteAt: fresh[i].at })], reason: null, jobId: job.id };
 }

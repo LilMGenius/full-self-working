@@ -69,6 +69,29 @@ test('a fragment of a refusal, or a whole sentence from a message that says no, 
   assert.equal(hello.signal?.type, 'permission_granted');
 });
 
+test('a private ask, a question, an echo of my question or a conditional yes is never a grant', () => {
+  const at = '2026-10-20T11:00:00+09:00';
+  const ASK = '작업물을 포트폴리오에 소개해도 괜찮을까요?';
+  const cases = [
+    ['Please keep it private.', 'grant quoted from a message that says no, or followed by one'],
+    ['외부 공개는 자제 부탁드려요.', 'grant quoted from a message that says no, or followed by one'],
+    ['포트폴리오에 올려도 되나요?', 'grant quoted from a question'],
+    [ASK, 'grant quoting a sentence of my own message'],
+    ['회사명 빼고 올리시면 돼요.', 'grant with a condition, for the operator to scope'],
+    ['Sure, except the dashboard screenshots.', 'grant with a condition, for the operator to scope'],
+  ];
+  for (const [text, reason] of cases) {
+    const r = single({ thread: thread([msg('out', ASK, DELIVERED), msg('in', text, at)]), job, decision: decision('granted', text) });
+    assert.deepEqual([r.signal, r.reason], [null, reason], text);
+  }
+  // The echo is caught without its question mark too.
+  const echo = single({ thread: thread([msg('out', ASK, DELIVERED), msg('in', ASK.slice(0, -1), at)]), job, decision: decision('granted', ASK.slice(0, -1)) });
+  assert.equal(echo.reason, 'grant quoting a sentence of my own message');
+  // A plain yes after my question is still a grant.
+  const yes = single({ thread: thread([msg('out', ASK, DELIVERED), msg('in', GRANT, at)]), job, decision: decision('granted', GRANT) });
+  assert.equal(yes.signal?.type, 'permission_granted');
+});
+
 test('a refusal needs no quote and becomes permission_refused', () => {
   const r = single({ thread: thread([]), job, decision: decision('refused', null), at: '2026-10-20T12:00:00+09:00' });
   assert.equal(r.signal.type, 'permission_refused');

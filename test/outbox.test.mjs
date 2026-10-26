@@ -384,3 +384,32 @@ test('a cash quote left in sending stays counted against the cap once reconciled
   assert.deepEqual(quotaUsage(t.ledger, 'soomgo', NOON), { quotes: 1, cashKRW: 600 });
 });
 
+
+test('read-back after an interrupted send ignores an older bubble with the same text, and an undated delivery stays unobserved', async () => {
+  const s = setup();
+  const t = s.thread('t1');
+  const row = plan(s.ledger, { platform: 'kmong', threadId: t.id, kind: 'message', payload: msgPayload() });
+  setStatus(s.ledger, row.id, { from: 'planned', to: 'sending' });
+  s.ledger.updateOutbox(row.id, { updatedAt: NOON.toISOString() });
+  const old = new Date(NOON.getTime() - 3 * 3_600_000).toISOString();
+  const surface = scriptedSurface({ threads: { t1: { messages: [{ direction: 'out', text: TEXT, at: old, externalId: 'old' }], notices: [] } } });
+  const out = await s.run(surface);
+  assert.deepEqual(out.map((x) => x.action), ['unobserved']);
+  assert.equal(outMessages(s.ledger, t.id).length, 0);
+  const d = setup('soomgo');
+  const dt = d.thread('c1');
+  const del = plan(d.ledger, { platform: 'soomgo', threadId: dt.id, kind: 'delivery', payload: { text: '전달드립니다', files: [], runAt: 'r1' } });
+  setStatus(d.ledger, del.id, { from: 'planned', to: 'awaiting_operator', approvalId: '20261020-soomgo-0000dd01' });
+  resolve(d.ledger, '20261020-soomgo-0000dd01', { approve: true });
+  setStatus(d.ledger, del.id, { from: 'approved', to: 'sending' });
+  await d.run(scriptedSurface({ threads: { c1: { messages: [{ direction: 'out', text: '전달드립니다', at: null, externalId: 'x' }], notices: [] } } }));
+  assert.equal(d.ledger.getOutbox(del.id).status, 'unobserved');
+  const fresh = setup();
+  const ft = fresh.thread('t2');
+  const fr = plan(fresh.ledger, { platform: 'kmong', threadId: ft.id, kind: 'message', payload: msgPayload() });
+  setStatus(fresh.ledger, fr.id, { from: 'planned', to: 'sending' });
+  fresh.ledger.updateOutbox(fr.id, { updatedAt: NOON.toISOString() });
+  await fresh.run(scriptedSurface({ threads: { t2: { messages: [{ direction: 'out', text: TEXT, at: new Date(NOON.getTime() + 30_000).toISOString(), externalId: 'new' }], notices: [] } } }));
+  assert.equal(fresh.ledger.getOutbox(fr.id).status, 'observed');
+});
+

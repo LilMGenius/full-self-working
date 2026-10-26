@@ -26,6 +26,8 @@ export const handles = (surface, kind) => typeof surface?.[METHOD[kind]] === 'fu
 // goes back as it was and this platform's drain stops for the tick, as the pipeline did on pacing
 // (src/supervisor/run.mjs:239). 040 adds kmong's proposal refusals.
 export const NOT_SENT = ['FSW_PACING_LIMIT'];
+// The clock drift allowed between the machine and a platform's line times when reading a send back.
+export const READBACK_MARGIN_MS = 60_000;
 
 const norm = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
 // What leaves the machine: the operator's edit when there is one, else the planned text (003 Outbox).
@@ -46,16 +48,21 @@ async function readBack(surface, row) {
   if (row.kind === 'proposal') return { observed: false, reason: 'an interrupted proposal is not read back here; the projects job reads the proposal list for it', reconciled: true };
   if (row.kind === 'quote') return { observed: false, reason: 'the interrupted quote is not on the page', reconciled: true };
   const thread = await surface.read(row.payload.threadRef, { willReply: true });
+  // Only lines at or after the claim (updatedAt of the sending row), less a minute of clock drift, can be
+  // this send; an older bubble with the same text is an earlier message.
+  const since = Date.parse(row.updatedAt) - READBACK_MARGIN_MS;
+  const afterClaim = (at) => Date.parse(at ?? '') >= since;
   if (row.kind === 'pay_request') {
-    const since = Date.parse(row.updatedAt) - 60_000;
     const hit = (thread.notices ?? []).find((n) => {
       const c = classifyNotice(n);
-      return c?.event === 'pay_requested' && c.amountKRW === row.payload.amountKRW && Date.parse(n.at ?? '') >= since;
+      return c?.event === 'pay_requested' && c.amountKRW === row.payload.amountKRW && afterClaim(n.at);
     });
     return hit ? { observed: true, snippet: String(hit.text).slice(0, 160), reconciled: true } : { observed: false, reason: 'no request notice for ' + row.payload.amountKRW + ' KRW after the interrupted send', reconciled: true };
   }
   const want = norm(textOf(row));
-  const out = (thread.messages ?? []).find((m) => m.direction === 'out' && want && norm(m.text).includes(want));
+  // A message whose bubble carries no time is matched by text alone; a delivery, which carries files and the
+  // balance, needs a time after the claim and otherwise goes to the operator.
+  const out = (thread.messages ?? []).find((m) => m.direction === 'out' && want && norm(m.text).includes(want) && (m.at ? afterClaim(m.at) : row.kind !== 'delivery'));
   return out ? { observed: true, externalId: out.externalId ?? null, text: out.text, reconciled: true } : { observed: false, reason: 'the interrupted ' + row.kind + ' is not on the page', reconciled: true };
 }
 

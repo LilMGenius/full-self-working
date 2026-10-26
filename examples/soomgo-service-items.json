@@ -1,0 +1,84 @@
+{
+  "_note": "Items a customer request on soomgo may ask for, per offered service, that you can serve; soomgo sends a pro only the requests whose answers match these. Keep only what your profile backs: the seniority rows below stay at the junior level until your dated career supports more, and in-person options are left out because jobs run remotely. Headings and labels must match the soomgo item modal exactly; fsw services soomgo names any that changed.",
+  "웹 개발": {
+    "의뢰하려는 제작 상태를 선택해주세요.": [
+      "신규 제작",
+      "기존 웹 리뉴얼"
+    ],
+    "기획은 어느 정도 되어있나요?": [
+      "아이디어만 있음",
+      "필요 내용 정리되어 있음",
+      "상세한 기획 문서 있음",
+      "레이아웃, 디자인 구성 완료되어 있음"
+    ],
+    "원하는 숙련도의 개발자를 선택해주세요.": [
+      "주니어 (3년 이하)"
+    ],
+    "내부 인력 상황을 선택해주세요.": [
+      "기획 인력",
+      "디자인 인력",
+      "개발 인력",
+      "전문인력 없음"
+    ],
+    "어떻게 진행하기 원하시나요?": [
+      "온라인 진행 원해요.",
+      "어떤 방식이든 상관없어요."
+    ]
+  },
+  "소프트웨어 개발": {
+    "어떤 플랫폼을 원하시나요?": [
+      "Windows",
+      "Mac",
+      "Linux",
+      "고수와 상담 후 결정할게요."
+    ],
+    "어떤 종류의 개발을 원하시나요?": [
+      "일반 프로그램"
+    ],
+    "원하는 숙련도의 개발자가 있으신가요?": [
+      "상담 후 결정",
+      "주니어 (3년 이하)"
+    ],
+    "기획은 어느 정도 되어있나요?": [
+      "아이디어만 있음",
+      "필요 내용 정리되어 있음",
+      "상세한 기획 문서 있음",
+      "레이아웃, 디자인 등 구성 완료됨"
+    ]
+  },
+  "챗봇 개발": {
+    "어떤 플랫폼에서 사용하실 건가요?": [
+      "카카오톡",
+      "텔레그램",
+      "페이스북",
+      "디스코드"
+    ],
+    "어떤 기능을 원하시나요?": [
+      "고객센터 상담",
+      "쇼핑/결제 안내",
+      "예약 안내",
+      "배송 안내"
+    ],
+    "챗봇 형태를 선택해주세요.": [
+      "텍스트형",
+      "이미지형",
+      "고수와 상담 후 결정할게요."
+    ]
+  },
+  "인공지능(AI) 개발": {
+    "무엇을 기반으로 한 인공지능을 원하시나요?": [
+      "텍스트",
+      "이미지",
+      "고수와 상담 후 결정할게요."
+    ],
+    "라벨링된 데이터를 보유하고 있나요?": [
+      "네.",
+      "아니요."
+    ],
+    "어떤 작업을 원하시나요?": [
+      "분류",
+      "예측",
+      "고수와 상담 후 결정할게요."
+    ]
+  }
+}

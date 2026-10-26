@@ -19,7 +19,10 @@ const decision = (portfolioPermission, permissionQuote) => ({ intent: 'smalltalk
 test('a grant whose quote is in an inbound message after the delivery becomes permission_granted with the quote', () => {
   const r = permissionSignal({ thread: thread([msg('out', '작업물 전달드립니다. 포트폴리오에 써도 될까요?', DELIVERED), msg('in', '감사합니다!  ' + GRANT, '2026-10-20T11:00:00+09:00')]), job, decision: decision('granted', GRANT), at: '2026-10-20T12:00:00+09:00' });
   assert.equal(r.reason, null);
-  assert.deepEqual(r.signal, { type: 'permission_granted', platform: 'kmong', threadId: 7, jobId: 'kmong-k1', at: '2026-10-20T12:00:00+09:00', evidence: { quote: GRANT, source: 'brain' } });
+  assert.deepEqual(r.signal, { type: 'permission_granted', platform: 'kmong', threadId: 7, jobId: 'kmong-k1', at: '2026-10-20T12:00:00+09:00', evidence: { quote: GRANT, quoteAt: '2026-10-20T11:00:00+09:00', source: 'brain' } });
+  // The model may drop the closing mark; the sentence is the same.
+  const bare = permissionSignal({ thread: thread([msg('in', GRANT, '2026-10-20T11:00:00+09:00')]), job, decision: decision('granted', GRANT.slice(0, -1)) });
+  assert.equal(bare.signal?.type, 'permission_granted');
 });
 
 test('a grant quoting my own outbound message, an inbound before the delivery, or nothing is not accepted', () => {
@@ -31,10 +34,31 @@ test('a grant quoting my own outbound message, an inbound before the delivery, o
   for (const t of cases) {
     const r = permissionSignal({ thread: t, job, decision: decision('granted', GRANT) });
     assert.equal(r.signal, null);
-    assert.equal(r.reason, 'grant without a quote found in an inbound message after the delivery');
+    assert.equal(r.reason, 'grant whose quote is not a whole sentence of an inbound message after the delivery');
   }
   const thanksOnly = permissionSignal({ thread: thread([msg('in', '감사합니다!', '2026-10-20T11:00:00+09:00')]), job, decision: decision('granted', '감사합니다!'.slice(0, 1)) });
   assert.equal(thanksOnly.signal, null);
+});
+
+test('a fragment of a refusal, or a whole sentence from a message that says no, is never a grant', () => {
+  const at = '2026-10-20T11:00:00+09:00';
+  const cases = [
+    ['포트폴리오에 올리시는 건 안 됩니다.', '포트폴리오에 올리시는', 'grant whose quote is not a whole sentence of an inbound message after the delivery'],
+    ['포트폴리오에 올리시는 건 안 됩니다.', '포트폴리오에 올리시는 건 안 됩니다.', 'grant quoted from a message that says no, or followed by one'],
+    ['네, 받았습니다. 포트폴리오는 안 됩니다.', '네,', 'grant whose quote is not a whole sentence of an inbound message after the delivery'],
+    ['네, 받았습니다. 포트폴리오는 안 됩니다.', '네, 받았습니다.', 'grant quoted from a message that says no, or followed by one'],
+    ['Sure, but please do not post it publicly.', 'Sure, but please do not post it publicly.', 'grant quoted from a message that says no, or followed by one'],
+  ];
+  for (const [text, quote, reason] of cases) {
+    const r = permissionSignal({ thread: thread([msg('in', text, at)]), job, decision: decision('granted', quote) });
+    assert.deepEqual([r.signal, r.reason], [null, reason], text + ' / ' + quote);
+  }
+  // A yes followed by a later no is not a grant either.
+  const later = permissionSignal({ thread: thread([msg('in', GRANT, at), msg('in', '아, 생각해 보니 포트폴리오는 올리지 말아 주세요.', '2026-10-20T11:30:00+09:00')]), job, decision: decision('granted', GRANT) });
+  assert.equal(later.signal, null);
+  // A greeting that starts with 안 is not a no.
+  const hello = permissionSignal({ thread: thread([msg('in', '안녕하세요. ' + GRANT, at)]), job, decision: decision('granted', GRANT) });
+  assert.equal(hello.signal?.type, 'permission_granted');
 });
 
 test('a refusal needs no quote and becomes permission_refused', () => {
@@ -87,7 +111,7 @@ test('the step records a grant the page text does not back as permission.unverif
   const s = setup();
   await s.run('감사합니다!', { portfolioPermission: 'granted', permissionQuote: GRANT });
   assert.equal(s.ledger.getJob('kmong-k1').meta.portfolio.permission, 'pending');
-  assert.deepEqual(s.events('permission.unverified').map((e) => e.reason), ['grant without a quote found in an inbound message after the delivery']);
+  assert.deepEqual(s.events('permission.unverified').map((e) => e.reason), ['grant whose quote is not a whole sentence of an inbound message after the delivery']);
   assert.equal(s.events('deal.permission_granted').length, 0);
 });
 

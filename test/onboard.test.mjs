@@ -235,7 +235,9 @@ test('freelancer languages-and-birthdate picks each profile language from the li
         page.languages.push(page.typed.at(-1)[1]);
         return true;
       }
-      return arg?.selector ? true : { languages: [...page.languages], birthdate: page.birthdate };
+      // The search input loses its placeholder once a language is chosen, as on the live page.
+      if (arg?.selector) return !(page.languages.length && /placeholder/.test(arg.selector));
+      return { languages: [...page.languages], birthdate: page.birthdate };
     },
     click: async () => {},
     typeKeys: async (sel, text) => { page.typed.push([sel, text]); if (sel === '#inputBirthdate') page.birthdate = text; },

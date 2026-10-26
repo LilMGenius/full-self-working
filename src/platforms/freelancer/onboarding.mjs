@@ -11,7 +11,8 @@ export const MAX_SKILLS = 20;
 export const SUMMARY_MAX = 3000;
 const HEADLINE = 'input[placeholder="e.g. Data Scientist"]';
 const SUMMARY = 'main textarea';
-const LANGUAGE = 'input[placeholder="Please select the languages you speak"]';
+// The search input loses its placeholder once a language is chosen, so it is found inside its widget.
+const LANGUAGE = 'fl-multi-select input';
 const BIRTHDATE = '#inputBirthdate';
 
 export const STEPS = [

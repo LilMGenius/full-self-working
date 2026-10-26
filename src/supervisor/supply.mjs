@@ -70,12 +70,13 @@ export async function supplyReport(platform, { instance, ledger, now = new Date(
     if (typeof surface.supply === 'function') {
       const login = await surface.login();
       if (!login?.loggedIn) throw Object.assign(new Error('not logged in'), { code: 'FSW_SUPPLY_LOGIN' });
-      const offered = (await surface.supply()).services ?? [];
+      // A platform without request items on its services (kmong) answers services null, and its report has none.
+      const offered = (await surface.supply()).services;
       // A platform that matches requests to the items set on each offered service sends an unset one
       // nothing (AGENTS.md rule); a service the instance does not answer there is the operator's own, as in
       // fsw doctor's items check (src/cli/doctor.mjs:186-191 at 14d2f17).
       const answered = answeredServices(instance.config, platform);
-      report.services = { offered: offered.length, withoutItems: offered.filter((s) => !s.itemsSet && catalogServicesFor(descriptor, s.name)?.some((sv) => answered.includes(sv))).map((s) => s.name) };
+      if (offered) report.services = { offered: offered.length, withoutItems: offered.filter((s) => !s.itemsSet && catalogServicesFor(descriptor, s.name)?.some((sv) => answered.includes(sv))).map((s) => s.name) };
     }
   } catch (err) {
     report.status = 'partial';

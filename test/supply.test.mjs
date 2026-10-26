@@ -65,6 +65,13 @@ test('a report lists gigs by review state, offered services without items and th
   assert.equal(kmong.services, null);
 });
 
+test('a platform whose supply has no services list reports no services line', async () => {
+  const instance = makeInstance();
+  const kmong = await supplyReport('kmong', { instance, ledger: openLedger(':memory:'), now: NOW, openSurface: async () => ({ login: async () => ({ loggedIn: true }), supply: async () => ({ platform: 'kmong', listings: [], services: null }), stop: async () => {} }) });
+  assert.deepEqual([kmong.status, kmong.services], ['ok', null]);
+  assert.doesNotMatch(supplyLines({ reports: [kmong] })[0], /request items/);
+});
+
 test('a failing read, a missing login and a missing pipeline setting each leave a partial report with the reason', async () => {
   const ledger = openLedger(':memory:');
   const instance = makeInstance();

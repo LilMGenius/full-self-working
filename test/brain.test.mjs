@@ -162,7 +162,9 @@ test('a decision carries the portfolio answer with its quote; a grant without a 
   }
   const schema = DECISION_SCHEMA(ids);
   assert.ok(schema.required.includes('portfolioPermission') && schema.required.includes('permissionQuote'));
-  assert.deepEqual(schema.properties.portfolioPermission.enum, ['granted', 'refused', null]);
+  assert.deepEqual(schema.properties.portfolioPermission.enum, ['granted', 'conditional', 'refused', null]);
+  const conditional = parseDecision(decision({ portfolioPermission: 'conditional', permissionQuote: '네, 로고만 빼고 올려 주세요.' }), ids);
+  assert.deepEqual([conditional.portfolioPermission, conditional.permissionQuote, conditional.permissionIssue], ['conditional', '네, 로고만 빼고 올려 주세요.', null]);
 });
 
 test('a grant without its quote parses as no answer with the issue named, and the reply and quote stand', () => {

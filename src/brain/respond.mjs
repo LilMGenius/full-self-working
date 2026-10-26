@@ -68,8 +68,8 @@ export const DECISION_SCHEMA = (ids) => ({
     confidence: { type: 'number' },
     claimsUsed: { type: 'array', items: { type: 'string' } },
     statedBudgetKRW: { type: ['integer', 'null'], description: 'the budget the customer states for this work, in a request field or in the text, in KRW; null when none is stated' },
-    portfolioPermission: { type: ['string', 'null'], enum: ['granted', 'refused', null], description: 'the customer answered the portfolio question: granted, refused, or null when the conversation holds no answer' },
-    permissionQuote: { type: ['string', 'null'], description: 'the customer sentence that answers it, copied verbatim; null when portfolioPermission is null' },
+    portfolioPermission: { type: ['string', 'null'], enum: ['granted', 'conditional', 'refused', null], description: 'the customer answered the portfolio question: granted only when the consent sets no condition, limitation, preference or timing about what, where, how or when the work is shown; conditional when it sets one; refused; or null when the conversation holds no answer' },
+    permissionQuote: { type: ['string', 'null'], description: 'the customer sentence that answers it (for conditional, the sentence that sets the condition), copied verbatim; null when portfolioPermission is null' },
   },
 });
 
@@ -98,7 +98,7 @@ export function parseDecision(data, ids) {
   if (stated !== null && !(Number.isInteger(stated) && stated > 0)) throw bad('statedBudgetKRW');
   let permission = data.portfolioPermission ?? null;
   const permissionQuote = data.permissionQuote ?? null;
-  if (![null, 'granted', 'refused'].includes(permission)) throw bad('portfolioPermission ' + permission);
+  if (![null, 'granted', 'conditional', 'refused'].includes(permission)) throw bad('portfolioPermission ' + permission);
   if (permissionQuote !== null && typeof permissionQuote !== 'string') throw bad('permissionQuote');
   // A grant the model cannot quote is no grant, but the reply and the quote in the same answer still stand;
   // the loop records the dropped claim (permission.unverified) and notifies the operator.

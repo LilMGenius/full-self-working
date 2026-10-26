@@ -1,0 +1,148 @@
+// scripts/approvals-writeback.mjs on synthetic approval files in the shape src/brain/approvals.mjs wrote at
+// a8ae31c (status open, approved, rejected, dropped, sent, expired, blocked, unobserved) and on a scratch
+// instance whose outbox imported them through importApprovals; no live instance is read.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { openLedger } from '../src/core/ledger.mjs';
+import { importApprovals } from '../src/core/approvals-import.mjs';
+import { disagreement, fileOutcome, nextRecord } from '../scripts/approvals-writeback.mjs';
+import { tempDir } from './tmp.mjs';
+
+const AT = '2026-10-26T14:30:00.000Z';
+const row = (status, more = {}) => ({ id: 1, kind: 'message', status, updatedAt: AT, payload: { text: 'draft' }, operator: null, receipt: null, reason: null, ...more });
+
+test('fileOutcome maps each outbox status onto the approval file status the old code reads', () => {
+  assert.deepEqual(fileOutcome(row('observed')), { status: 'sent', closedAt: AT, finalText: 'draft' });
+  assert.deepEqual(fileOutcome(row('observed', { operator: { finalText: 'edited' } })).finalText, 'edited');
+  assert.deepEqual(fileOutcome(row('unobserved', { kind: 'quote', reason: 'no receipt', receipt: { pressed: true, pressedAt: '2026-10-26T14:00:00.000Z', costKRW: 4490 } })), { status: 'unobserved', closedAt: AT, detail: 'no receipt', pressed: { at: '2026-10-26T14:00:00.000Z', costKRW: 4490 } });
+  assert.deepEqual(fileOutcome(row('blocked', { reason: 'gate' })), { status: 'blocked', closedAt: AT, detail: 'gate' });
+  assert.deepEqual(fileOutcome(row('rejected', { operator: { resolvedAt: AT } })), { status: 'rejected', resolvedAt: AT });
+  assert.deepEqual(fileOutcome(row('rejected', { reason: 'job closed' })), { status: 'dropped', closedAt: AT, detail: 'job closed' });
+  assert.deepEqual(fileOutcome(row('stale', { kind: 'proposal', reason: 'project closed' })), { status: 'expired', closedAt: AT, detail: 'project closed' });
+  assert.deepEqual(fileOutcome(row('stale')).status, 'dropped');
+  assert.deepEqual(fileOutcome(row('sending')), { status: 'unobserved', closedAt: AT, detail: 'interrupted under v0; check the thread' });
+  assert.deepEqual(fileOutcome(row('planned')), { status: 'open' });
+  assert.deepEqual(fileOutcome(row('awaiting_operator')), { status: 'open' });
+  assert.deepEqual(fileOutcome(row('approved', { operator: { resolvedAt: AT, finalText: 'ok', edited: true } })), { status: 'approved', resolvedAt: AT, finalText: 'ok', edited: true });
+});
+
+test('disagreement passes a row that matches its file either way and names any other pair', () => {
+  assert.equal(disagreement(row('observed'), { status: 'sent' }), null);
+  assert.equal(disagreement(row('awaiting_operator'), { status: 'open' }), null);
+  assert.equal(disagreement(row('planned'), { status: 'open', deferredForBudget: {} }), null);
+  assert.equal(disagreement(row('rejected'), { status: 'dropped' }), null);
+  assert.equal(disagreement(row('unobserved'), { status: 'open', unobserved: true }), null);
+  assert.equal(disagreement(row('approved'), { status: 'sent' }), 'row 1 is approved, its file is sent');
+  assert.equal(disagreement(row('awaiting_operator'), { status: 'approved' }), 'row 1 is awaiting_operator, its file is approved');
+});
+
+test('a file the old code already sent or closed is never rewritten, and one that agrees is left alone', () => {
+  for (const status of ['sent', 'rejected', 'dropped', 'expired', 'blocked', 'unobserved']) assert.equal(nextRecord(row('approved'), { status }), null);
+  assert.equal(nextRecord(row('observed'), { status: 'open', unobserved: true }), null);
+  assert.equal(nextRecord(row('planned'), { status: 'open', deferredForBudget: {} }), null);
+  assert.equal(nextRecord(row('approved'), { status: 'approved' }), null);
+  assert.deepEqual(nextRecord(row('observed'), { id: 'x', status: 'approved', draft: 'draft' }), { id: 'x', status: 'sent', draft: 'draft', closedAt: AT, finalText: 'draft' });
+});
+
+const ID = { sent: '20261025-soomgo-0000000a', deferred: '20261026-soomgo-0000000b', rejected: '20261025-soomgo-0000000c', proposal: '20261025-kmong-0000000d', dropped: '20261025-soomgo-0000000e', approved: '20261025-soomgo-0000000f', oldSent: '20261024-soomgo-00000010' };
+const hash = (file) => createHash('sha256').update(readFileSync(file)).digest('hex');
+
+// A scratch instance whose outbox imported seven old files, then moved under v0 the way the drain and fsw
+// approve move rows: one sent, one still deferred by the cash caps, one rejected by the operator, one
+// proposal gone stale, one dropped by the job, one approved and unsent, one the old code had sent.
+function instanceWithOutbox() {
+  const instance = tempDir('fsw-writeback-');
+  const dir = join(instance, 'operator', 'approvals');
+  mkdirSync(dir, { recursive: true });
+  const file = (id, body) => writeFileSync(join(dir, id + '.json'), JSON.stringify({ id, createdAt: '2026-10-25T01:00:00.000Z', reason: 'needs approval', ...body }, null, 2) + '\n');
+  const l = openLedger(join(instance, 'ledger.sqlite'));
+  l.upsertThread({ platform: 'soomgo', externalId: 'r2', kind: 'request' });
+  file(ID.sent, { status: 'open', platform: 'soomgo', kind: 'message', threadRef: 'r1', draft: 'hello' });
+  file(ID.deferred, { status: 'open', platform: 'soomgo', kind: 'quote', threadRef: 'r2', threadKind: 'request', draft: 'quote text', quote: { amountKRW: 300000, priceType: 'fixed' }, service: 'detail_page_design', costKRW: 4490, reason: 'cash quote refused: daily cash budget spent (12000 + 4490 over 10000)' });
+  file(ID.rejected, { status: 'open', platform: 'soomgo', kind: 'quote', threadRef: 'r3', draft: 'q', quote: { amountKRW: 50000 } });
+  file(ID.proposal, { status: 'open', platform: 'kmong', kind: 'project_proposal', threadRef: '701', draft: 'proposal', project: { id: 701 } });
+  file(ID.dropped, { status: 'open', platform: 'soomgo', kind: 'message', threadRef: 'r5', draft: 'later' });
+  file(ID.approved, { status: 'approved', platform: 'soomgo', kind: 'message', threadRef: 'r6', draft: 'go', resolvedAt: '2026-10-25T02:00:00.000Z', finalText: 'go', edited: false });
+  file(ID.oldSent, { status: 'sent', platform: 'soomgo', kind: 'message', threadRef: 'r7', draft: 'done', closedAt: '2026-10-24T03:00:00.000Z' });
+  assert.equal(importApprovals(l, dir).imported, 7);
+  const by = (id) => l.outboxByApproval(id);
+  assert.deepEqual([by(ID.deferred).status, by(ID.proposal).kind, by(ID.proposal).payload.project], ['planned', 'proposal', { id: 701 }]);
+  l.updateOutbox(by(ID.sent).id, { status: 'observed', operator: { resolvedAt: AT, finalText: 'hello there', edited: true }, receipt: { observed: true }, updatedAt: AT });
+  l.updateOutbox(by(ID.rejected).id, { status: 'rejected', operator: { resolvedAt: AT, finalText: null, edited: false }, updatedAt: AT });
+  l.updateOutbox(by(ID.proposal).id, { status: 'stale', reason: 'project closed', updatedAt: AT });
+  l.updateOutbox(by(ID.dropped).id, { status: 'rejected', reason: 'job closed', updatedAt: AT });
+  l.addOutbox({ key: 'v0-only', platform: 'soomgo', kind: 'message', payload: { text: 'v0' }, status: 'awaiting_operator' });
+  l.close();
+  return { instance, dir, path: (id) => join(dir, id + '.json'), read: (id) => JSON.parse(readFileSync(join(dir, id + '.json'), 'utf8')) };
+}
+
+const cli = (instance, ...flags) => spawnSync(process.execPath, ['scripts/approvals-writeback.mjs', '--instance', instance, ...flags], { encoding: 'utf8', windowsHide: true });
+const hashes = (s) => Object.fromEntries(Object.values(ID).map((id) => [id, hash(s.path(id))]));
+
+test('a dry run writes nothing; --apply writes only the changed files and a second --apply writes none', () => {
+  const s = instanceWithOutbox();
+  const before = hashes(s);
+  const dry = cli(s.instance);
+  assert.equal(dry.status, 0, dry.stderr);
+  assert.deepEqual(hashes(s), before);
+  assert.match(dry.stdout, /^v0-only row 8 soomgo message is awaiting_operator: /m);
+  assert.match(dry.stdout, /^approvals-writeback: 8 outbox rows, 4 file\(s\) to write$/m);
+  const applied = cli(s.instance, '--apply');
+  assert.equal(applied.status, 0, applied.stderr);
+  assert.match(applied.stdout, new RegExp('^' + ID.sent + ': open -> sent sha256 [0-9a-f]{12} -> [0-9a-f]{12}$', 'm'));
+  assert.deepEqual([s.read(ID.sent).status, s.read(ID.sent).finalText, s.read(ID.sent).closedAt], ['sent', 'hello there', AT]);
+  assert.deepEqual([s.read(ID.rejected).status, s.read(ID.rejected).resolvedAt], ['rejected', AT]);
+  assert.deepEqual([s.read(ID.proposal).status, s.read(ID.proposal).detail, s.read(ID.proposal).project], ['expired', 'project closed', { id: 701 }]);
+  assert.deepEqual([s.read(ID.dropped).status, s.read(ID.dropped).detail], ['dropped', 'job closed']);
+  const after = hashes(s);
+  for (const id of [ID.deferred, ID.approved, ID.oldSent]) assert.equal(after[id], before[id], id + ' changed');
+  assert.equal(s.read(ID.deferred).status, 'open');
+  assert.ok(!readdirSync(s.dir).some((f) => f.endsWith('.tmp')));
+  const again = cli(s.instance, '--apply');
+  assert.match(again.stdout, /^approvals-writeback: 8 outbox rows, 0 file\(s\) written$/m);
+  assert.deepEqual(hashes(s), after);
+  assert.equal(cli(s.instance, '--check').status, 0);
+});
+
+test('--check names a row the old code sent after a rollback and writes nothing; --reconcile settles it', () => {
+  const s = instanceWithOutbox();
+  cli(s.instance, '--apply');
+  writeFileSync(s.path(ID.approved), JSON.stringify({ ...s.read(ID.approved), status: 'sent', closedAt: AT }, null, 2) + '\n');
+  const filesBefore = hashes(s);
+  const check = cli(s.instance, '--check');
+  assert.equal(check.status, 1);
+  assert.match(check.stdout, new RegExp('^' + ID.approved + ': row 6 is approved, its file is sent$', 'm'));
+  assert.match(check.stdout, /^approvals-writeback --check: 8 outbox rows, 1 disagreement\(s\)$/m);
+  assert.deepEqual(hashes(s), filesBefore);
+  const db = new DatabaseSync(join(s.instance, 'ledger.sqlite'), { readOnly: true });
+  assert.equal(db.prepare('SELECT status FROM outbox WHERE approval_id = ?').get(ID.approved).status, 'approved');
+  db.close();
+  const rec = cli(s.instance, '--reconcile');
+  assert.equal(rec.status, 0, rec.stdout);
+  assert.match(rec.stdout, /"reconciled":1/);
+  const db2 = new DatabaseSync(join(s.instance, 'ledger.sqlite'), { readOnly: true });
+  assert.equal(db2.prepare('SELECT status FROM outbox WHERE approval_id = ?').get(ID.approved).status, 'observed');
+  db2.close();
+  assert.deepEqual(hashes(s), filesBefore);
+});
+
+test('a ledger still at version 3 has no outbox, and every mode says so and exits 0', () => {
+  const instance = tempDir('fsw-writeback-v3-');
+  const db = new DatabaseSync(join(instance, 'ledger.sqlite'));
+  db.exec('CREATE TABLE events (id INTEGER PRIMARY KEY); PRAGMA user_version = 3');
+  db.close();
+  for (const flags of [[], ['--apply'], ['--check'], ['--reconcile']]) {
+    const r = cli(instance, ...flags);
+    assert.equal(r.status, 0, flags.join(' '));
+    assert.match(r.stdout, /ledger at version 3, no outbox yet/);
+  }
+  const db2 = new DatabaseSync(join(instance, 'ledger.sqlite'), { readOnly: true });
+  assert.equal(db2.prepare('PRAGMA user_version').get().user_version, 3);
+  db2.close();
+  assert.equal(cli(instance, '--apply', '--check').status, 2);
+});

@@ -4,6 +4,7 @@
 // (003 Outbox) instead of approval files.
 import { loadInstance } from '../core/instance.mjs';
 import { openLedger } from '../core/ledger.mjs';
+import { transaction } from '../core/tx.mjs';
 import { approvalView, resolve, settleSent, signalOf } from '../outbox/index.mjs';
 import { advance } from '../deal/index.mjs';
 import { applyEffects } from '../loop/effects.mjs';
@@ -54,12 +55,15 @@ export async function run(argv, ctx = {}) {
       // quote row holds the cash it cost and nothing sends it again.
       if (args.cost != null && !/^\d+$/.test(String(args.cost))) throw new Error('--cost needs a whole KRW amount, got ' + args.cost);
       const now = ctx.now ?? new Date();
-      const { row, receipt } = settleSent(ledger, first, { costKRW: args.cost != null ? Number(args.cost) : null, now });
-      const signal = signalOf(row, receipt, now);
-      if (signal) {
-        const r = advance(ledger, signal, { instance, descriptor: loadDescriptor(row.platform), now, loadRecipe });
-        await applyEffects(r.effects, { instance, ledger, notify: ctx.notify, loadRecipe });
-      }
+      // The settle and the deal signal commit together, so a deal that throws leaves the row unobserved for
+      // the operator to settle again. The signal is dated by the press when the surface recorded one, so the
+      // quote counts on the day its cash was spent.
+      const effects = transaction(ledger, () => {
+        const { row, receipt } = settleSent(ledger, first, { costKRW: args.cost != null ? Number(args.cost) : null, now });
+        const signal = signalOf(row, receipt, receipt.pressedAt ? new Date(receipt.pressedAt) : now);
+        return signal ? advance(ledger, signal, { instance, descriptor: loadDescriptor(row.platform), now, loadRecipe }).effects : [];
+      });
+      await applyEffects(effects, { instance, ledger, notify: ctx.notify, loadRecipe });
       log(first + ' sent, as the operator confirmed');
       return 0;
     }

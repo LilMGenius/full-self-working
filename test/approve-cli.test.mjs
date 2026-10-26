@@ -69,3 +69,24 @@ test('--sent --cost settles an unobserved quote once through the deal; a bad cos
   assert.equal(s.ledger.outboxByApproval('20261020-soomgo-0000bb02').status, 'awaiting_operator');
   assert.equal(s.ledger.listQuotes().length, 1);
 });
+
+test('--sent dates the quote by its press, and a deal that throws leaves the row unobserved', async () => {
+  const s = setup();
+  const row = s.waiting('r2', '20261020-soomgo-0000cc01', 'quote', { amountKRW: 300000, costKRW: 990, thread: { kind: 'request', stage: 'pre_order' } });
+  setStatus(s.ledger, row.id, { from: 'awaiting_operator', to: 'approved' });
+  setStatus(s.ledger, row.id, { from: 'approved', to: 'sending' });
+  const pressedAt = '2026-10-19T23:30:00.000Z';
+  setStatus(s.ledger, row.id, { from: 'sending', to: 'unobserved', reason: 'not observed', receipt: { observed: false, pressed: true, costKRW: 990, pressedAt } });
+  const real = s.ledger.addQuote;
+  s.ledger.addQuote = () => {
+    throw new Error('disk I/O error');
+  };
+  await assert.rejects(s.cli(['20261020-soomgo-0000cc01', '--sent']), /disk I\/O error/);
+  s.ledger.addQuote = real;
+  assert.equal(s.ledger.getOutbox(row.id).status, 'unobserved');
+  assert.equal(s.ledger.threadMessages(row.threadId).filter((m) => m.direction === 'out').length, 0);
+  assert.equal(await s.cli(['20261020-soomgo-0000cc01', '--sent']), 0);
+  const [q] = s.ledger.listQuotes();
+  assert.deepEqual([q.at, q.costKRW], [pressedAt, 990]);
+});
+

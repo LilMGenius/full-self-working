@@ -184,7 +184,8 @@ export async function drain(ledger, { platform, surface, authorize, ctx }) {
         out.push({ id: row.id, kind: row.kind, action: 'operator', approvalId: row.approvalId, reason });
         continue;
       }
-      const approvalId = newApprovalId(platform, now);
+      // An imported row keeps the id of the approval file it came from (fsw approve <id> stays the same).
+      const approvalId = row.approvalId ?? newApprovalId(platform, now);
       const reason = verdict.reasons.filter((r) => !HOLD_RULES.includes(r.rule)).map((r) => r.detail).join('; ');
       if (!setStatus(ledger, row.id, { from: 'planned', to: 'awaiting_operator', verdict, reason, approvalId })) {
         moved(row);

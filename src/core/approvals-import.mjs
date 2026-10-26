@@ -35,6 +35,33 @@ const fileStatusOf = (a) => (a.status === 'open' && a.unobserved === true ? 'uno
 const statusOf = (a) => STATUS_OF[fileStatusOf(a)];
 const pressOf = (a) => (a.pressed ? { pressed: true, pressedAt: a.pressed.at ?? null, costKRW: a.pressed.costKRW ?? null } : {});
 
+// A quote the 2c77326 pipeline refused at send time only because the Seoul day's cash caps were spent
+// (isDeferredForBudget, src/pipeline/thread.mjs:102 on main: open, no orderItem, and deferredForBudget set or
+// a reason starting "cash quote refused: daily "). The old code sent it in auto mode, oldest first, once a
+// later day's budget paid for it, and left it to the operator only when its service was no longer answered
+// or no day could pay it (thread.mjs:270-300). It imports as a planned quote, so the drain holds it under
+// budget.cash and sends it when the caps allow, exactly like a row v0 deferred (b223ed7); authorize sends
+// the other two cases to the operator (decision.answered, budget.unpayable).
+export const deferredForBudget = (a) => a.status === 'open' && a.unobserved !== true && !a.orderItem && a.kind === 'quote' && (a.deferredForBudget != null || /^cash quote refused: daily /.test(a.reason ?? ''));
+
+// What the drain and authorize read on a planned quote, rebuilt from the old file: the request thread its
+// cash is charged for, the price row the gate checks the amount against, and the decision authorize judges.
+// The old decision kept only its service and intent; it had already passed the confidence and operator rules
+// when it was deferred.
+function deferredPayload(ledger, a, threadId) {
+  const threadKind = a.threadKind ?? 'message';
+  return {
+    priceType: a.quote?.priceType ?? 'fixed',
+    service: a.service ?? null,
+    priceRow: a.priceRow ?? null,
+    serviceLabel: null,
+    requestId: threadKind === 'request' ? String(a.threadRef) : null,
+    customer: ledger.getThread(threadId)?.customer ?? null,
+    thread: { ...(a.item?.thread ?? {}), kind: threadKind, stage: a.item?.thread?.stage ?? 'pre_order' },
+    decision: { intent: a.intent ?? 'quote_request', service: a.service ?? null, quote: a.quote ?? null, reply: a.draft ?? null, needsOperator: false, operatorReason: null },
+  };
+}
+
 function threadIdFor(ledger, a) {
   if (Number.isInteger(a.threadId) && ledger.getThread(a.threadId)) return a.threadId;
   if (a.threadRef == null) return null;
@@ -44,7 +71,10 @@ function threadIdFor(ledger, a) {
 export function rowFromApproval(ledger, a) {
   const kind = KIND_OF[a.kind];
   if (!kind) return { skip: 'kind ' + a.kind + ' has no outbox kind' };
-  const status = statusOf(a);
+  const threadId = threadIdFor(ledger, a);
+  // A deferred quote whose thread the ledger lacks has nothing to send to, so it keeps the operator's mapping.
+  const deferred = deferredForBudget(a) && threadId != null;
+  const status = deferred ? 'planned' : statusOf(a);
   if (!status) return { skip: 'status ' + a.status + ' has no outbox status' };
   if (!a.platform || a.threadRef == null) return { skip: 'no platform or threadRef' };
   const text = a.finalText ?? a.draft ?? null;
@@ -55,10 +85,10 @@ export function rowFromApproval(ledger, a) {
     row: {
       key: outboxKey({ platform: a.platform, threadRef: String(a.threadRef), kind, text, amountKRW, files }),
       platform: a.platform,
-      threadId: threadIdFor(ledger, a),
+      threadId,
       jobId: a.jobId && ledger.getJob(a.jobId) ? a.jobId : null,
       kind,
-      payload: { text: a.draft ?? null, amountKRW, split: a.quote?.split ?? null, scope: a.quote?.scope ?? null, deliveryDays: a.quote?.deliveryDays ?? null, files, costKRW: a.costKRW ?? null, threadRef: String(a.threadRef), importedFrom: 'operator/approvals/' + a.id + '.json' },
+      payload: { text: a.draft ?? null, amountKRW, split: a.quote?.split ?? null, scope: a.quote?.scope ?? null, deliveryDays: a.quote?.deliveryDays ?? null, files, costKRW: a.costKRW ?? a.deferredForBudget?.costKRW ?? null, threadRef: String(a.threadRef), importedFrom: 'operator/approvals/' + a.id + '.json', ...(deferred ? deferredPayload(ledger, a, threadId) : {}) },
       verdict: null,
       status,
       reason: a.reason ?? null,

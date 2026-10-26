@@ -94,6 +94,9 @@ export async function step(platform, ctx) {
   try {
     surface = await (ctx.openSurface ?? defaultOpenSurface)(platform, ctx.surfaceOptions ?? {});
     result.login = await surface.login();
+    // A platform that signed out is signed in again from the operator's logins file, at most once an hour
+    // (the supervisor's signInAgain, 36400c4), before the operator is asked.
+    if (!result.login?.loggedIn && ctx.signInAgain) result.login = (await ctx.signInAgain({ id: platform, surface, instance, ledger, now })) ?? result.login;
     if (!result.login?.loggedIn) {
       await (ctx.notify ?? notifyOperator)(instance, { kind: 'login', title: platform + ' needs a login', body: 'Sign in to ' + descriptor.name + ' in ' + chromeName(instance.config) + '; the supervisor reads it again on the next tick.', dedupeKey: 'login:' + platform + ':' + dayKey(now) });
       return { ...result, status: 'failed', error: 'not logged in' };

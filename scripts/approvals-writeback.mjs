@@ -4,7 +4,8 @@
 // rollback, A2): the old code sends every operator/approvals/<id>.json whose status is approved (the
 // pipeline's flushApprovals and the projects job at a8ae31c), and v0 decides those items in the outbox.
 // This writes each imported row's outcome back into its file, so nothing v0 sent or settled goes out
-// again, and lists the rows v0 created that the old code cannot see. A file already in a final status
+// again, and writes each open row v0 planned itself as a file in the 2c77326 shape (v0OnlyFile), since the
+// old code never reads the outbox and would drop it. A file already in a final status
 // (the old code sent or closed it) is never rewritten. Every file is read and every write planned before
 // any file is written: an unreadable file or a row with no file status stops the run with exit 1 and
 // nothing written, since a partial write-back leaves the old code files it would send again. Dry run by
@@ -14,12 +15,13 @@
 // importApprovals, whose reconcile moves an open row under a final file (010 2.5), then checks the same
 // way. A ledger below version 4 has no outbox yet: every mode prints so and exits 0.
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { FINAL_FILE, KIND_OF as IMPORT_KIND, OPEN_ROW, SENT_FILE, STATUS_OF, importApprovals } from '../src/core/approvals-import.mjs';
+import { dayKey } from '../src/core/clock.mjs';
 import { openLedger, outboxKey } from '../src/core/ledger.mjs';
 
 // The status the importer reads a file as: an open file the old code could not observe is unobserved.
@@ -73,7 +75,57 @@ export function nextRecord(row, record) {
 }
 
 const sha = (text) => createHash('sha256').update(text).digest('hex');
-const OPEN_V0 = ['planned', 'awaiting_operator', 'approved', 'sending'];
+
+// Outbox kinds as the 2c77326 files name them (src/brain/approvals.mjs and its callers at a8ae31c).
+const OLD_KIND = { message: 'message', quote: 'quote', pay_request: 'pay_request', delivery: 'delivery', proposal: 'project_proposal' };
+
+// The file a row v0 planned itself is written under: the approval id v0 gave it (the drain gives one when a
+// row goes to the operator or turns unobserved), else one in the 2c77326 format (Seoul day, platform, eight
+// hex) taken from the row key, so a rerun picks the same file. --apply records that id on the row, so a
+// later forward import finds the row by it and never imports the file as a second row.
+export const v0OnlyId = (row) => row.approvalId ?? dayKey(new Date(row.createdAt)) + '-' + row.platform + '-' + createHash('sha1').update(row.key).digest('hex').slice(0, 8);
+
+// Which status the old file takes for a row v0 planned itself, chosen per status:
+// - awaiting_operator: open, so the operator still sees it (fsw approve under the old code);
+// - approved: approved, with the operator's final text, so the old code sends it once;
+// - sending and unobserved: unobserved, with the press for a cash quote (a sending quote may have spent its
+//   cost, as v0's drain counts it), so nobody resends it blind;
+// - planned: open. Nothing proves the old pipeline plans the same item again from its thread: v0 recorded
+//   the thread's decision in the ledger, and an order item or a proposal comes from state the old code may
+//   not revisit. Open puts it before the operator instead of dropping it.
+// - observed, rejected, stale, blocked: no file, nothing is left to send.
+const V0_STATUS = { awaiting_operator: 'open', planned: 'open', approved: 'approved', sending: 'unobserved', unobserved: 'unobserved' };
+
+// Pure: the 2c77326 approval file for a row v0 planned itself, {record} or {problem}, or null for none.
+export function v0OnlyFile(row) {
+  const status = V0_STATUS[row.status];
+  if (!status) return null;
+  const p = row.payload ?? {};
+  const kind = OLD_KIND[row.kind];
+  if (!kind) return { problem: 'row ' + row.id + ' has kind ' + row.kind + ', which no approval file names' };
+  if (p.threadRef == null || p.threadRef === '') return { problem: 'row ' + row.id + ' has no thread ref, so the old code could not send it' };
+  const text = p.text ?? null;
+  const record = {
+    id: v0OnlyId(row), status, createdAt: row.createdAt, platform: row.platform, kind, threadRef: p.threadRef, threadId: row.threadId ?? null,
+    reason: row.reason ?? p.reason ?? 'planned by v0 as outbox row ' + row.id, draft: text, title: row.platform + ' ' + kind + ' from the v0 outbox', fromOutbox: row.id,
+  };
+  if (row.kind === 'message' || row.kind === 'quote') {
+    Object.assign(record, {
+      threadKind: p.thread?.kind ?? 'message', service: p.service ?? p.decision?.service ?? null, intent: p.decision?.intent ?? null, violations: [], warnings: [],
+      quote: row.kind === 'quote' ? { amountKRW: p.amountKRW ?? null, scope: p.scope ?? null, deliveryDays: p.deliveryDays ?? null, split: p.split ?? null, priceType: p.priceType ?? 'fixed' } : null,
+      item: { platform: row.platform, kind: row.kind, text, amountKRW: p.amountKRW ?? null, thread: p.thread ?? { stage: 'pre_order' } },
+      priceRow: p.priceRow ?? null, costKRW: p.costKRW ?? null,
+    });
+  } else if (row.kind === 'proposal') Object.assign(record, { project: p.project ?? null, proposal: p.proposal ?? null, critic: p.critic ?? null, service: p.service ?? null, violations: p.violations ?? [] });
+  else if (row.kind === 'pay_request') Object.assign(record, { orderItem: true, jobId: row.jobId ?? null, amountKRW: p.amountKRW ?? null, part: p.part ?? null, rest: p.rest === true, paidBeforeKRW: p.paidBeforeKRW ?? null });
+  else Object.assign(record, { orderItem: true, jobId: row.jobId ?? null, files: p.files ?? [], captures: p.captures ?? [], runAt: p.runAt ?? null, balanceKRW: null });
+  if (status === 'approved') Object.assign(record, { resolvedAt: row.operator?.resolvedAt ?? row.updatedAt, finalText: row.operator?.finalText ?? text, edited: row.operator?.edited === true });
+  if (status === 'unobserved') {
+    const spent = row.kind === 'quote' && (row.receipt?.pressed === true || (row.status === 'sending' && p.costKRW != null && row.receipt?.pressed !== false));
+    Object.assign(record, { closedAt: row.updatedAt, detail: row.reason ?? 'sent under v0 and not observed; check the thread', ...(spent ? { pressed: { at: row.receipt?.pressedAt ?? row.updatedAt, costKRW: row.receipt?.costKRW ?? p.costKRW ?? null } } : {}) });
+  }
+  return { record };
+}
 
 // The outbox key the importer gives a file (rowFromApproval in src/core/approvals-import.mjs), or null
 // for a file it cannot key.
@@ -135,7 +187,18 @@ export function planWriteback(rows, { records, unreadable }) {
   const notes = [];
   for (const row of rows) {
     if (!row.approvalId || !row.payload?.importedFrom) {
-      if (OPEN_V0.includes(row.status)) notes.push('v0-only row ' + row.id + ' ' + row.platform + ' ' + row.kind + ' is ' + row.status + ': the old code cannot see it; the operator settles it on the platform');
+      const made = v0OnlyFile(row);
+      if (!made) continue;
+      if (made.problem) {
+        problems.push(made.problem);
+        continue;
+      }
+      const id = made.record.id;
+      const found = records.get(id);
+      if (found && FINAL_FILE.includes(fileStatus(found.record))) continue;
+      const next = found ? { ...found.record, ...made.record } : made.record;
+      if (found && JSON.stringify(next) === JSON.stringify(found.record)) continue;
+      writes.push({ id, file: found?.file ?? null, before: found?.text ?? '', from: found ? found.record.status : 'none (v0 row ' + row.id + ')', next, assign: row.approvalId ? null : { rowId: row.id, approvalId: id, updatedAt: row.updatedAt } });
       continue;
     }
     const found = records.get(row.approvalId);
@@ -203,9 +266,27 @@ export function writeback(instance, mode = 'dry') {
     const text = JSON.stringify(w.next, null, 2) + '\n';
     lines.push(w.id + ': ' + w.from + ' -> ' + w.next.status + (mode === 'apply' ? '' : ' (dry run)') + ' sha256 ' + sha(w.before).slice(0, 12) + (mode === 'apply' ? ' -> ' + sha(text).slice(0, 12) : ''));
     if (mode === 'apply') {
-      writeFileSync(w.file + '.tmp', text);
-      renameSync(w.file + '.tmp', w.file);
-      if (readFileSync(w.file, 'utf8') !== text) throw new Error(w.file + ' did not read back as written');
+      const file = w.file ?? join(dir, w.id + '.json');
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(file + '.tmp', text);
+      renameSync(file + '.tmp', file);
+      if (readFileSync(file, 'utf8') !== text) throw new Error(file + ' did not read back as written');
+    }
+  }
+  // The ids of files written for rows v0 planned itself go onto those rows, so a later import finds each
+  // row by its file and never imports the file as a second row.
+  const assigns = writes.map((w) => w.assign).filter(Boolean);
+  if (mode === 'apply' && assigns.length) {
+    const l = openLedger(file0);
+    try {
+      l.db.exec('BEGIN');
+      for (const a of assigns) l.updateOutbox(a.rowId, { approvalId: a.approvalId, updatedAt: a.updatedAt });
+      l.db.exec('COMMIT');
+    } catch (err) {
+      l.db.exec('ROLLBACK');
+      throw err;
+    } finally {
+      l.close();
     }
   }
   lines.push('approvals-writeback: ' + rows.length + ' outbox rows, ' + writes.length + ' file(s) ' + (mode === 'apply' ? 'written' : 'to write'));

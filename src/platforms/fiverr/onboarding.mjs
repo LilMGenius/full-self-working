@@ -81,6 +81,9 @@ export function skillCandidates(profile, configured = null) {
 }
 
 export const LEVELS = ['BEGINNER', 'INTERMEDIATE', 'PRO'];
+
+// Whether the avatar shows a saved picture: any image other than Fiverr's generic avatar asset.
+export const photoSet = (src) => !!src && !/generic_asset\/.*avatar\.svg/.test(src);
 export function skillLevel(instance) {
   const v = String(instance.config?.onboarding?.fiverr?.skillLevel ?? 'INTERMEDIATE').toUpperCase();
   return LEVELS.includes(v) ? v : 'INTERMEDIATE';
@@ -143,7 +146,7 @@ async function readPage(session) {
       name: field('Add display name'),
       title: field('Add title'),
       about: about ? about.value : aboutText,
-      photo: !!document.querySelector('img[src*="profile"], img[alt*="profile" i]') && !/Add profile picture|Upload photo/i.test(document.body.innerText.slice(0, 600)),
+      avatar: document.querySelector('input[name="profile[image]"]')?.parentElement?.querySelector('img')?.src ?? null,
     };
   });
   const wall = challengeOf({ title: page.heading, text: page.text.slice(0, 2000) });
@@ -230,7 +233,6 @@ async function profileStep(session, ctx) {
   const todo = unsetFields(want, page, seen);
   const candidates = skillCandidates(p, instance.config?.onboarding?.fiverr?.skills);
   const missingSkills = candidates.filter((c) => !seen.skills.some((s) => s.toLowerCase() === c.toLowerCase()));
-  const photoFile = instance.config?.onboarding?.photo ?? null;
   const notes = [];
   if (!want.name) notes.push('profile.person.nameEn does not fit 3 to 15 characters');
   if (!want.about) notes.push('profile.summary_en does not fit 150 to 600 characters');
@@ -254,20 +256,11 @@ async function profileStep(session, ctx) {
       throw err;
     }
   }
-  let photo = 'set';
-  const hasPhotoInput = await session.evaluate(() => !!document.querySelector('input[name="profile[image]"]'));
-  const photoMissing = /profile picture/.test(parseProfileText((await readPage(session)).text).missing ?? '');
-  if (photoMissing || (!page.photo && hasPhotoInput)) {
-    if (!photoFile) photo = 'missing';
-    else {
-      await session.evaluate(() => Object.assign(document.querySelector('input[name="profile[image]"]').style, { display: 'block', width: '200px', height: '30px', opacity: '1' }));
-      await session.setFiles('input[name="profile[image]"]', photoFile);
-      await sleep(4000);
-      const crop = await session.evaluate(() => [...document.querySelectorAll('button')].filter((b) => b.offsetWidth).map((b) => b.innerText.trim()).find((t) => /^(Save|Apply|Done|Upload)$/.test(t)) ?? null);
-      if (crop) await press(session, buttonByText(crop));
-      photo = 'uploaded';
-    }
-  }
+  // Mapped 2026-10-26: the avatar is a label around the profile[image] input and an img that shows
+  // Fiverr's generic avatar.svg until a picture is saved. A picture the script sent through the label
+  // brought up Fiverr's own press-and-hold check, and after it passed the page returned to its start
+  // with the generic avatar (twice), so the picture is the operator's: the camera icon on the review page.
+  const photo = photoSet(page.avatar) ? 'set' : 'missing';
   const after = await readPage(session);
   const seenAfter = parseProfileText(after.text);
   const left = unsetFields(want, after, seenAfter);
@@ -275,7 +268,7 @@ async function profileStep(session, ctx) {
   if (seenAfter.missing) left.push('page still asks for: ' + seenAfter.missing);
   const detail = 'skills added: ' + (added.join(', ') || 'none') + '; photo ' + photo + (left.length ? '; not set: ' + left.join(', ') : '');
   if (added.length || todo.length) ctx.ledger?.addEvent({ kind: 'platform.profile_edit', platform: 'fiverr', ref: 'profile', payload: { fields: todo, skills: added } });
-  if (photo === 'missing') return result('profile', 'needs-operator', detail + '; set onboarding.photo to a public photo of the operator');
+  if (photo === 'missing') return result('profile', 'needs-operator', detail + '; add the profile picture with the camera icon on Review your new profile (/seller_onboarding/overview), then Continue');
   return result('profile', left.length ? 'needs-operator' : 'done', detail);
 }
 

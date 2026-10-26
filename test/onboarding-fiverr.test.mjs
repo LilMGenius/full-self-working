@@ -2,7 +2,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
-import { STEPS, aboutOf, addSkill, displayName, gateTexts, languagesOf, onboard, parseProfileText, skillCandidates, skillLevel, titleOf, unsetFields } from '../src/platforms/fiverr/onboarding.mjs';
+import { STEPS, aboutOf, addSkill, displayName, gateTexts, languagesOf, onboard, parseProfileText, photoSet, skillCandidates, skillLevel, titleOf, unsetFields } from '../src/platforms/fiverr/onboarding.mjs';
+
+test('the generic avatar reads as no picture, so the camera picture is left to the operator', () => {
+  assert.equal(photoSet('https://fiverr-res.cloudinary.com/image/upload/f_svg,q_auto/v1/attachments/generic_asset/asset/abc-1764388017226/avatar.svg'), false);
+  assert.equal(photoSet(null), false);
+  assert.equal(photoSet('https://fiverr-res.cloudinary.com/t_profile_original,q_auto,f_auto/attachments/profile/photo/abc/me.jpg'), true);
+});
 
 test('a spent hourly action budget ends the run with a report instead of a crash', async () => {
   const session = {

@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { openLedger, outboxKey } from '../src/core/ledger.mjs';
 import { importApprovals } from '../src/core/approvals-import.mjs';
-import { disagreement, duplicateNext, fileKey, fileOutcome, nextRecord, planWriteback, v0OnlyFile } from '../scripts/approvals-writeback.mjs';
+import { assignIds, disagreement, duplicateNext, fileKey, fileOutcome, nextRecord, planWriteback, v0OnlyFile, writeback } from '../scripts/approvals-writeback.mjs';
 import { tempDir } from './tmp.mjs';
 
 const AT = '2026-10-26T14:30:00.000Z';
@@ -82,7 +82,8 @@ function instanceWithOutbox() {
   return { instance, dir, path: (id) => join(dir, id + '.json'), read: (id) => JSON.parse(readFileSync(join(dir, id + '.json'), 'utf8')) };
 }
 
-const cli = (instance, ...flags) => spawnSync(process.execPath, ['scripts/approvals-writeback.mjs', '--instance', instance, ...flags], { encoding: 'utf8', windowsHide: true });
+// A task name no machine registers, so the guard reads no real scheduled task.
+const cli = (instance, ...flags) => spawnSync(process.execPath, ['scripts/approvals-writeback.mjs', '--instance', instance, '--task', 'fsw-test-no-such-task', ...flags], { encoding: 'utf8', windowsHide: true });
 const hashes = (s) => Object.fromEntries(Object.values(ID).map((id) => [id, hash(s.path(id))]));
 
 test('a dry run writes nothing; --apply writes only the changed files and a second --apply writes none', () => {
@@ -273,4 +274,40 @@ test('a v0 proposal file is an order item: the old chat flush skips it and the o
   assert.equal(oldProjectsJobTakes(file), true);
   assert.deepEqual([file.orderItem, file.project.id, file.quote, file.warnings, file.finalText ?? file.draft], [true, 701, { amountKRW: 2000000 }, [], 'proposal text']);
   assert.equal(oldChatFlushTakes(v0OnlyFile(v0row('approved', 'message', { operator: { resolvedAt: AT, finalText: 'x' } })).record, 'soomgo'), true);
+});
+
+test('--apply and --reconcile refuse while a live supervisor holds the lock or the task serving the instance runs, and write nothing', () => {
+  const s = instanceWithOutbox();
+  const before = hashes(s);
+  mkdirSync(join(s.instance, 'run'), { recursive: true });
+  writeFileSync(join(s.instance, 'run', 'supervisor.pid'), process.pid + '\n');
+  for (const flag of ['--apply', '--reconcile']) {
+    const r = cli(s.instance, flag);
+    assert.equal(r.status, 1, flag);
+    assert.match(r.stdout, new RegExp('^approvals-writeback ' + flag + ' refused: pid ' + process.pid + ' holds the instance lock; .*nothing was written$', 'm'));
+  }
+  assert.equal(cli(s.instance).status, 0);
+  writeFileSync(join(s.instance, 'run', 'supervisor.pid'), '999999\n');
+  const running = writeback(s.instance, 'apply', { alive: () => false, task: () => ({ state: 'Running', instance: s.instance }) });
+  assert.equal(running.exit, 1);
+  assert.match(running.lines[0], /refused: the scheduled task reads Running for this instance/);
+  assert.deepEqual(hashes(s), before);
+  assert.equal(writeback(s.instance, 'apply', { alive: () => false, task: () => ({ state: 'Running', instance: join(s.instance, 'other') }) }).exit, 0);
+});
+
+test('the id of a written v0 file goes onto its row only while the row keeps its status, and updatedAt stays', () => {
+  const instance = tempDir('fsw-writeback-cas-');
+  const file = join(instance, 'ledger.sqlite');
+  const l = openLedger(file);
+  const t = l.upsertThread({ platform: 'soomgo', externalId: 'r1', kind: 'request' });
+  const row = l.addOutbox({ key: 'k1', platform: 'soomgo', threadId: t.id, kind: 'message', status: 'planned', payload: { text: 'x', threadRef: 'r1' }, createdAt: '2026-10-26T01:00:00.000Z' });
+  const other = l.addOutbox({ key: 'k2', platform: 'soomgo', threadId: t.id, kind: 'message', status: 'planned', payload: { text: 'y', threadRef: 'r1' }, createdAt: '2026-10-26T01:00:00.000Z' });
+  l.updateOutbox(other.id, { status: 'sending' });
+  l.close();
+  const moved = assignIds(file, [{ rowId: row.id, approvalId: '20261026-soomgo-00000001', status: 'planned', updatedAt: row.updatedAt }, { rowId: other.id, approvalId: '20261026-soomgo-00000002', status: 'planned', updatedAt: other.updatedAt }]);
+  assert.deepEqual(moved.map((m) => m.rowId), [other.id]);
+  const db = new DatabaseSync(file, { readOnly: true });
+  const got = db.prepare('SELECT id, approval_id, updated_at FROM outbox ORDER BY id').all();
+  db.close();
+  assert.deepEqual(got.map((g) => [g.approval_id, g.id === row.id ? g.updated_at === row.updatedAt : true]), [['20261026-soomgo-00000001', true], [null, true]]);
 });

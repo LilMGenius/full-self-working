@@ -78,7 +78,9 @@ export function liveLockHolder(instance, alive = pidAlive) {
 // <instance>/run/fsw-run.vbs, so the instance is two folders above the .vbs its action names. instance is
 // null when the action names no .vbs; state is '' when the task does not exist.
 export function readTask(name) {
-  const cmd = '$t = Get-ScheduledTask -TaskName ' + "'" + name.replace(/'/g, "''") + "'" + ' -ErrorAction SilentlyContinue; if ($t) { [string]$t.State; [string]$t.Actions[0].Arguments }';
+  // exit 0: Get-ScheduledTask leaves exit code 1 for a missing task even with SilentlyContinue, and a
+  // missing task is an answer (state ''), not a failed read.
+  const cmd = '$t = Get-ScheduledTask -TaskName ' + "'" + name.replace(/'/g, "''") + "'" + ' -ErrorAction SilentlyContinue; if ($t) { [string]$t.State; [string]$t.Actions[0].Arguments }; exit 0';
   const [state = '', args = ''] = execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', cmd], { encoding: 'utf8', windowsHide: true }).split(/\r?\n/);
   return { state: state.trim(), instance: taskInstance(args) };
 }
@@ -95,7 +97,7 @@ const sameDir = (x, y) => resolve(x).toLowerCase() === resolve(y).toLowerCase();
 export function taskBlocks(task, instance) {
   if (task.state !== 'Running') return null;
   if (task.instance && !sameDir(task.instance, instance)) return null;
-  return 'the scheduled task reads Running' + (task.instance ? ' for this instance' : ' and its instance cannot be read') + '; stop it first (Stop-ScheduledTask fsw-supervisor); nothing was replaced';
+  return 'the scheduled task reads Running' + (task.instance ? ' for this instance' : ' and its instance cannot be read') + '; stop it first (Stop-ScheduledTask fsw-supervisor)';
 }
 
 // Whether file lies inside dir, compared case-insensitively as Windows paths are.
@@ -112,7 +114,7 @@ export function restore(snap, to, instance, { alive = pidAlive, task = () => rea
   const holder = liveLockHolder(instance, alive);
   if (holder) throw new Error('pid ' + holder + ' holds the instance lock; stop the supervisor first (Stop-ScheduledTask fsw-supervisor, then Stop-Process); nothing was replaced');
   const blocked = taskBlocks(task(), instance);
-  if (blocked) throw new Error(blocked);
+  if (blocked) throw new Error(blocked + '; nothing was replaced');
   const tmp = to + '.restore.tmp';
   copyFileSync(snap, tmp);
   if (sha256(tmp) !== record.sha256) throw new Error('the copied snapshot does not match its sha256; nothing was replaced');

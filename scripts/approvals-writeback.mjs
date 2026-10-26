@@ -13,7 +13,10 @@
 // nothing and exits 1 while an
 // imported row and its file disagree (050 2.1, before a forward move); --reconcile first runs
 // importApprovals, whose reconcile moves an open row under a final file (010 2.5), then checks the same
-// way. A ledger below version 4 has no outbox yet: every mode prints so and exits 0.
+// way. A ledger below version 4 has no outbox yet: every mode prints so and exits 0. --apply and
+// --reconcile write files and the ledger, so they refuse while a live supervisor holds the instance lock or
+// the scheduled task serving the instance reads Running (the checks scripts/ledger-snapshot.mjs uses);
+// rollback-takeover runs this after it stopped both.
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -23,6 +26,8 @@ import { parseArgs } from 'node:util';
 import { FINAL_FILE, KIND_OF as IMPORT_KIND, OPEN_ROW, SENT_FILE, STATUS_OF, importApprovals } from '../src/core/approvals-import.mjs';
 import { dayKey } from '../src/core/clock.mjs';
 import { openLedger, outboxKey } from '../src/core/ledger.mjs';
+import { pidAlive } from '../src/supervisor/run.mjs';
+import { liveLockHolder, readTask, taskBlocks } from './ledger-snapshot.mjs';
 
 // The status the importer reads a file as: an open file the old code could not observe is unobserved.
 const fileStatus = (record) => (record.status === 'open' && record.unobserved === true ? 'unobserved' : record.status);
@@ -203,7 +208,7 @@ export function planWriteback(rows, { records, unreadable }) {
       if (found && FINAL_FILE.includes(fileStatus(found.record))) continue;
       const next = found ? { ...found.record, ...made.record } : made.record;
       if (found && JSON.stringify(next) === JSON.stringify(found.record)) continue;
-      writes.push({ id, file: found?.file ?? null, before: found?.text ?? '', from: found ? found.record.status : 'none (v0 row ' + row.id + ')', next, assign: row.approvalId ? null : { rowId: row.id, approvalId: id, updatedAt: row.updatedAt } });
+      writes.push({ id, file: found?.file ?? null, before: found?.text ?? '', from: found ? found.record.status : 'none (v0 row ' + row.id + ')', next, assign: row.approvalId ? null : { rowId: row.id, approvalId: id, status: row.status, updatedAt: row.updatedAt } });
       continue;
     }
     const found = records.get(row.approvalId);
@@ -225,14 +230,44 @@ export function planWriteback(rows, { records, unreadable }) {
   return { writes, problems, notes };
 }
 
-// mode: 'dry' | 'apply' | 'check' | 'reconcile'. Returns {lines, exit}.
-export function writeback(instance, mode = 'dry') {
+// Gives each written v0-only row the id of its file, as a compare-and-set on the status the row had when
+// its file was planned, with updatedAt left as it was. Returns the assigns whose row moved meanwhile.
+export function assignIds(ledgerFile, assigns) {
+  const l = openLedger(ledgerFile);
+  const moved = [];
+  try {
+    l.db.exec('BEGIN');
+    for (const a of assigns) if (!l.updateOutbox(a.rowId, { approvalId: a.approvalId, updatedAt: a.updatedAt }, { from: a.status })) moved.push(a);
+    l.db.exec('COMMIT');
+  } catch (err) {
+    l.db.exec('ROLLBACK');
+    throw err;
+  } finally {
+    l.close();
+  }
+  return moved;
+}
+
+// Why a writing mode must not run now, or null: a live supervisor holds the lock, or the task serving
+// this instance reads Running.
+export function supervisorRuns(instance, { alive = pidAlive, task = () => readTask('fsw-supervisor') } = {}) {
+  const holder = liveLockHolder(instance, alive);
+  if (holder) return 'pid ' + holder + ' holds the instance lock; stop the supervisor first (Stop-ScheduledTask fsw-supervisor, then Stop-Process)';
+  return taskBlocks(task(), instance);
+}
+
+// mode: 'dry' | 'apply' | 'check' | 'reconcile'. Returns {lines, exit}. guard holds supervisorRuns' readers.
+export function writeback(instance, mode = 'dry', guard = {}) {
   const lines = [];
   const file0 = join(instance, 'ledger.sqlite');
   const probe = new DatabaseSync(file0, { readOnly: true });
   const version = probe.prepare('PRAGMA user_version').get().user_version;
   probe.close();
   if (version < 4) return { lines: ['approvals-writeback: ledger at version ' + version + ', no outbox yet; nothing imported'], exit: 0 };
+  if (mode === 'apply' || mode === 'reconcile') {
+    const why = supervisorRuns(instance, guard);
+    if (why) return { lines: ['approvals-writeback --' + mode + ' refused: ' + why + '; nothing was written'], exit: 1 };
+  }
   const dir = join(instance, 'operator', 'approvals');
   const ledger = openLedger(file0);
   let rows;
@@ -282,16 +317,10 @@ export function writeback(instance, mode = 'dry') {
   // row by its file and never imports the file as a second row.
   const assigns = writes.map((w) => w.assign).filter(Boolean);
   if (mode === 'apply' && assigns.length) {
-    const l = openLedger(file0);
-    try {
-      l.db.exec('BEGIN');
-      for (const a of assigns) l.updateOutbox(a.rowId, { approvalId: a.approvalId, updatedAt: a.updatedAt });
-      l.db.exec('COMMIT');
-    } catch (err) {
-      l.db.exec('ROLLBACK');
-      throw err;
-    } finally {
-      l.close();
+    const moved = assignIds(file0, assigns);
+    if (moved.length) {
+      lines.push(...moved.map((a) => 'row ' + a.rowId + ' moved from ' + a.status + ' after its file ' + a.approvalId + '.json was written; run the write-back again'));
+      return { lines, exit: 1 };
     }
   }
   lines.push('approvals-writeback: ' + rows.length + ' outbox rows, ' + writes.length + ' file(s) ' + (mode === 'apply' ? 'written' : 'to write'));
@@ -299,12 +328,12 @@ export function writeback(instance, mode = 'dry') {
 }
 
 if (process.argv[1] && pathToFileURL(realpathSync(process.argv[1])).href === import.meta.url) {
-  const { values: a } = parseArgs({ options: { instance: { type: 'string' }, apply: { type: 'boolean', default: false }, check: { type: 'boolean', default: false }, reconcile: { type: 'boolean', default: false } } });
+  const { values: a } = parseArgs({ options: { instance: { type: 'string' }, apply: { type: 'boolean', default: false }, check: { type: 'boolean', default: false }, reconcile: { type: 'boolean', default: false }, task: { type: 'string', default: 'fsw-supervisor' } } });
   if (!a.instance || [a.apply, a.check, a.reconcile].filter(Boolean).length > 1) {
-    console.error('usage: approvals-writeback.mjs --instance <instance> [--apply | --check | --reconcile]');
+    console.error('usage: approvals-writeback.mjs --instance <instance> [--apply | --check | --reconcile] [--task fsw-supervisor]');
     process.exit(2);
   }
-  const { lines, exit } = writeback(a.instance, a.apply ? 'apply' : a.check ? 'check' : a.reconcile ? 'reconcile' : 'dry');
+  const { lines, exit } = writeback(a.instance, a.apply ? 'apply' : a.check ? 'check' : a.reconcile ? 'reconcile' : 'dry', { task: () => readTask(a.task) });
   for (const l of lines) console.log(l);
   process.exit(exit);
 }

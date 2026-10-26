@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 const { NODE_TEST_CONTEXT, ...env } = process.env;
 const here = dirname(fileURLToPath(import.meta.url));
 // Each file below made temp directories without removing them; together they cover the helper shapes in use.
-const SAMPLES = ['fx.test.mjs', 'ledger.test.mjs', 'economics.test.mjs', 'instance.test.mjs'];
+const SAMPLES = ['fx.test.mjs', 'ledger.test.mjs', 'economics.test.mjs', 'instance.test.mjs', 'outbox.test.mjs'];
 
 test('test files leave nothing behind in the temp folder', (t) => {
   const scratch = mkdtempSync(join(tmpdir(), 'fsw-leakguard-'));

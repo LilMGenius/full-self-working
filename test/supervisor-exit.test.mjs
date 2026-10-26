@@ -17,7 +17,8 @@ const src = (p) => JSON.stringify(pathToFileURL(join(repoRoot, 'src', p)).href);
 const FAKE_DAEMON = [
   "const fs = require('node:fs');",
   "fs.appendFileSync('pids', process.pid + '\\n');",
-  "try { fs.closeSync(fs.openSync('daemon.lock', 'wx')); } catch { process.exit(1); }",
+  "let fd; try { fd = fs.openSync('daemon.lock', 'wx'); } catch { process.exit(1); }",
+  'fs.writeSync(fd, String(process.pid)); fs.closeSync(fd);',
   'setInterval(() => {}, 1000);',
 ].join('\n');
 
@@ -27,12 +28,18 @@ function supervisorScript(body) {
     'import { createBrowserKeeper } from ' + src('supervisor/keepalive.mjs') + ';',
     'import { loadInstance } from ' + src('core/instance.mjs') + ';',
     "import { spawn } from 'node:child_process';",
-    "import { appendFileSync } from 'node:fs';",
+    "import { appendFileSync, existsSync, readFileSync } from 'node:fs';",
+    // Waits for an event a fake daemon writes to disk, so a check never runs ahead of a daemon that a
+    // loaded machine has not started yet (a fixed settle lost that race under two concurrent suites).
+    'const until = async (what, seen) => { const end = Date.now() + 30000; while (!seen()) { if (Date.now() > end) throw new Error("timed out waiting for " + what); await new Promise((r) => setTimeout(r, 25)); } };',
+    "const pidsSeen = () => (existsSync('pids') ? readFileSync('pids', 'utf8').split(/\\s+/).filter(Boolean).map(Number) : []);",
+    'const gone = (pid) => { try { process.kill(pid, 0); return false; } catch { return true; } };',
     'const instance = loadInstance({ dir: process.argv[2] });',
     'process.chdir(process.argv[3]);',
     'const base = { instance, log: () => {}, holdAwake: async () => ({ pid: 0, stop() {} }), probe: () => ({ ok: true }), checkout: () => true, sleep: async () => {} };',
     body,
     'process.exitCode = await run(argv, ctx);',
+    "console.log('returned ' + Date.now());",
   ].join('\n');
 }
 
@@ -59,9 +66,14 @@ const alive = (pid) => {
 
 function runSupervisorProcess({ dir, work }) {
   const started = Date.now();
-  const r = spawnSync(process.execPath, [join(work, 'supervisor.mjs'), dir, work], { encoding: 'utf8', timeout: 20_000, windowsHide: true });
+  const r = spawnSync(process.execPath, [join(work, 'supervisor.mjs'), dir, work], { encoding: 'utf8', timeout: 90_000, windowsHide: true });
+  const exited = Date.now();
   const pids = existsSync(join(work, 'pids')) ? readFileSync(join(work, 'pids'), 'utf8').split(/\s+/).filter(Boolean).map(Number) : [];
-  return { status: r.status, seconds: (Date.now() - started) / 1000, stdout: r.stdout, stderr: r.stderr, pids };
+  const returned = Number(/^returned (\d+)$/m.exec(r.stdout ?? '')?.[1]);
+  const lockHolder = existsSync(join(work, 'daemon.lock')) ? Number(readFileSync(join(work, 'daemon.lock'), 'utf8')) : null;
+  // The bound is measured from the moment run() returned, the claim under test, rather than from the
+  // start, which on a loaded machine includes every child's start-up.
+  return { status: r.status, seconds: (exited - started) / 1000, afterReturn: returned ? (exited - returned) / 1000 : null, stdout: r.stdout, stderr: r.stderr, pids, lockHolder };
 }
 
 function killAll(pids) {
@@ -73,7 +85,14 @@ test('a supervisor that hands over ends the daemon it started and exits 75, also
   // which loses the lock and exits; the first daemon must still end with the supervisor.
   const paths = setup([
     'let reads = 0;',
-    'const status = async () => { reads += 1; return reads === 1 || reads === 3 ? { daemon: false } : { daemon: true, browsers: 1 }; };',
+    // Read 2 answers once the first daemon holds the lock; read 4 once the second has started, lost the lock and exited.
+    'const status = async () => {',
+    '  reads += 1;',
+    '  if (reads === 1 || reads === 3) return { daemon: false };',
+    '  if (reads === 2) await until("the first daemon to take the lock", () => existsSync("daemon.lock") && readFileSync("daemon.lock", "utf8").length > 0);',
+    '  if (reads === 4) await until("the second daemon to lose the lock and exit", () => pidsSeen().length === 2 && gone(pidsSeen()[1]));',
+    '  return { daemon: true, browsers: 1 };',
+    '};',
     'const states = [{ head: "a", detached: true, target: "a" }, { head: "a", detached: true, target: "b" }];',
     'let i = 0;',
     'const argv = [];',
@@ -84,9 +103,10 @@ test('a supervisor that hands over ends the daemon it started and exits 75, also
   const r = runSupervisorProcess(paths);
   try {
     assert.equal(r.pids.length, 2, 'the keeper started two daemons: ' + r.stderr);
-    assert.equal(r.status, 75, 'the supervisor exits with the restart code in time: ' + r.seconds + ' s, ' + r.stderr);
-    assert.ok(r.seconds < 15, 'exited after ' + r.seconds + ' s');
-    assert.equal(alive(r.pids[0]), false, 'the daemon that held the lock ended with the supervisor');
+    assert.equal(r.status, 75, 'the supervisor exits with the restart code: ' + r.seconds + ' s, ' + r.stderr);
+    assert.ok(r.afterReturn !== null && r.afterReturn < 10, 'exited ' + r.afterReturn + ' s after run() returned');
+    assert.equal(r.lockHolder, r.pids[0], 'the first daemon held the lock');
+    assert.equal(alive(r.lockHolder), false, 'the daemon that held the lock ended with the supervisor');
   } finally {
     killAll(r.pids);
   }
@@ -95,6 +115,7 @@ test('a supervisor that hands over ends the daemon it started and exits 75, also
 test('a supervisor whose child outlives its stop still exits with its code within the grace period', () => {
   const paths = setup([
     "const child = spawn(process.execPath, ['daemon.js'], { stdio: ['ignore', 'pipe', 'pipe'] });",
+    'await until("the child to start", () => pidsSeen().length === 1);',
     'const argv = ["--once"];',
     'const ctx = { ...base, log: (line) => console.log(line), codeState: () => ({ head: "a", detached: true, target: "a" }),',
     '  createBrowserKeeper: () => ({ stop() {}, check: async () => ({ status: "test" }) }),',
@@ -103,8 +124,8 @@ test('a supervisor whose child outlives its stop still exits with its code withi
   const r = runSupervisorProcess(paths);
   try {
     assert.equal(r.pids.length, 1, r.stderr);
-    assert.equal(r.status, 0, 'a stopped supervisor exits 0 in time: ' + r.seconds + ' s, ' + r.stderr);
-    assert.ok(r.seconds < 15, 'exited after ' + r.seconds + ' s');
+    assert.equal(r.status, 0, 'a stopped supervisor exits 0: ' + r.seconds + ' s, ' + r.stderr);
+    assert.ok(r.afterReturn !== null && r.afterReturn < 10, 'exited ' + r.afterReturn + ' s after run() returned');
     assert.match(r.stdout, /a handle was still open 5000 ms after the supervisor returned \(.*ProcessWrap.*\); exiting with 0/, 'the forced exit names what held the loop');
   } finally {
     killAll(r.pids);

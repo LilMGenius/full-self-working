@@ -17,12 +17,24 @@ import { pathToFileURL } from 'node:url';
 import { pageExpression } from '../browser/driver.mjs';
 
 export const DEFAULT_CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
-export const PROFILE_PREFIX = 'fsw-render-';
+const PROFILE_PREFIX = 'fsw-render-';
+// Ending a process tree is a local system call; one that has not answered by then is reported, not awaited.
+const KILL_TIMEOUT_MS = 10000;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const exited = (proc) => proc.exitCode !== null || proc.signalCode !== null;
 const describe = (err) => (err?.code ? err.code + ' ' : '') + (err?.message ?? String(err));
 const removeDir = (dir) => rmSync(dir, { recursive: true, force: true });
+
+// Settles with promise, or rejects once ms pass, so a call that ignores its own timeout cannot outlive a
+// deadline either.
+function within(promise, ms, what) {
+  let timer;
+  const late = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new RenderError('FSW_RENDER_TIMEOUT', what + ' did not answer within ' + ms + ' ms')), ms);
+  });
+  return Promise.race([promise, late]).finally(() => clearTimeout(timer));
+}
 
 export class RenderError extends Error {
   constructor(code, message, detail = {}) {
@@ -51,8 +63,9 @@ async function readActivePort(profile, proc, timeoutMs) {
 // process of a Chrome tree carries the browser's --user-data-dir (read 2026-10-27: the browser,
 // crashpad-handler, gpu-process, utility and renderer children), so a folder still names its tree after
 // the browser itself exited. Windows has no process list with command lines short of CIM, which costs
-// one to three seconds a call, so it runs only when a removal has already failed or leftovers exist.
-export function profileProcesses() {
+// one to three seconds a call, so it runs only when a removal has already failed or leftovers exist, and
+// timeoutMs ends the listing process when the caller's time is up.
+function profileProcesses({ timeoutMs = 60000 } = {}) {
   return new Promise((ok, reject) => {
     const done = (parse) => (err, stdout) => {
       if (err) return reject(new RenderError('FSW_RENDER_PROCESSES', 'cannot list processes: ' + err.message));
@@ -62,7 +75,7 @@ export function profileProcesses() {
         reject(new RenderError('FSW_RENDER_PROCESSES', 'cannot read the process list: ' + e.message));
       }
     };
-    const opts = { windowsHide: true, timeout: 60000, maxBuffer: 32 * 1024 * 1024 };
+    const opts = { windowsHide: true, timeout: Math.max(1, Math.round(timeoutMs)), maxBuffer: 32 * 1024 * 1024 };
     if (process.platform === 'win32') {
       const query = "Get-CimInstance Win32_Process -Filter \"CommandLine LIKE '%--user-data-dir=%'\" | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress";
       execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', query], opts, done((out) => {
@@ -76,15 +89,17 @@ export function profileProcesses() {
 }
 
 // Ends a process and every process it started. taskkill /T finds the children through the parent pid, so
-// it reaches the tree only while the browser is alive.
-export function killTree(pid) {
+// it reaches the tree only while the browser is alive. A taskkill that runs past timeoutMs is ended.
+function killTree(pid, { timeoutMs = KILL_TIMEOUT_MS } = {}) {
   return new Promise((ok) => {
-    if (process.platform === 'win32') execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true }, () => ok());
+    if (process.platform === 'win32') execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, timeout: Math.max(1, Math.round(timeoutMs)) }, () => ok());
     else {
       try {
         process.kill(pid, 'SIGKILL');
-      } catch {
-        // already gone
+      } catch (err) {
+        // ESRCH: the process is already gone. Anything else (EPERM) leaves it running; the error is
+        // returned, and the caller's next process list still names the process.
+        if (err.code !== 'ESRCH') return ok({ error: err });
       }
       ok();
     }
@@ -96,11 +111,13 @@ export function killTree(pid) {
 // is ended with its whole tree. When the removal still fails, a process of the tree outlived the browser
 // (crashpad-handler, gpu-process, a utility with an open database journal; 2026-10-26 left GrShaderCache,
 // GPUPersistentCache, DIPS-wal and first_party_sets.db-journal), so the processes naming the folder are
-// ended and awaited before the folder is removed again.
+// ended and awaited before the folder is removed again. treeWaitMs is a deadline on the clock: every
+// process list and kill inside it gets only the time left, so a slow list cannot stretch the wait.
 export async function releaseProfile(profile, { proc = null, processes = profileProcesses, kill = killTree, remove = removeDir, wait = sleep, exitWaitMs = 5000, treeWaitMs = 20000, pollMs = 250 } = {}) {
   if (proc && !exited(proc)) {
-    await kill(proc.pid);
-    for (let waited = 0; !exited(proc) && waited < exitWaitMs; waited += 50) await wait(50);
+    await within(kill(proc.pid, { timeoutMs: KILL_TIMEOUT_MS }), KILL_TIMEOUT_MS, 'taskkill').catch(() => {});
+    const exitBy = Date.now() + exitWaitMs;
+    while (!exited(proc) && Date.now() < exitBy) await wait(50);
   }
   let error = null;
   const attempt = () => {
@@ -117,20 +134,24 @@ export async function releaseProfile(profile, { proc = null, processes = profile
   const ended = new Set();
   let held = [];
   let listing = null;
-  for (let waited = 0; ; waited += pollMs) {
+  const deadline = Date.now() + treeWaitMs;
+  for (;;) {
+    const left = deadline - Date.now();
+    if (left <= 0) break;
     try {
-      held = (await processes()).filter((p) => p.commandLine.includes(name));
+      held = (await within(processes({ timeoutMs: left }), left, 'the process list')).filter((p) => p.commandLine.includes(name));
     } catch (err) {
       listing = err;
       break;
     }
-    if (!held.length || waited >= treeWaitMs) break;
-    for (const p of held) {
-      if (ended.has(p.pid)) continue;
-      ended.add(p.pid);
-      await kill(p.pid);
-    }
-    await wait(pollMs);
+    if (!held.length) break;
+    const fresh = held.filter((p) => !ended.has(p.pid));
+    for (const p of fresh) ended.add(p.pid);
+    const killLeft = deadline - Date.now();
+    if (killLeft <= 0) break;
+    await within(Promise.all(fresh.map((p) => kill(p.pid, { timeoutMs: Math.min(KILL_TIMEOUT_MS, killLeft) }))), killLeft, 'taskkill').catch(() => {});
+    const pause = Math.min(pollMs, deadline - Date.now());
+    if (pause > 0) await wait(pause);
   }
   if (!held.length) {
     // A handle can close a moment after its process is gone (an indexer or a scanner reading the folder).
@@ -150,17 +171,19 @@ export async function releaseProfile(profile, { proc = null, processes = profile
 // leaves alone a folder another process has just made and not yet handed to its Chrome. Returns
 // {removed, kept, failed: [{profile, error}]}; the process list is read only when there is a candidate.
 export async function sweepLeftovers({ dir = tmpdir(), processes = profileProcesses, remove = removeDir, minAgeMs = 10 * 60_000, now = Date.now() } = {}) {
+  const out = { removed: [], kept: [], failed: [] };
   const candidates = readdirSync(dir, { withFileTypes: true })
     .filter((d) => d.isDirectory() && d.name.startsWith(PROFILE_PREFIX))
     .map((d) => d.name)
     .filter((name) => {
       try {
         return now - statSync(join(dir, name)).mtimeMs >= minAgeMs;
-      } catch {
+      } catch (err) {
+        // A folder another start removed between the listing and the stat is gone; any other error is reported.
+        if (err.code !== 'ENOENT') out.failed.push({ profile: join(dir, name), removed: false, error: describe(err) });
         return false;
       }
     });
-  const out = { removed: [], kept: [], failed: [] };
   if (!candidates.length) return out;
   const lines = (await processes()).map((p) => p.commandLine);
   for (const name of candidates) {
@@ -178,7 +201,7 @@ export async function sweepLeftovers({ dir = tmpdir(), processes = profileProces
   return out;
 }
 
-export const reportLeftover = ({ profile, error }) =>
+const reportLeftover = ({ profile, error }) =>
   process.emitWarning('render profile ' + profile + ' could not be removed (' + error + '); the next renderer start removes it once no process holds it', { code: 'FSW_RENDER_LEFTOVER' });
 
 function connect(url) {

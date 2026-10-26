@@ -74,6 +74,39 @@ test('a folder that cannot be removed is returned with its cause instead of thro
   assert.match(blind.error, /^EPERM .*; powershell not found$/);
 });
 
+
+test('the tree wait ends at its deadline however slow the process list is', async () => {
+  const always = () => {
+    throw eperm();
+  };
+  const slow = (ms, list) => async ({ timeoutMs } = {}) => {
+    calls.push(timeoutMs);
+    // unref: a list left hanging past the deadline must not keep the test process alive.
+    await new Promise((r) => setTimeout(r, ms).unref());
+    return list;
+  };
+  let calls = [];
+  // A list that answers in 300 ms and always names the folder: the old loop counted only the pauses, so it
+  // ran about nine lists (some 4,900 ms) for a 2,000 ms wait.
+  let t0 = Date.now();
+  const held = await releaseProfile(PROFILE, { remove: always, processes: slow(300, [child(7, 'utility')]), kill: async () => {}, wait: (ms) => new Promise((r) => setTimeout(r, ms)), treeWaitMs: 2000, pollMs: 250 });
+  const heldMs = Date.now() - t0;
+  assert.equal(held.removed, false);
+  assert.ok(heldMs < 2000 + 300 + 1600, 'the wait took ' + heldMs + ' ms for a 2,000 ms deadline');
+  assert.ok(calls.every((ms) => ms > 0 && ms <= 2000), 'each list gets at most the time left: ' + calls.join(', '));
+  // A list that never answers is cut off at the deadline and reported, and a kill that hangs does not hold it.
+  calls = [];
+  t0 = Date.now();
+  const stuck = await releaseProfile(PROFILE, { remove: always, processes: slow(60_000, []), kill: () => new Promise(() => {}), wait: noWait, treeWaitMs: 500 });
+  const stuckMs = Date.now() - t0;
+  assert.ok(stuckMs < 1500, 'a list that never answers held the wait ' + stuckMs + ' ms');
+  assert.match(stuck.error, /the process list did not answer within \d+ ms/);
+  t0 = Date.now();
+  const hung = await releaseProfile(PROFILE, { remove: always, processes: async () => [child(7, 'utility')], kill: () => new Promise(() => {}), wait: noWait, treeWaitMs: 500 });
+  assert.ok(Date.now() - t0 < 1500, 'a kill that never returns held the wait ' + (Date.now() - t0) + ' ms');
+  assert.match(hung.error, /still held by pid 7/);
+});
+
 test('the sweep removes old render folders no process names and keeps fresh, held and unrelated ones', async () => {
   const dir = tempDir('fsw-sweep-');
   const now = Date.now();

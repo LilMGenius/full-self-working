@@ -15,7 +15,9 @@
 // Without --apply it prints the nine steps and runs nothing. Exit 0: rolled back and live; 1: live on the
 // old line, but a later step failed and is named; 2: the write-back did not finish (v0 restarted on
 // --from), or no live lock with a fresh tick within --abort-after-min of the newest supervisor.tick before
-// the rollback began, so the gap takeover-check measures stays under its eight minutes; 3: a usage error.
+// the rollback began, so the gap takeover-check measures stays under its eight minutes, or the task did not
+// start on a second try (the failure is printed); 3: a usage error, or the task is missing or disabled, in
+// which case nothing was stopped, since a stopped supervisor no task can start stays down.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
@@ -29,20 +31,22 @@ const ps = (cmd) => execFileSync('powershell', ['-NoProfile', '-NonInteractive',
 
 // Pure: the ordered steps, printed in a dry run and run in order under --apply.
 export const steps = ({ repo, code, instance, old, from, task }) => [
-  ['stop the task', 'Stop-ScheduledTask -TaskName ' + task],
+  ['stop the task', 'Stop-ScheduledTask -TaskName ' + task + ' (first checks that the task exists and is not Disabled; refuses with nothing stopped otherwise)'],
   ['stop the lock holder', 'Stop-Process -Id <pid in ' + join(instance, 'run', 'supervisor.pid') + '> -Force'],
   ['write approval outcomes back', 'node scripts/approvals-writeback.mjs --instance ' + instance + ' --apply'],
   ['leave main in the main checkout', 'git -C ' + repo + ' switch --detach --quiet (only when step 5 runs and symbolic-ref -q HEAD is refs/heads/main)'],
   ['move main back', 'git -C ' + repo + ' update-ref -m rollback refs/heads/main ' + old + ' ' + from + ' (skipped when refs/heads/main already is ' + old + ', so a rerun changes nothing)'],
   ['return the main checkout to main', 'git -C ' + repo + ' switch --quiet main (only when step 4 detached it, in a finally of its own)'],
   ['check out the old line', 'git -C ' + code + ' checkout --detach --quiet ' + old + ' (always: finally after step 1; ' + from + ' instead when steps 2 or 3 failed, so the old code never starts over files the write-back did not update)'],
-  ['start the task', 'Start-ScheduledTask -TaskName ' + task + ' (always: finally after step 1)'],
+  ['start the task', 'Start-ScheduledTask -TaskName ' + task + ' (always: finally after step 1; retried once, exit 2 with the failure when both fail)'],
   ['prove a live lock and a fresh tick', 'poll ' + join(instance, 'run', 'supervisor.pid') + ' and supervisor.tick until --abort-after-min after the newest tick'],
 ];
 
 // The real side effects; test/rollback-takeover.test.mjs passes its own task controller and clock.
 export const realIo = (a) => ({
   ps,
+  // The task's state, '' when it does not exist.
+  taskState: (name) => ps('(Get-ScheduledTask -TaskName ' + "'" + name.replace(/'/g, "''") + "'" + ' -ErrorAction SilentlyContinue).State'),
   git: (args) => execFileSync('git', args, { encoding: 'utf8', windowsHide: true }).trim(),
   gitQuiet: (args) => spawnSync('git', args, { encoding: 'utf8', windowsHide: true }),
   writeback: () => spawnSync(process.execPath, [fileURLToPath(new URL('./approvals-writeback.mjs', import.meta.url)), '--instance', a.instance, '--apply'], { encoding: 'utf8', windowsHide: true }),
@@ -75,11 +79,17 @@ export async function runRollback(a, io) {
   const lastTick = io.lastTick(null);
   const deadline = (lastTick ? Date.parse(lastTick) : t0) + abortMs;
   const until = deadline > t0 ? deadline : t0 + abortMs;
+  const state = io.taskState(a.task);
+  if (!state || state === 'Disabled') {
+    say('task ' + a.task + ' is ' + (state || 'missing') + '; nothing was stopped, since no task could start a supervisor again');
+    return 3;
+  }
   io.ps('Stop-ScheduledTask -TaskName ' + a.task + ' -ErrorAction SilentlyContinue');
   say('task stopped');
   let oldPid = null;
   let failed = null;
   let startedAt = null;
+  let startFailed = null;
   // True once step 3 finished; until then the old line must not start (see the header).
   let wroteBack = false;
   try {
@@ -116,13 +126,21 @@ export async function runRollback(a, io) {
       say('check out ' + line.slice(0, 7) + ' failed: ' + err.message);
     }
     startedAt = new Date(io.now()).toISOString();
-    try {
-      io.ps('Start-ScheduledTask -TaskName ' + a.task);
-      say('task started');
-    } catch (err) {
-      failed ??= 'start the task: ' + err.message;
-      say('start the task failed: ' + err.message);
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        io.ps('Start-ScheduledTask -TaskName ' + a.task);
+        say('task started' + (attempt > 1 ? ' on the second try' : ''));
+        startFailed = null;
+        break;
+      } catch (err) {
+        startFailed = 'start the task: ' + err.message;
+        say('start the task failed (try ' + attempt + ' of 2): ' + err.message);
+      }
     }
+  }
+  if (startFailed) {
+    say('no supervisor runs: ' + startFailed + (failed ? '; earlier ' + failed : '') + '; start it by hand (Start-ScheduledTask ' + a.task + ')');
+    return 2;
   }
   if (deadline <= t0) say('the last tick at ' + lastTick + ' is already ' + a['abort-after-min'] + ' min old; waiting until ' + new Date(until).toISOString());
   while (io.now() < until) {

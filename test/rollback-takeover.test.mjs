@@ -22,10 +22,10 @@ test('the nine steps put the write-back before the compare-and-swap, the two swi
   const detach = at(/switch --detach --quiet/);
   const cas = at(/update-ref -m rollback refs\/heads\/main a{40} b{40}/);
   const back = at(/switch --quiet main/);
-  assert.deepEqual([at(/^Stop-ScheduledTask -TaskName fsw-supervisor$/), wb, detach, cas, back], [0, 2, 3, 4, 5]);
+  assert.deepEqual([at(/^Stop-ScheduledTask -TaskName fsw-supervisor \(first checks that the task exists and is not Disabled/), wb, detach, cas, back], [0, 2, 3, 4, 5]);
   assert.match(s[4][1], /skipped when refs\/heads\/main already is a{40}/);
   assert.match(s[6][1], /git -C C checkout --detach --quiet a{40} \(always: finally after step 1; b{40} instead when steps 2 or 3 failed/);
-  assert.match(s[7][1], /Start-ScheduledTask -TaskName fsw-supervisor \(always: finally after step 1\)/);
+  assert.match(s[7][1], /Start-ScheduledTask -TaskName fsw-supervisor \(always: finally after step 1; retried once, exit 2 with the failure when both fail\)/);
 });
 
 // A scratch repository with main checked out at B and A one commit behind, a deploy worktree at B and an
@@ -80,6 +80,7 @@ function injected(s, a) {
     calls,
     io: {
       ...io,
+      taskState: () => 'Running',
       ps: (cmd) => {
         calls.push(cmd);
         if (cmd.startsWith('Start-ScheduledTask')) {
@@ -135,17 +136,22 @@ test('the deadline is the newest tick plus --abort-after-min, so a tick four min
 });
 
 // A recording io with no real side effect: git answers from a table, the task controller records.
-function recording({ main = B, onMain = true, writebackStatus = 0, updateRefThrows = false, stopThrows = false, lastTickAgoMs = 60_000 } = {}) {
+function recording({ main = B, onMain = true, writebackStatus = 0, updateRefThrows = false, stopThrows = false, startFails = 0, taskState = 'Running', lastTickAgoMs = 60_000 } = {}) {
   const calls = [];
   let clock = Date.parse('2026-10-26T14:31:00.000Z');
   let started = false;
+  let startTries = 0;
   return {
     calls,
     io: {
+      taskState: () => taskState,
       ps: (cmd) => {
         calls.push('ps ' + cmd);
         if (stopThrows && cmd.startsWith('Stop-Process')) throw new Error('access denied');
-        if (cmd.startsWith('Start-ScheduledTask')) started = true;
+        if (cmd.startsWith('Start-ScheduledTask')) {
+          if (++startTries <= startFails) throw new Error('The task is disabled (0x80041326)');
+          started = true;
+        }
         return '';
       },
       git: (args) => {
@@ -208,4 +214,23 @@ test('a checkout that is not on main is moved without switches, and a main alrea
   const second = recording({ main: A });
   assert.equal(await runRollback(args(), second.io), 0);
   assert.deepEqual(second.calls, first.calls);
+});
+
+test('a missing or disabled task is refused with exit 3 before anything is stopped', async () => {
+  for (const taskState of ['', 'Disabled']) {
+    const r = recording({ taskState });
+    assert.equal(await runRollback(args(), r.io), 3);
+    assert.deepEqual(r.calls, []);
+  }
+});
+
+test('a start that fails once is retried, and one that fails twice exits 2 with the failure in the output', async () => {
+  const once = recording({ startFails: 1 });
+  assert.equal(await runRollback(args(), once.io), 0);
+  assert.equal(once.calls.filter((c) => c.startsWith('ps Start-ScheduledTask')).length, 2);
+  const twice = recording({ startFails: 2 });
+  const said = [];
+  assert.equal(await runRollback(args(), { ...twice.io, log: (m) => said.push(m) }), 2);
+  assert.equal(twice.calls.filter((c) => c.startsWith('ps Start-ScheduledTask')).length, 2);
+  assert.match(said.at(-1), /no supervisor runs: start the task: The task is disabled \(0x80041326\)/);
 });

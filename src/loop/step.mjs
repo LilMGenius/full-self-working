@@ -82,7 +82,7 @@ export async function step(platform, ctx) {
   };
   // A notice's money signals go to the deal, except the posted-review notice, which names no job and is
   // recorded and told to the operator (reviewPosted).
-  const applyNotice = (signal, row) => (signal.type === 'review' ? effects.push(...reviewPosted(ledger, { platform, thread: ledger.getThread(row.id), signal, now })) : applyAdvance(signal));
+  const applyNotice = (signal, row, ib) => (signal.type === 'review' ? effects.push(...reviewPosted(ledger, { platform, thread: ledger.getThread(row.id), signal, now, rowAt: ib.at ?? null })) : applyAdvance(signal));
   // One signal that throws is recorded against its outbox row and the rest still apply; the operator is told
   // once per row (the dedupe key holds while the notice stays open), since the sweep retries it every tick.
   const failedSignals = [];
@@ -128,7 +128,7 @@ export async function step(platform, ctx) {
       rows.set(String(ib.ref), row);
       // One row whose money signal throws is that row's error, never the whole platform's every tick.
       try {
-        for (const s of moneyToSignals({ platform, threadId: row.id, inbound: ib, now })) applyNotice(s, row);
+        for (const s of moneyToSignals({ platform, threadId: row.id, inbound: ib, now })) applyNotice(s, row, ib);
       } catch (err) {
         result.errors.push({ ref: String(ib.ref), code: err.code ?? null, message: err.message });
         event('thread.error', String(ib.ref), { code: err.code ?? null, message: err.message, stage: 'money' });
@@ -199,7 +199,7 @@ export async function step(platform, ctx) {
       let threw = false;
       try {
         const thread = await reading(() => surface.read(ref, { willReply: t.action === 'open', kind: ib.kind ?? 'message' }));
-        if (thread.notices?.length) for (const s of moneyToSignals({ platform, threadId: row.id, inbound: { requestId: ib.requestId, service: ib.service, quote: ib.quote }, notices: thread.notices, now })) applyNotice(s, row);
+        if (thread.notices?.length) for (const s of moneyToSignals({ platform, threadId: row.id, inbound: { requestId: ib.requestId, service: ib.service, quote: ib.quote }, notices: thread.notices, now })) applyNotice(s, row, ib);
         for (const m of thread.messages ?? []) if (m.direction === 'in') ledger.addMessage({ threadId: row.id, direction: 'in', body: msgText(m), externalId: msgExternalId(m), at: m.at, attachments: m.attachments });
         // A read remembers the list time it covered under the settings key (meta.settled, e5d20eb), so a list
         // time a platform notice moved past the newest stored message is not decided again every tick; a

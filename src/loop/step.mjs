@@ -235,9 +235,12 @@ export async function step(platform, ctx) {
         if (perm.reason) {
           // A grant dropped by the parser (no client sentence) is reported as the granted claim it was.
           const answer = d.portfolioPermission ?? 'granted';
-          event(answer === 'refused' ? 'permission.refusal_unapplied' : 'permission.unverified', ref, { reason: perm.reason, jobId: perm.jobId });
-          const verb = perm.jobId ? '\nRecord the client answer with: fsw deal ' + perm.jobId + ' permission granted (or denied)' : '\nNo job on this thread was delivered, so there is nothing to record yet.';
-          effects.push({ type: 'notify', note: { kind: 'order', title: platform + ' ' + (perm.jobId ?? 'thread ' + ref) + ': a portfolio answer was not applied', body: 'The model read the client as ' + answer + ' on thread ' + ref + ', and it was not applied: ' + perm.reason + '.\nQuote: ' + (d.permissionQuote ?? 'none') + verb, dedupeKey: 'portfolio-answer-check:' + (perm.jobId ?? platform + ':' + ref) + ':' + answer } });
+          event(answer === 'refused' ? 'permission.refusal_unapplied' : 'permission.unverified', ref, { reason: perm.reason, jobId: perm.jobId, jobIds: perm.jobIds });
+          const verb = perm.jobIds.length ? perm.jobIds.map((id) => '\nRecord the client answer with: fsw deal ' + id + ' permission granted (or denied)').join('') : '\nNo job on this thread was delivered, so there is nothing to record yet.';
+          // A grant claim on a denied or conditional job is keyed by the time of the client message it quotes,
+          // so a newer answer opens its own entry while an older one is still open.
+          const key = 'portfolio-answer-check:' + (perm.jobId ?? platform + ':' + ref) + ':' + answer + (answer === 'granted' && perm.claimAt ? ':' + perm.claimAt : '');
+          effects.push({ type: 'notify', note: { kind: 'order', title: platform + ' ' + (perm.jobIds.length ? perm.jobIds.join(', ') : 'thread ' + ref) + ': a portfolio answer was not applied', body: 'The model read the client as ' + answer + ' on thread ' + ref + ', and it was not applied: ' + perm.reason + '.\nQuote: ' + (d.permissionQuote ?? 'none') + verb, dedupeKey: key } });
         }
         // A change request on delivered work reopens its job whatever happens to the reply.
         const delivered = d.intent === 'revision' ? ledger.listJobs({ platform, status: 'delivered' }).find((j) => j.threadId === row.id) : null;

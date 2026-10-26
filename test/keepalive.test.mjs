@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { bskStatus } from '../src/core/bsk.mjs';
 import { createBrowserKeeper } from '../src/supervisor/keepalive.mjs';
@@ -45,5 +46,52 @@ test('stop ends the daemon the keeper started even after a second start lost the
     process.chdir(cwd);
     if (first && first.exitCode === null && first.signalCode === null) first.kill();
   }
+});
+
+// A bsk stand-in run as node <file>: 'status' never answers, 'daemon' records its pid and runs until
+// killed. A real named pipe stands for the live daemon's IPC, with a daemon.json naming it.
+async function busyDaemon(t, { listening }) {
+  const work = tempDir('fsw-keeper-busy-');
+  writeFileSync(join(work, 'status'), 'setInterval(() => {}, 1000);\n');
+  writeFileSync(join(work, 'daemon'), "require('node:fs').appendFileSync('pids', process.pid + '\\n');\nsetInterval(() => {}, 1000);\n");
+  const sock = '\\\\.\\pipe\\fsw-test-bsk-' + process.pid + '-' + Date.now();
+  writeFileSync(join(work, 'daemon.json'), JSON.stringify({ pid: 4242, sock_path: sock }));
+  if (listening) {
+    const server = createServer();
+    await new Promise((resolve) => server.listen(sock, resolve));
+    t.after(() => server.close());
+  }
+  const cwd = process.cwd();
+  process.chdir(work);
+  t.after(() => {
+    process.chdir(cwd);
+    const pids = existsSync(join(work, 'pids')) ? readFileSync(join(work, 'pids'), 'utf8').split(/\s+/).filter(Boolean).map(Number) : [];
+    for (const pid of pids) {
+      try {
+        process.kill(pid);
+      } catch {}
+    }
+  });
+  const status = (o) => bskStatus({ ...o, bin: process.execPath, timeoutMs: 1000, home: work });
+  const keeper = createBrowserKeeper({ instance: { config: {}, paths: { logs: work } }, bin: process.execPath, status, notify: async () => ({ written: false }), settleMs: 200 });
+  return { work, keeper };
+}
+
+test('a status read that times out while the daemon pipe listens keeps that daemon and starts no second one', async (t) => {
+  const { work, keeper } = await busyDaemon(t, { listening: true });
+  const r = await keeper.check();
+  assert.equal(existsSync(join(work, 'pids')), false, 'no second daemon was started');
+  assert.equal(keeper.child, null);
+  assert.equal(r.status, 'daemon busy');
+  assert.equal(r.pid, 4242);
+  assert.match(r.detail, /did not answer within 1000 ms/);
+});
+
+test('a status read that times out with a stale daemon.json and no pipe still starts a daemon', async (t) => {
+  const { work, keeper } = await busyDaemon(t, { listening: false });
+  const r = await keeper.check();
+  assert.equal(r.status, 'daemon start failed');
+  assert.match(r.detail, /did not answer within 1000 ms/, 'the timeout is reported as a timeout');
+  assert.equal(readFileSync(join(work, 'pids'), 'utf8').trim().split(/\s+/).length, 1);
 });
 

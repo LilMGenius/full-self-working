@@ -96,12 +96,14 @@ export function createBrowserKeeper({ instance, canStart = true, bin = BSK_BIN, 
     async check(now = new Date()) {
       let s = await status({ bin });
       let started = null;
+      // A busy daemon is kept and reported: a second start against it only loses the bsk lock.
+      if (!s.daemon && s.busy) return { status: 'daemon busy', ...s, started: null };
       if (!s.daemon) {
         if (!canStart) return { status: 'no daemon', ...s, started: null };
         started = startDaemon();
         await new Promise((r) => setTimeout(r, settleMs));
         s = await status({ bin });
-        if (!s.daemon) return { status: 'daemon start failed', ...s, started };
+        if (!s.daemon) return { status: s.busy ? 'daemon busy' : 'daemon start failed', ...s, started };
       }
       if (s.browsers > 0) return { status: started ? 'daemon started' : 'daemon answering', ...s, started };
       const notified = await notify(instance, {

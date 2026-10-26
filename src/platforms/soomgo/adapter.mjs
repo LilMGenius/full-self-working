@@ -432,11 +432,11 @@ export async function openSoomgo({ session, sleep = wait } = {}) {
         : { sent: false, observed: false, ...report, reason: dialog.open ? 'the dialog is still open after 거래 요청하기' : 'no 거래 요청 line with the amount appeared in the chat', dialogOpen: dialog.open };
     },
 
+    // /profile alone: one page load and no login read, since the hourly review pass runs inside the
+    // account's action cap. url is where the load ended, which tells a signed-out redirect apart.
     async profile() {
-      await load(`${BASE}/profile`);
-      const profile = parseProfile(await s.evaluate(() => document.body.innerText));
-      const login = await adapter.login();
-      return { profile, cash: login.cash };
+      const url = await load(`${BASE}/profile`);
+      return { profile: parseProfile(await s.evaluate(() => document.body.innerText)), url };
     },
 
     // Offered services with whether their request items are set (src/platforms/soomgo/services.mjs).

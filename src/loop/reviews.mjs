@@ -54,21 +54,32 @@ export function reviewSignals(rows, { jobs, threadOf, at = new Date().toISOStrin
   return { signals, unmatched };
 }
 
-// The hourly job's review pass: one surface session per enabled platform whose surface has reviews?()
-// and whose login holds. Counts are recorded every hour; parsed rows (U6.6) become review signals.
+// The hourly job's review pass: one surface session per enabled platform whose surface has reviews?().
+// reviews() is its own sign-in check (a signed-out account reads no counts), so the pass loads no login
+// page. The read counts toward the session's hourly read share (descriptor pacing.readActionsPerHour) and
+// waits for the next hour when the share is spent, so it never takes the room the hour keeps for sends.
+// Entries: ok; deferred (share spent); unread (no count, with the surface's gap, so a parser that broke
+// for good is seen); failed (a throw). A stop that fails is kept on the entry instead of ending the job.
+// Parsed rows (U6.6) become review signals.
 export async function recordReviews({ instance, ledger, now = new Date(), openSurface = defaultOpenSurface, notify = notifyOperator }) {
   const out = [];
   for (const [platform, cfg] of Object.entries(instance.config.platforms ?? {})) {
     if (!cfg?.enabled || !hasSurface(platform)) continue;
     let surface;
+    let entry = null;
     try {
       surface = await openSurface(platform);
       if (typeof surface.reviews !== 'function') continue;
-      if (!(await surface.login())?.loggedIn) {
-        out.push({ platform, status: 'skipped', reason: 'not logged in' });
+      const guard = surface.session?.guard;
+      if (typeof guard?.readRoom === 'function' && guard.readRoom() <= 0) {
+        entry = { platform, status: 'deferred', reason: "the hour's read share is spent; the next hourly pass reads the counts" };
         continue;
       }
-      const reviews = await surface.reviews();
+      const reviews = typeof guard?.reading === 'function' ? await guard.reading(() => surface.reviews()) : await surface.reviews();
+      if (!Number.isInteger(reviews?.counts?.reviews)) {
+        entry = { platform, status: 'unread', gap: reviews?.gap ?? 'the review count did not parse' };
+        continue;
+      }
       const counted = await recordReviewCounts({ ledger, instance, platform, reviews, notify });
       let signals = 0;
       if (Array.isArray(reviews.rows)) {
@@ -80,11 +91,16 @@ export async function recordReviews({ instance, ledger, now = new Date(), openSu
           signals += 1;
         }
       }
-      out.push({ platform, status: 'ok', changed: counted.changed, signals });
+      entry = { platform, status: 'ok', changed: counted.changed, signals };
     } catch (err) {
-      out.push({ platform, status: 'failed', reason: (err.code ? err.code + ' ' : '') + err.message });
+      entry = { platform, status: 'failed', reason: (err.code ? err.code + ' ' : '') + err.message };
     } finally {
-      if (surface?.stop) await surface.stop();
+      if (surface?.stop) {
+        await surface.stop().catch((err) => {
+          entry = { ...(entry ?? { platform, status: 'failed' }), stop: (err.code ? err.code + ' ' : '') + err.message };
+        });
+      }
+      if (entry) out.push(entry);
     }
   }
   return out;

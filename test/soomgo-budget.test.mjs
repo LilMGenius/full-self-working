@@ -12,6 +12,7 @@ import { openLedger } from '../src/core/ledger.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { step } from '../src/loop/index.mjs';
 import { openSoomgoSurface } from '../src/surface/soomgo.mjs';
+import { recordReviews } from '../src/loop/reviews.mjs';
 import { supplyLines, supplyReport } from '../src/supervisor/supply.mjs';
 import { tempDir } from './tmp.mjs';
 
@@ -43,7 +44,7 @@ export function account({ chats = [], requests = [] } = {}) {
     let path = null;
     const answers = {
       pageLogin: () => ({ url: 'https://soomgo.com/mypage', loginButton: false, proChat: true, profileLink: true, proGreeting: true }),
-      '': () => '고수님 숨고캐시 12,345캐시',
+      '': () => (path === '/profile' ? ['고수 프로필', '웹 개발 고수', '리뷰 평점', '4.9', '리뷰수', '7'].join('\n') : '고수님 숨고캐시 12,345캐시'),
       pageChats: () => (path === '/pro/chats' ? page.chats : []),
       pageRequests: () => (path === '/requests/received' ? page.requests : []),
       pageOpenChat: (id) => page.chats.some((c) => String(c.id) === id),
@@ -117,8 +118,12 @@ test('an hour of idle soomgo polls and the hourly supply report leave the cap a 
   const supply = await supplyReport('soomgo', { instance, ledger, now: acct.now(), openSurface: acct.surface });
   assert.equal(supply.status, 'ok', supply.notes.join('; '));
   assert.ok(supply.spend, 'the spend read ran');
-  // 12 polls of 3 loads, the first also opening the one chat, and the supply report's login, services and spend.
-  assert.equal(used(acct), 12 * 3 + 1 + 4);
+  const reviews = await recordReviews({ instance, ledger, now: acct.now(), openSurface: acct.surface, notify: async () => ({ written: false }) });
+  assert.deepEqual(reviews, [{ platform: 'soomgo', status: 'ok', changed: false, signals: 0 }]);
+  // 12 polls of 3 loads, the first also opening the one chat, the supply report's login, services and
+  // spend, and the review pass's one /profile load.
+  assert.equal(used(acct), 12 * 3 + 1 + 4 + 1);
+  assert.deepEqual(acct.sessions.at(-1).log, ['navigate /profile']);
 });
 
 
@@ -152,6 +157,9 @@ test('an hour of polls that each list new requests leaves the hourly reads and t
   const supply = await supplyReport('soomgo', { instance, ledger, now: acct.now(), openSurface: acct.surface });
   assert.equal(supply.status, 'ok', supply.notes.join('; '));
   assert.ok(supply.spend, 'the spend read ran');
+  // The hourly review pass runs after the supply report; with the read share spent it waits a later hour.
+  const reviews = await recordReviews({ instance, ledger, now: acct.now(), openSurface: acct.surface, notify: async () => ({ written: false }) });
+  assert.deepEqual(reviews.map((r) => r.status), ['deferred']);
   // What is left for the hour's sends: a quote press costs up to 8 (its request page, the price, the text,
   // the send and up to four cash history loads).
   assert.ok(pacing.maxActionsPerHour - used(acct) >= 10, 'room left ' + (pacing.maxActionsPerHour - used(acct)));

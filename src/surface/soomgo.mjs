@@ -52,8 +52,11 @@ export async function openSoomgoSurface({ session, sleep } = {}) {
     // orders gives the hired chat count without rows or counters, which raises no counter alert.
     orders: async () => ({ counts: null, total: (await a.orders()).length, gap: 'soomgo has no order list; hires are chat rows from sense', orders: null }),
     // 003 reviews?(): counts from /profile (리뷰수, 리뷰 평점); rows join once the review list is mapped (U6.6).
+    // One page load: a signed-out account lands somewhere other than /profile, which is the sign-in check.
     reviews: async () => {
-      const { profile: seller } = await a.profile();
+      const { profile: seller, url } = await a.profile();
+      const path = new URL(url).pathname;
+      if (path !== '/profile') return { counts: null, rows: null, gap: 'soomgo /profile opened ' + path + ', so the account is not signed in' };
       return { counts: { reviews: seller.reviews, rating: seller.rating }, rows: null, gap: 'review rows are not parsed yet' };
     },
     supply: async () => ({ platform: 'soomgo', listings: null, services: await a.services() }),

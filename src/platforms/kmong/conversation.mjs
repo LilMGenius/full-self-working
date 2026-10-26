@@ -122,10 +122,10 @@ export async function openKmongConversation({ session, sleep = wait } = {}) {
     async profile() {
       const login = await adapter.login();
       const dashboard = parseDashboard(await s.evaluate(() => document.body.innerText));
-      if (!login.nickname) return { dashboard, profile: null };
+      if (!login.nickname) return { login, dashboard, profile: null };
       const url = `${BASE}/@${encodeURIComponent(login.nickname)}`;
       await s.navigate(url);
-      return { dashboard, profile: parseProfile(await s.evaluate(() => document.body.innerText), { nickname: login.nickname, url }) };
+      return { login, dashboard, profile: parseProfile(await s.evaluate(() => document.body.innerText), { nickname: login.nickname, url }) };
     },
 
     stop: () => s.stop(),

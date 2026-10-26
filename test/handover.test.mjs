@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { codeHandover, codeState, probeCommit, probeNewCode, RESTART_EXIT, runSupervisor } from '../src/supervisor/run.mjs';
+import { codeHandover, codeState, probeCommit, probeNewCode, runSupervisor } from '../src/supervisor/run.mjs';
 import { run } from '../src/cli/run.mjs';
 import { exampleDir, loadInstance, repoRoot } from '../src/core/instance.mjs';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -35,7 +35,8 @@ test('the probe imports the real supervisor graph and fails on a tree whose run 
 
 test('fsw run exits with the restart code only when the supervisor hands over', async () => {
   const exitFor = (status) => run([], { runSupervisor: async () => ({ status }) });
-  assert.equal(await exitFor('restart'), RESTART_EXIT);
+  // 75 is the code the scheduled task's launcher restarts on at once (scripts/task.ps1, rc <> 75).
+  assert.equal(await exitFor('restart'), 75);
   assert.equal(await exitFor('stopped'), 0);
   assert.equal(await exitFor('already running'), 0);
 });

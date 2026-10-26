@@ -11,6 +11,9 @@ import { authorizedSend, messageOf, readKind, receiptOf, unauthorized } from './
 // the enterprise profile registration in place of the form. They are thrown so the drain returns the row
 // (its NOT_SENT list) instead of reading them as an unobserved send.
 export const NOT_TYPED = ['FSW_KMONG_QUOTA_SPENT', 'FSW_KMONG_ENTERPRISE_PROFILE'];
+// A project that closed or passed its deadline before the send: nothing is typed, and the drain marks the
+// row stale (its STALE_NOT_SENT list) instead of asking the operator to settle a send that never started.
+export const PROJECT_CLOSED = 'FSW_KMONG_PROJECT_CLOSED';
 
 // The form asks 세금계산서 발행 여부; the answer is the instance's business.taxInvoice, read at send time.
 const taxInvoiceOf = (business) => business()?.taxInvoice ?? null;
@@ -58,7 +61,7 @@ export async function openKmongSurface({ session, openReader = openProjectReader
       } finally {
         await reader.close();
       }
-      if (project.status !== 'APPROVAL' || (Number.isInteger(project.deadlineDays) && project.deadlineDays < 0)) return { observed: false, reason: 'project ' + id + ' is ' + project.status + '; nothing was typed' };
+      if (project.status !== 'APPROVAL' || (Number.isInteger(project.deadlineDays) && project.deadlineDays < 0)) throw new AdapterRefusal(PROJECT_CLOSED, 'project ' + id + ' is ' + project.status + '; nothing was typed');
       const seller = await openSeller({ session: a.session });
       const res = await seller.propose(project, { text, totalKRW: amountKRW, phases }, { gate: { ok: true }, taxInvoice: taxInvoiceOf(business) });
       if (!res.submitted && NOT_TYPED.includes(res.code)) throw new AdapterRefusal(res.code, res.reason);

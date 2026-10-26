@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { AdapterRefusal } from '../src/platforms/kit.mjs';
-import { NOT_TYPED, openKmongSurface, proposalDryRun } from '../src/surface/kmong.mjs';
+import { NOT_TYPED, PROJECT_CLOSED, openKmongSurface, proposalDryRun } from '../src/surface/kmong.mjs';
 
 const SEND = { verdict: 'send', violations: [], warnings: [], reasons: [] };
 const session = { stop: async () => {} };
@@ -38,11 +38,9 @@ test('propose with a send verdict reads the project, fills the form through the 
   assert.equal(f.calls.find((c) => c[0] === 'openSeller')[1], true, 'the seller shares the surface session');
 });
 
-test('a closed project is not typed into and the seller never opens', async () => {
+test('a closed project is refused as closed before anything is typed, and the seller never opens', async () => {
   const f = fakes({ status: 'CLOSED' });
-  const r = await (await f.open()).propose('project:7', { text: 'x', amountKRW: 1, authorized: SEND });
-  assert.equal(r.observed, false);
-  assert.match(r.reason, /nothing was typed$/);
+  await assert.rejects((await f.open()).propose('project:7', { text: 'x', amountKRW: 1, authorized: SEND }), (err) => err instanceof AdapterRefusal && err.code === PROJECT_CLOSED && /project 7 is CLOSED; nothing was typed$/.test(err.message));
   assert.equal(f.calls.some((c) => c[0] === 'openSeller'), false);
 });
 

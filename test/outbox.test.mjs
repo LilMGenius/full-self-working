@@ -502,3 +502,19 @@ test('a quote the real soomgo surface pressed without a found charge stays count
   assert.deepEqual(again.map((x) => [x.id, x.action]), [[second.id, 'held']]);
 });
 
+test('a proposal for a project that closed goes stale with its reason and asks the operator nothing', async () => {
+  const s = setup();
+  const row = plan(s.ledger, { platform: 'kmong', threadId: s.thread('project:7').id, kind: 'proposal', payload: { text: '요청하신 범위로 제안드립니다. 일정은 협의 가능합니다.', amountKRW: 1000000 } });
+  setStatus(s.ledger, row.id, { from: 'planned', to: 'awaiting_operator', approvalId: '20261020-kmong-2000000a' });
+  resolve(s.ledger, '20261020-kmong-2000000a', { approve: true });
+  const t = s.thread('t1');
+  const msg = plan(s.ledger, { platform: 'kmong', threadId: t.id, kind: 'message', payload: msgPayload() });
+  const surface = scriptedSurface({ methods: ['propose'], receipts: { propose: [Object.assign(new Error('project 7 is CLOSED; nothing was typed'), { code: 'FSW_KMONG_PROJECT_CLOSED' })] } });
+  const out = await s.run(surface);
+  assert.deepEqual(out.map((x) => [x.id, x.action]), [[row.id, 'stale'], [msg.id, 'observed']]);
+  const after = s.ledger.getOutbox(row.id);
+  assert.deepEqual([after.status, after.reason, after.approvalId], ['stale', 'project 7 is CLOSED; nothing was typed', '20261020-kmong-2000000a']);
+  assert.equal(events(s.ledger, 'send.unobserved').length, 0);
+  assert.deepEqual(s.notes, []);
+});
+

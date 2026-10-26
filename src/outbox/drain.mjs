@@ -29,6 +29,9 @@ export const handles = (surface, kind) => typeof surface?.[METHOD[kind]] === 'fu
 // after an older proposal still goes out.
 export const PROPOSAL_NOT_SENT = ['FSW_KMONG_QUOTA_SPENT', 'FSW_KMONG_ENTERPRISE_PROFILE'];
 export const NOT_SENT = ['FSW_PACING_LIMIT', ...PROPOSAL_NOT_SENT];
+// Refusals before the page was touched that make the item itself moot (kmong's PROJECT_CLOSED): the row
+// goes back from sending and on to stale with the surface's reason, and the drain goes on.
+export const STALE_NOT_SENT = ['FSW_KMONG_PROJECT_CLOSED'];
 // The clock drift allowed between the machine and a platform's line times when reading a send back.
 export const READBACK_MARGIN_MS = 60_000;
 
@@ -224,6 +227,11 @@ export async function drain(ledger, { platform, surface, authorize, ctx }) {
     try {
       receipt = await callSurface(surface, row, verdict, approved, ctx.descriptor);
     } catch (err) {
+      if (STALE_NOT_SENT.includes(err.code)) {
+        if (transaction(ledger, () => setStatus(ledger, row.id, { from: 'sending', to: row.status, reason: err.message }) && setStatus(ledger, row.id, { from: row.status, to: 'stale', reason: err.message }))) out.push({ id: row.id, kind: row.kind, action: 'stale', code: err.code, reason: err.message });
+        else moved(row);
+        continue;
+      }
       if (NOT_SENT.includes(err.code)) {
         setStatus(ledger, row.id, { from: 'sending', to: row.status, reason: err.message });
         ledger.addEvent({ kind: 'send.deferred', platform, ref: row.payload.threadRef, payload: { outboxId: row.id, kind: row.kind, code: err.code, reason: err.message } });

@@ -211,10 +211,39 @@ test('the operator entering the same review in two different minutes leaves one 
   assert.deepEqual(effectTypes(enter('14:00', 5, '좋았어요')), ['sync_portfolio', 'record_case:review', 'notify']);
   assert.deepEqual(enter('14:01', 5, '좋았어요').effects, []);
   assert.deepEqual(rows(), [[5, '좋았어요']]);
-  assert.deepEqual(effectTypes(enter('14:05', 4, '좋았어요. 일정이 조금 늦었어요')), ['sync_portfolio']);
+  assert.deepEqual(effectTypes(enter('14:05', 4, '좋았어요. 일정이 조금 늦었어요')), ['sync_portfolio', 'record_case:review']);
   assert.deepEqual(rows(), [[4, '좋았어요. 일정이 조금 늦었어요']]);
   assert.deepEqual(s.events('deal.review_corrected').map((e) => [e.from.rating, e.to.rating]), [[5, 4]]);
   assert.equal(s.ledger.listMoneyEvents({ event: 'review' }).length, 1);
+});
+
+test('a review names its job: on a thread with an older closed job and a newer delivered one it lands on the job named', () => {
+  const s = setup();
+  const t = s.thread('c7');
+  s.ledger.upsertJob({ id: 'old', threadId: t.id, platform: 'soomgo', service: 'landing_page_web', status: 'closed', priceKRW: 100000, deliveredAt: at('09:00') });
+  s.ledger.upsertJob({ id: 'new', threadId: t.id, platform: 'soomgo', service: 'landing_page_web', status: 'delivered', priceKRW: 100000, deliveredAt: at('12:00') });
+  const enter = (jobId, hm, rating) => s.step({ type: 'review', platform: 'soomgo', threadId: t.id, jobId, at: at(hm), evidence: { source: 'operator', rating, text: 'r' + rating, liked: null } });
+  enter('old', '14:00', 5);
+  enter('new', '14:01', 3);
+  const corrected = enter('old', '14:02', 4);
+  assert.deepEqual(s.ledger.jobReviews('old').map((r) => r.rating), [4]);
+  assert.deepEqual(s.ledger.jobReviews('new').map((r) => r.rating), [3]);
+  assert.deepEqual(s.events('deal.review_corrected').map((e) => [e.jobId, e.from.rating, e.to.rating]), [['old', 5, 4]]);
+  // The learning reads the corrected rating: the correction is its own review case naming what it replaced.
+  const c = corrected.effects.find((e) => e.type === 'record_case').case;
+  assert.deepEqual([c.kind, c.jobId, c.rating], ['review', 'old', 4]);
+  assert.match(c.note, /corrects the review recorded with rating 5/);
+});
+
+test('a review naming a job of another thread is refused and writes nothing', () => {
+  const s = setup();
+  const t1 = s.thread('c8');
+  const t2 = s.thread('c9');
+  s.ledger.upsertJob({ id: 'elsewhere', threadId: t2.id, platform: 'soomgo', service: 'landing_page_web', status: 'delivered', priceKRW: 100000, deliveredAt: at('12:00') });
+  const r = s.step({ type: 'review', platform: 'soomgo', threadId: t1.id, jobId: 'elsewhere', at: at('14:00'), evidence: { source: 'operator', rating: 5, text: 'x', liked: null } });
+  assert.deepEqual(r.effects, []);
+  assert.deepEqual([s.ledger.jobReviews('elsewhere').length, s.ledger.listMoneyEvents({ event: 'review' }).length], [0, 0]);
+  assert.equal(s.events('deal.refused').at(-1).reason, 'review names job elsewhere, which is not on thread c8');
 });
 
 test('an operator review on a job not delivered yet is refused and still records once the job is delivered', () => {

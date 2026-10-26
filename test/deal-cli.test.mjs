@@ -52,6 +52,21 @@ test('permission on an ordered job exits 1 with the refusal', async () => {
   assert.equal(s.ledger.getJob('j2').meta?.portfolio?.permission, undefined);
 });
 
+test('two jobs on one thread: each review lands on the job it names, and correcting the older one says so', async () => {
+  const s = setup();
+  const t = s.ledger.upsertThread({ platform: 'kmong', externalId: 'k-shared', kind: 'message' });
+  s.ledger.upsertJob({ id: 'ja', threadId: t.id, platform: 'kmong', service: 'logo_brand', status: 'closed', priceKRW: 100000, deliveredAt: '2026-10-10T03:00:00Z' });
+  s.ledger.upsertJob({ id: 'jb', threadId: t.id, platform: 'kmong', service: 'logo_brand', status: 'delivered', priceKRW: 100000, deliveredAt: '2026-10-20T03:00:00Z' });
+  const at = (argv, minute) => run(argv, { instance: s.instance, ledger: s.ledger, log: (l) => s.lines.push(l), notify: async () => ({ written: false }), now: new Date('2026-10-25T03:0' + minute + ':00Z') });
+  const rows = () => s.ledger.db.prepare('SELECT job_id, rating FROM reviews ORDER BY job_id').all().map((r) => [r.job_id, r.rating]);
+  assert.equal(await at(['ja', 'review', '--rating', '5'], 0), 0);
+  assert.equal(await at(['jb', 'review', '--rating', '3'], 1), 0);
+  assert.deepEqual(rows(), [['ja', 5], ['jb', 3]]);
+  assert.equal(await at(['ja', 'review', '--rating', '4'], 2), 0);
+  assert.equal(s.lines.at(-1), 'job ja review corrected; the job keeps one review, now rating 4');
+  assert.deepEqual(rows(), [['ja', 4], ['jb', 3]]);
+});
+
 test('a review on a delivered job writes one reviews row; a bad rating is a usage error', async () => {
   const s = setup();
   s.job('j3', 'delivered');

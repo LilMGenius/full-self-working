@@ -8,7 +8,7 @@
   },
   "scripts": {
     "test": "node --test",
-    "check": "node --test && node scripts/check-privacy.mjs && node scripts/check-slop.mjs && node scripts/check-descriptors.mjs && node scripts/check-example.mjs && node scripts/check-imports.mjs",
+    "check": "node --test && node scripts/check-privacy.mjs && node scripts/check-slop.mjs && node scripts/check-descriptors.mjs && node scripts/check-example.mjs && node scripts/check-imports.mjs && node scripts/check-negative-corpus.mjs",
     "check:privacy": "node scripts/check-privacy.mjs"
   }
 }

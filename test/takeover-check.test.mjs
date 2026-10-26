@@ -104,6 +104,14 @@ test('--gap-min fails a gap between ticks and the trailing gap to now, and no ti
   assert.deepEqual(failuresOf({ ticks: [] }), ['no supervisor.tick event since ' + at(-1)]);
 });
 
+test('the newest tick before --since opens the first gap, so a handover gap that starts before --since counts', () => {
+  // The old code ticked at 23:05, --since is 23:06 and the first v0 tick came at 23:20.
+  const s = { ...good(), before: T0 - 15 * 60_000, ticks: [{ at: T0, code: B }], now: T0 + 60_000, lines: [], from: null };
+  assert.deepEqual(evaluate(s, { ...opts, moves: 0, imports: 0 }).failures, ['a 15.0 min gap between supervisor ticks (the last gap runs to now)']);
+  assert.deepEqual(evaluate({ ...s, before: T0 - 5 * 60_000 }, { ...opts, moves: 0, imports: 0 }).failures, []);
+  assert.equal(evaluate(s, opts).report.tickBeforeSince, new Date(T0 - 15 * 60_000).toISOString());
+});
+
 test('--moves, --from, --restarts and --imports are exact counts over the log since --since', () => {
   assert.deepEqual(failuresOf({}, { moves: 2 }), ['1 handovers since ' + at(-1) + ', expected 2']);
   assert.deepEqual(failuresOf({ from: 'c'.repeat(40) }), ['the first handover started at aaaaaaa, expected ccccccc']);
@@ -121,7 +129,7 @@ test('--takeovers counts takeover events and the newest must name --expect; with
 
 // A scratch repository with commits A and B, main at B, a detached deploy worktree, and an instance
 // whose ledger and supervisor.log hold one handover from A to B.
-function scratch({ lockPid = process.pid } = {}) {
+function scratch({ lockPid = process.pid, prior = -22 } = {}) {
   const root = tempDir('fsw-takeover-');
   const repo = join(root, 'repo');
   mkdirSync(repo);
@@ -142,7 +150,7 @@ function scratch({ lockPid = process.pid } = {}) {
   const now = Date.now();
   const t = (min) => new Date(now + min * 60_000).toISOString();
   const ledger = openLedger(join(instance, 'ledger.sqlite'));
-  for (const [min, c] of [[-40, a], [-18, a], [-13, a], [-8, b], [-3, b]]) ledger.addEvent({ at: t(min), kind: 'supervisor.tick', payload: { jobs: ['poll:ok'], failures: 0, forceMode: null, code: c } });
+  for (const [min, c] of [[-40, a], [prior, a], [-18, a], [-13, a], [-8, b], [-3, b]]) ledger.addEvent({ at: t(min), kind: 'supervisor.tick', payload: { jobs: ['poll:ok'], failures: 0, forceMode: null, code: c } });
   ledger.addEvent({ at: t(-2), kind: 'takeover', payload: { from: a, to: b } });
   ledger.close();
   // An untimed stack line, as the launcher's redirect leaves in the live log, sits before --since.
@@ -173,6 +181,13 @@ test('the CLI reads refs, lock, ledger and the log since --since, and names only
 test('the CLI fails a lock whose pid is no live node process', () => {
   const r = cli(scratch({ lockPid: 999999 }));
   assert.deepEqual(r.out.failures, ['the lock names pid 999999, which is not a live node process', 'task fsw-test-no-such-task is missing, expected Running']);
+});
+
+test('the CLI reads the newest tick before --since from the ledger', () => {
+  const r = cli(scratch({ prior: -33 }));
+  assert.ok(r.out.failures.includes('a 15.0 min gap between supervisor ticks (the last gap runs to now)'), r.out.failures.join('; '));
+  assert.ok(Date.parse(r.out.tickBeforeSince) < Date.parse(r.out.logLinesSince[0].split(' ')[0]));
+  assert.equal(cli(scratch()).out.failures.some((f) => f.includes('min gap')), false);
 });
 
 test('the CLI refuses a missing required option with exit 2', () => {

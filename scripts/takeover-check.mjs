@@ -3,7 +3,8 @@
 // local main, the deploy HEAD and --expect are one commit; the lock names a live node process and the
 // scheduled task is Running; the ledger is at --version and, with --takeovers, holds exactly that many
 // takeover events, the newest naming --expect; no gap between supervisor.tick events since --since, the
-// trailing gap to now included, exceeds --gap-min; the newest tick ran --expect (its code field, or for a
+// newest tick before --since and the trailing gap to now included (so the gap a handover opens right at
+// --since counts), exceeds --gap-min; the newest tick ran --expect (its code field, or for a
 // 2c77326 tick, which has none, the newest handover or the deploy HEAD); and supervisor.log since --since
 // parses into exactly --moves ordered handover transactions, --restarts restarts and --imports approval
 // import lines. Writes nothing. Exit 1 names each failure; 2 is a usage error.
@@ -73,7 +74,7 @@ export function gaps(tickTimes, now) {
 // takeovers null when --takeovers was not given.
 export function evaluate(s, o) {
   const parsed = parseLog(s.lines);
-  const tickGaps = gaps(s.ticks.map((t) => t.at), s.now);
+  const tickGaps = gaps([...(s.before != null ? [s.before] : []), ...s.ticks.map((t) => t.at)], s.now);
   const worst = tickGaps.length ? Math.max(...tickGaps) : null;
   const newest = s.ticks.at(-1) ?? null;
   const ranBy = newest?.code ?? parsed.moves.at(-1)?.to ?? s.deploy;
@@ -94,7 +95,7 @@ export function evaluate(s, o) {
   if (parsed.imports !== o.imports) f.push(parsed.imports + ' approval import lines since ' + o.since + ', expected ' + o.imports);
   if (o.takeovers != null && s.takeovers.length !== o.takeovers) f.push(s.takeovers.length + ' takeover events, expected ' + o.takeovers);
   if (o.takeovers != null && o.takeovers > 0 && s.takeovers.length && s.takeovers.at(-1).to !== s.expect) f.push('the newest takeover event names ' + s.takeovers.at(-1).to + ', expected ' + s.expect);
-  const report = { main: short(s.main), deploy: short(s.deploy), expect: short(s.expect), lockPid: s.lockPid, lockAlive: s.lockAlive, taskState: s.taskState, version: s.version, takeovers: s.takeovers, ticks: s.ticks.length, worstGapMin: worst, trailingGapMin: tickGaps.at(-1) ?? null, ranBy: short(ranBy), moves: parsed.moves, restarts: parsed.restarts, imports: parsed.imports, logLinesSince: s.lines.slice(-12) };
+  const report = { main: short(s.main), deploy: short(s.deploy), expect: short(s.expect), lockPid: s.lockPid, lockAlive: s.lockAlive, taskState: s.taskState, version: s.version, takeovers: s.takeovers, tickBeforeSince: s.before != null ? new Date(s.before).toISOString() : null, ticks: s.ticks.length, worstGapMin: worst, trailingGapMin: tickGaps.at(-1) ?? null, ranBy: short(ranBy), moves: parsed.moves, restarts: parsed.restarts, imports: parsed.imports, logLinesSince: s.lines.slice(-12) };
   return { report, failures: f };
 }
 
@@ -113,12 +114,14 @@ export function read(a, now = Date.now()) {
   const lockFile = join(a.instance, 'run', 'supervisor.pid');
   const lockPid = existsSync(lockFile) ? Number.parseInt(readFileSync(lockFile, 'utf8'), 10) : null;
   const db = new DatabaseSync(join(a.instance, 'ledger.sqlite'), { readOnly: true });
-  let version, takeovers, ticks;
+  let version, takeovers, ticks, before;
   try {
     db.exec('PRAGMA busy_timeout = 5000');
     version = db.prepare('PRAGMA user_version').get().user_version;
     takeovers = db.prepare("SELECT at, payload FROM events WHERE kind = 'takeover' ORDER BY id").all().map((r) => ({ at: r.at, ...JSON.parse(r.payload ?? '{}') }));
     ticks = db.prepare("SELECT at, payload FROM events WHERE kind = 'supervisor.tick' AND at >= ? ORDER BY at").all(new Date(since).toISOString()).map((r) => ({ at: Date.parse(r.at), code: JSON.parse(r.payload ?? '{}')?.code ?? null }));
+    const prior = db.prepare("SELECT at FROM events WHERE kind = 'supervisor.tick' AND at < ? ORDER BY at DESC LIMIT 1").get(new Date(since).toISOString());
+    before = prior ? Date.parse(prior.at) : null;
   } finally {
     db.close();
   }
@@ -135,6 +138,7 @@ export function read(a, now = Date.now()) {
     taskState: taskStateOf(a.task),
     version,
     takeovers,
+    before,
     ticks,
     lines,
   };

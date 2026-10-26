@@ -173,6 +173,14 @@ test('a keeper check that throws is reported on the tick, and every due job stil
   assert.deepEqual(s.jobs.map((j) => [j.job, j.status]), [['hourly', 'partial'], ['orders', 'ok']]);
 });
 
+test('a daemon busy past its status timeout makes the hourly job partial', async () => {
+  const instance = makeInstance({});
+  const keeper = { check: async () => ({ status: 'daemon busy', daemon: false, busy: true, pid: 4242, detail: 'daemon pid 4242 is listening on bsk-daemon-x but bsk status did not answer within 20000 ms' }) };
+  const s = await runTick({ instance, ledger: openLedger(':memory:'), now: new Date('2026-10-25T02:03:00Z'), state: { lastRuns: {} }, only: ['hourly', 'orders'], keeper, notify: quiet, persist: false });
+  assert.equal(s.browser.status, 'daemon busy');
+  assert.deepEqual(s.jobs.map((j) => [j.job, j.status]), [['hourly', 'partial'], ['orders', 'ok']]);
+});
+
 test('a platform without a surface fails its step and counts as a failure', async () => {
   const instance = makeInstance({ kmong: { enabled: true, mode: 'draft' } });
   const openSurface = async () => { throw Object.assign(new Error('no surface for kmong in this build'), { code: 'FSW_SURFACE_MISSING' }); };

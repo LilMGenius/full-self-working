@@ -157,6 +157,36 @@ test('a thank-you line after a plain yes is no condition', () => {
   }
 });
 
+test('a sign-off is exempt only as a whole phrase; a condition about posting holds the grant around the yes and as the yes', () => {
+  const at = (k) => '2026-10-20T11:0' + k + ':00+09:00';
+  const conditions = [
+    '수정본 보고 나서 올려 주세요.',
+    '다음에 또 연락드릴 때 올려 주세요.',
+    '지금까지 작업한 첫 페이지만 보여 주세요.',
+    "Can't wait, so post it when it launches.",
+    '기다려 주셔서 감사해요. 공개는 잠시 보류해 주세요.',
+    '제가 최종본 보고 나서 말씀드릴게요.',
+    '오픈하면 올려 주세요.',
+    '수정이 끝나면 올려 주세요.',
+    '오픈할 때 같이 올려 주세요.',
+    'Yes, post it when the site is live.',
+  ];
+  for (const line of conditions) {
+    for (const texts of [[GRANT + ' ' + line], [GRANT, line]]) {
+      const r = single({ thread: thread(texts.map((x, k) => msg('in', x, at(k)))), job, decision: decision('granted', GRANT) });
+      assert.equal(r.signal, null, texts.join(' | '));
+      assert.ok(r.reason, texts.join(' | '));
+    }
+    // As the quoted answer itself (the last sentence when the line has two).
+    const quote = line.split(/(?<=\.)\s+/).at(-1);
+    const asQuote = single({ thread: thread([msg('in', line, at(0))]), job, decision: decision('granted', quote) });
+    assert.equal(asQuote.signal, null, 'quoted: ' + quote);
+  }
+  // A clean yes about posting beside a plain yes still grants.
+  const both = single({ thread: thread([msg('in', '네 좋아요. 포트폴리오에 올리셔도 돼요.', at(0))]), job, decision: decision('granted', '네 좋아요.') });
+  assert.equal(both.signal?.type, 'permission_granted');
+});
+
 test('a refusal needs no quote and becomes permission_refused', () => {
   const r = single({ thread: thread([]), job, decision: decision('refused', null), at: '2026-10-20T12:00:00+09:00' });
   assert.equal(r.signal.type, 'permission_refused');

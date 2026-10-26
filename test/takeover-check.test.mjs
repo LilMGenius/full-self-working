@@ -28,7 +28,7 @@ test('every supervisor.log format of 59a9948 and v0 parses, the import line with
 });
 
 test('one complete handover parses as one move with no problem and no restart', () => {
-  assert.deepEqual(parseLog(handover(A, B, 0)), { moves: [{ from: 'aaaaaaa', to: 'bbbbbbb' }], restarts: 0, imports: 1, problems: [] });
+  assert.deepEqual(parseLog(handover(A, B, 0)), { moves: [{ from: 'aaaaaaa', to: 'bbbbbbb' }], restarts: 0, imports: 1, problems: [], restartAfterMove: false });
 });
 
 test('only a line that starts with an ISO time has a time, so an old stack trace never falls inside --since', () => {
@@ -234,4 +234,18 @@ test('tick-gaps prints every gap in the window and the trailing gap to --until, 
   assert.equal(lines.length, 5);
   assert.deepEqual(summary.longest.slice(0, 3).map((g) => g.min), [5, 5, 5]);
   assert.ok(summary.trailingMin >= 3 && summary.trailingMin < 4);
+});
+
+test('a restart after the newest handover runs the deploy HEAD, so a rollback to the old line passes --expect old', () => {
+  // The rollback script stops the supervisor and starts the task on the old line: a supervisor pid line with
+  // no exiting line before it, after the handover to B. The old line's tick carries no code field.
+  const lines = [...handover(A, B, 0), at(16) + ' supervisor pid 5151', at(20) + ' tick poll:ok orders:ok failures=0'];
+  const state = { lines, expect: A, main: A, deploy: A, ticks: [{ at: T0 + 5 * 60_000, code: B }, { at: T0 + 10 * 60_000, code: B }, { at: T0 + 15 * 60_000, code: B }, { at: T0 + 16 * 60_000, code: null }, { at: T0 + 20 * 60_000, code: null }], now: T0 + 21 * 60_000, takeovers: [] };
+  const r = evaluate({ ...good(), ...state }, { ...opts, restarts: 1, takeovers: 0 });
+  assert.deepEqual(r.failures, []);
+  assert.equal(r.report.ranBy, 'aaaaaaa');
+  // Moving forward again is a second handover after the restart, and its target is checked again.
+  const forward = [...lines, ...handover(A, B, 25)];
+  assert.deepEqual(failuresOf({ lines: forward, ticks: [{ at: T0 + 25 * 60_000, code: null }, { at: T0 + 30 * 60_000, code: B }], now: T0 + 31 * 60_000, takeovers: [] }, { moves: 2, restarts: 1, imports: 2, takeovers: 0 }), []);
+  assert.deepEqual(failuresOf({ lines: forward, expect: A, main: A, deploy: A, ticks: [{ at: T0 + 30 * 60_000, code: null }], now: T0 + 31 * 60_000, takeovers: [] }, { moves: 2, restarts: 1, imports: 2, takeovers: 0 }), ['the newest tick ran bbbbbbb, expected aaaaaaa', 'the newest handover moved to bbbbbbb, expected aaaaaaa']);
 });

@@ -33,7 +33,8 @@ export const timeOf = (line) => (/^\d{4}-\d{2}-\d{2}T\S+ /.test(line) ? Date.par
 
 // Pure: the handover transactions in log lines. A handover is a tick, `code moved from A to B`, then
 // `supervisor exiting for a restart`, then the new process's `supervisor pid`, then a tick from it (its
-// import line may come between); one handover starts where the one before ended, and times never go back.
+// import line may come between); one handover starts where the one before ended unless a restart came
+// between them, since a restart runs whatever the deploy worktree held, and times never go back.
 // A `supervisor pid` that no exiting line precedes is a restart (a stop, a crash or a scripted rollback).
 export function parseLog(lines) {
   const ev = [];
@@ -51,18 +52,28 @@ export function parseLog(lines) {
   let restarts = 0;
   for (let i = 1; i < ev.length; i++) if (!(ev[i].at >= ev[i - 1].at)) problems.push('log time goes back at ' + new Date(ev[i].at).toISOString());
   const main = ev.filter((e) => e.k !== 'imports');
+  let lastMove = -1;
+  let lastRestart = -1;
+  const seg = [];
   main.forEach((e, i) => {
-    if (e.k === 'pid' && main[i - 1]?.k !== 'exiting') restarts += 1;
+    if (e.k === 'pid' && main[i - 1]?.k !== 'exiting') {
+      restarts += 1;
+      lastRestart = i;
+    }
     if (e.k !== 'moved') return;
+    lastMove = i;
     const [, from, to] = e.m;
     if (main[i - 1]?.k !== 'tick') problems.push('the handover to ' + to + ' follows no tick');
     if (main[i + 1]?.k !== 'exiting') problems.push('the handover to ' + to + ' has no exiting line next');
     if (main[i + 2]?.k !== 'pid') problems.push('the handover to ' + to + ' has no new supervisor pid after the exit');
     if (main[i + 3]?.k !== 'tick') problems.push('the handover to ' + to + ' has no tick from the new process');
     moves.push({ from, to });
+    seg.push(restarts);
   });
-  for (let j = 1; j < moves.length; j++) if (!(moves[j].from.startsWith(moves[j - 1].to) || moves[j - 1].to.startsWith(moves[j].from))) problems.push('handover ' + (j + 1) + ' starts at ' + moves[j].from + ', the one before ended at ' + moves[j - 1].to);
-  return { moves, restarts, imports: ev.filter((e) => e.k === 'imports').length, problems };
+  for (let j = 1; j < moves.length; j++) if (seg[j] === seg[j - 1] && !(moves[j].from.startsWith(moves[j - 1].to) || moves[j - 1].to.startsWith(moves[j].from))) problems.push('handover ' + (j + 1) + ' starts at ' + moves[j].from + ', the one before ended at ' + moves[j - 1].to);
+  // A restart after the newest handover (the rollback script starts the task on the old line) runs
+  // whatever the deploy worktree held, not the newest handover's target.
+  return { moves, restarts, imports: ev.filter((e) => e.k === 'imports').length, problems, restartAfterMove: lastRestart > lastMove };
 }
 
 // Pure: tick gaps in minutes, the trailing gap to now included.
@@ -78,7 +89,7 @@ export function evaluate(s, o) {
   const tickGaps = gaps([...(s.before != null ? [s.before] : []), ...s.ticks.map((t) => t.at)], s.now);
   const worst = tickGaps.length ? Math.max(...tickGaps) : null;
   const newest = s.ticks.at(-1) ?? null;
-  const ranBy = newest?.code ?? parsed.moves.at(-1)?.to ?? s.deploy;
+  const ranBy = newest?.code ?? (parsed.restartAfterMove ? s.deploy : parsed.moves.at(-1)?.to ?? s.deploy);
   const short = (c) => String(c).slice(0, 7);
   const f = [...parsed.problems];
   if (s.main !== s.expect) f.push('local main at ' + short(s.main) + ', expected ' + short(s.expect));
@@ -91,7 +102,7 @@ export function evaluate(s, o) {
   if (worst != null && worst > o.gapMin) f.push('a ' + worst.toFixed(1) + ' min gap between supervisor ticks (the last gap runs to now)');
   if (newest && !s.expect.startsWith(ranBy)) f.push('the newest tick ran ' + short(ranBy) + ', expected ' + short(s.expect));
   if (parsed.moves.length !== o.moves) f.push(parsed.moves.length + ' handovers since ' + o.since + ', expected ' + o.moves);
-  if (o.moves > 0 && parsed.moves.length && !s.expect.startsWith(parsed.moves.at(-1).to)) f.push('the newest handover moved to ' + parsed.moves.at(-1).to + ', expected ' + short(s.expect));
+  if (o.moves > 0 && parsed.moves.length && !parsed.restartAfterMove && !s.expect.startsWith(parsed.moves.at(-1).to)) f.push('the newest handover moved to ' + parsed.moves.at(-1).to + ', expected ' + short(s.expect));
   if (s.from && parsed.moves.length && !s.from.startsWith(parsed.moves[0].from)) f.push('the first handover started at ' + parsed.moves[0].from + ', expected ' + short(s.from));
   if (parsed.restarts !== o.restarts) f.push(parsed.restarts + ' restarts since ' + o.since + ', expected ' + o.restarts);
   if (parsed.imports !== o.imports) f.push(parsed.imports + ' approval import lines since ' + o.since + ', expected ' + o.imports);

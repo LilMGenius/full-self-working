@@ -21,16 +21,24 @@ const readBack = (receipt) => receipt?.observed === true && receipt.confirmedBy 
 // (src/outbox/drain.mjs reconcile), so the length falls back to it.
 const readBackText = (receipt) => String(receipt.snippet ?? receipt.text ?? '');
 // The outbound message may carry a page time rounded down to the minute, earlier than the row's own
-// created_at, so the lookup starts at that minute.
+// created_at, so the lookup starts at that minute. That minute can also hold an earlier send's message,
+// so a message whose text is this row's own (the read-back text, the operator's final text or the planned
+// text, the bodies the drain and fsw approve write) is preferred over the earliest one.
 const minuteFloor = (iso) => new Date(Math.floor(Date.parse(iso) / 60_000) * 60_000).toISOString();
+function outboundMessage(db, row, receipt) {
+  if (!row.thread_id) return null;
+  const candidates = db.prepare("SELECT id, external_id, at, body FROM messages WHERE thread_id = ? AND direction = 'out' AND at >= ? ORDER BY at, id").all(row.thread_id, minuteFloor(row.created_at));
+  const texts = [receipt.text, JSON.parse(row.operator ?? 'null')?.finalText, JSON.parse(row.payload ?? 'null')?.text].filter((t) => typeof t === 'string' && t);
+  const m = candidates.find((c) => texts.includes(c.body)) ?? candidates[0];
+  return m ? { id: m.id, external_id: m.external_id, at: m.at } : null;
+}
 
 export function firstOutbound(db, since) {
   const rows = db.prepare("SELECT * FROM outbox WHERE status = 'observed' AND platform IN ('kmong','soomgo') AND kind IN ('message','quote') AND updated_at >= ? ORDER BY updated_at, id").all(since);
   for (const row of rows) {
     const receipt = JSON.parse(row.receipt ?? 'null');
     if (!readBack(receipt)) continue;
-    const message = row.thread_id ? db.prepare("SELECT id, external_id, at FROM messages WHERE thread_id = ? AND direction = 'out' AND at >= ? ORDER BY at, id LIMIT 1").get(row.thread_id, minuteFloor(row.created_at)) ?? null : null;
-    return { outboxId: row.id, key: row.key, platform: row.platform, kind: row.kind, status: row.status, observedAt: row.updated_at, receipt: { observed: true, externalId: receipt.externalId ?? null, snippetLength: readBackText(receipt).length }, message: message ? { ...message } : null };
+    return { outboxId: row.id, key: row.key, platform: row.platform, kind: row.kind, status: row.status, observedAt: row.updated_at, receipt: { observed: true, externalId: receipt.externalId ?? null, snippetLength: readBackText(receipt).length }, message: outboundMessage(db, row, receipt) };
   }
   return null;
 }

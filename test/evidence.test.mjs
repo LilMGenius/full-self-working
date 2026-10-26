@@ -90,6 +90,20 @@ test('an outbound message stamped at the minute before the row was created is st
   assert.equal(firstFile(s).message?.external_id, 'm' + row.id);
 });
 
+test('an earlier send in the same minute does not take the row: the message with the row text is its message', async (t) => {
+  const s = setup(t);
+  const thread = s.ledger.listThreads({ platform: 'soomgo' })[0];
+  s.ledger.addMessage({ threadId: thread.id, direction: 'out', body: 'an earlier reply', externalId: 'earlier', at: '2026-10-26T23:01:05.000Z' });
+  const row = s.sent({ receipt: { observed: true, snippet: TEXT }, at: '2026-10-26T23:01:40.000Z' });
+  s.ledger.db.prepare("UPDATE messages SET at = '2026-10-26T23:01:00.000Z' WHERE external_id = ?").run('m' + row.id);
+  s.ledger.db.prepare("UPDATE messages SET at = '2026-10-26T23:01:00.000Z' WHERE external_id = 'earlier'").run();
+  s.ledger.db.prepare("UPDATE messages SET id = id + 1000 WHERE external_id = ?").run('m' + row.id);
+  assert.equal(await s.call(['first-outbound', '--since', '2026-10-26T15:00:00.000Z']), 0);
+  const out = firstFile(s);
+  assert.equal(out.message.external_id, 'm' + row.id);
+  assert.equal(JSON.stringify(out).includes('earlier reply'), false);
+});
+
 test('the start defaults to the newest takeover; with none and no --since, or a bad --since, the exit is 2', async (t) => {
   const s = setup(t);
   assert.equal(await s.call(['first-outbound']), 2);

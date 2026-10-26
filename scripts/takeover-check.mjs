@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-// Read-only takeover check (003 "Verifier and recovery scripts"; 050 2.1, 2.5 and 2.7). Exit 0 only when:
+// Read-only takeover check (003 "Verifier and recovery scripts"; 050 2.1, 2.5 and 2.7). --since handover
+// checks the newest handover in supervisor.log from the tick before it, with its old commit as --from unless
+// given, which is the check after every move of main. Exit 0 only when:
 // local main, the deploy HEAD and --expect are one commit; the lock names a live node process and the
 // scheduled task is Running; the ledger is at --version and, with --takeovers, holds exactly that many
 // takeover events, the newest naming --expect (the lock holder must also be the supervisor: a node whose
@@ -74,6 +76,30 @@ export function parseLog(lines) {
   // A restart after the newest handover (the rollback script starts the task on the old line) runs
   // whatever the deploy worktree held, not the newest handover's target.
   return { moves, restarts, imports: ev.filter((e) => e.k === 'imports').length, problems, restartAfterMove: lastRestart > lastMove };
+}
+
+// The newest handover in supervisor.log lines: the log time of the tick before it, so a window starting
+// there holds the whole handover, and the commits it moved between. null when the log holds none.
+export function newestHandover(lines) {
+  const mi = lines.findLastIndex((l) => FORMATS.moved.test(l));
+  if (mi < 0) return null;
+  const [, from, to] = lines[mi].match(FORMATS.moved);
+  const ti = lines.slice(0, mi).findLastIndex((l) => FORMATS.tick.test(l));
+  return { since: ti < 0 ? null : lines[ti].slice(0, lines[ti].indexOf(' ')), from, to };
+}
+
+// --since and --from as given, or for --since handover the newest handover's window and old commit, which
+// every later move of main needs checked (050 2.7): a fixed window misses the move, and one that starts
+// after the tick before it reads the handover as following no tick.
+export function resolveWindow(a, lines) {
+  if (a.since !== 'handover') {
+    if (Number.isNaN(Date.parse(a.since))) throw new Error('--since is not an ISO time: ' + a.since);
+    return { since: a.since, from: a.from };
+  }
+  const h = newestHandover(lines);
+  if (!h) throw new Error('--since handover: no handover in supervisor.log');
+  if (!h.since) throw new Error('--since handover: no tick before the newest handover');
+  return { since: h.since, from: a.from ?? h.from };
 }
 
 // Pure: tick gaps in minutes, the trailing gap to now included.
@@ -184,9 +210,10 @@ if (process.argv[1] && pathToFileURL(realpathSync(process.argv[1])).href === imp
   try {
     a = parseArgs({ options: OPTIONS }).values;
     for (const k of ['repo', 'code', 'instance', 'since', 'expect', 'version']) if (!a[k]) throw new Error('--' + k + ' is required');
-    if (Number.isNaN(Date.parse(a.since))) throw new Error('--since is not an ISO time: ' + a.since);
+    const log = join(a.instance, 'logs', 'supervisor.log');
+    Object.assign(a, resolveWindow(a, existsSync(log) ? readFileSync(log, 'utf8').split(/\r?\n/) : []));
   } catch (err) {
-    console.error('takeover-check: ' + err.message + '\nusage: takeover-check.mjs --repo <repo> --code <deploy worktree> --instance <instance> --since <ISO> --expect <commit> --version <n> [--from <commit>] [--gap-min 8] [--moves 0] [--restarts 0] [--imports 0] [--takeovers <n>] [--task fsw-supervisor]');
+    console.error('takeover-check: ' + err.message + '\nusage: takeover-check.mjs --repo <repo> --code <deploy worktree> --instance <instance> --since <ISO|handover> --expect <commit> --version <n> [--from <commit>] [--gap-min 8] [--moves 0] [--restarts 0] [--imports 0] [--takeovers <n>] [--task fsw-supervisor]');
     process.exit(2);
   }
   const o = { since: a.since, task: a.task, version: Number(a.version), gapMin: Number(a['gap-min']), moves: Number(a.moves), restarts: Number(a.restarts), imports: Number(a.imports), takeovers: a.takeovers == null ? null : Number(a.takeovers) };

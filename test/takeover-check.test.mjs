@@ -6,7 +6,7 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { openLedger } from '../src/core/ledger.mjs';
-import { evaluate, FORMATS, gaps, isSupervisor, parseLog, timeOf } from '../scripts/takeover-check.mjs';
+import { evaluate, FORMATS, gaps, isSupervisor, newestHandover, parseLog, resolveWindow, timeOf } from '../scripts/takeover-check.mjs';
 import { measure } from '../scripts/tick-gaps.mjs';
 import { tempDir } from './tmp.mjs';
 
@@ -248,4 +248,20 @@ test('a restart after the newest handover runs the deploy HEAD, so a rollback to
   const forward = [...lines, ...handover(A, B, 25)];
   assert.deepEqual(failuresOf({ lines: forward, ticks: [{ at: T0 + 25 * 60_000, code: null }, { at: T0 + 30 * 60_000, code: B }], now: T0 + 31 * 60_000, takeovers: [] }, { moves: 2, restarts: 1, imports: 2, takeovers: 0 }), []);
   assert.deepEqual(failuresOf({ lines: forward, expect: A, main: A, deploy: A, ticks: [{ at: T0 + 30 * 60_000, code: null }], now: T0 + 31 * 60_000, takeovers: [] }, { moves: 2, restarts: 1, imports: 2, takeovers: 0 }), ['the newest tick ran bbbbbbb, expected aaaaaaa', 'the newest handover moved to bbbbbbb, expected aaaaaaa']);
+});
+
+test('--since handover resolves to the tick before the newest handover and that handover\'s old commit', () => {
+  const lines = [...handover(A, B, 0), at(7) + ' tick poll:ok orders:ok failures=0', ...handover(B, A, 10), at(16) + ' tick poll:ok orders:ok failures=0'];
+  assert.deepEqual(newestHandover(lines), { since: at(10), from: 'bbbbbbb', to: 'aaaaaaa' });
+  // An explicit time and --from pass through; handover fills only what was not given.
+  assert.deepEqual(resolveWindow({ since: at(3), from: 'cafe' }, lines), { since: at(3), from: 'cafe' });
+  assert.deepEqual(resolveWindow({ since: 'handover' }, lines), { since: at(10), from: 'bbbbbbb' });
+  assert.deepEqual(resolveWindow({ since: 'handover', from: 'cafe' }, lines), { since: at(10), from: 'cafe' });
+  // The window it names passes the check that a handover follows a tick inside the window.
+  const window = lines.filter((l) => timeOf(l) >= Date.parse(at(10)));
+  assert.deepEqual(parseLog(window).problems, []);
+  // No handover in the log, or none with a tick before it, is a usage error, never an empty window.
+  assert.throws(() => resolveWindow({ since: 'handover' }, [at(1) + ' tick poll:ok failures=0']), /no handover/);
+  assert.throws(() => resolveWindow({ since: 'handover' }, [at(1) + ' code moved from aaaaaaa to bbbbbbb; restarting']), /no tick before/);
+  assert.throws(() => resolveWindow({ since: 'yesterday' }, lines), /not an ISO time/);
 });

@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { openLedger } from '../src/core/ledger.mjs';
 import { importApprovals } from '../src/core/approvals-import.mjs';
-import { disagreement, fileOutcome, nextRecord, planWriteback } from '../scripts/approvals-writeback.mjs';
+import { disagreement, duplicateNext, fileKey, fileOutcome, nextRecord, planWriteback } from '../scripts/approvals-writeback.mjs';
 import { tempDir } from './tmp.mjs';
 
 const AT = '2026-10-26T14:30:00.000Z';
@@ -169,4 +169,46 @@ test('planWriteback names every unreadable file and every row with no file statu
   assert.deepEqual(p.problems, ['bad.json: unreadable: x', 'f2.json: row 2 is mystery, which has no approval file status']);
   assert.deepEqual(p.writes.map((w) => [w.id, w.next.status]), [['f1', 'sent']]);
   assert.deepEqual(p.notes, ['row 4: f4.json is gone']);
+});
+
+// Two files holding one item (the same platform, thread, kind, text and amount): the older owns the outbox
+// row and the newer is skipped by the importer as 'same key as outbox row N'.
+function instanceWithDuplicates() {
+  const instance = tempDir('fsw-writeback-dup-');
+  const dir = join(instance, 'operator', 'approvals');
+  mkdirSync(dir, { recursive: true });
+  const file = (id, createdAt, body) => writeFileSync(join(dir, id + '.json'), JSON.stringify({ id, createdAt, platform: 'soomgo', kind: 'message', reason: 'r', ...body }, null, 2) + '\n');
+  file('20261025-soomgo-000000a1', '2026-10-25T01:00:00.000Z', { status: 'open', threadRef: 'd1', draft: 'same reply' });
+  file('20261025-soomgo-000000a2', '2026-10-25T02:00:00.000Z', { status: 'approved', threadRef: 'd1', draft: 'same reply', finalText: 'same reply', resolvedAt: '2026-10-25T03:00:00.000Z' });
+  file('20261025-soomgo-000000b1', '2026-10-25T01:00:00.000Z', { status: 'open', threadRef: 'd2', draft: 'other reply' });
+  file('20261025-soomgo-000000b2', '2026-10-25T02:00:00.000Z', { status: 'approved', threadRef: 'd2', draft: 'other reply', finalText: 'other reply', resolvedAt: '2026-10-25T03:00:00.000Z' });
+  const l = openLedger(join(instance, 'ledger.sqlite'));
+  const imp = importApprovals(l, dir);
+  assert.deepEqual([imp.imported, imp.skipped.map((s) => s.reason.startsWith('same key as outbox row'))], [2, [true, true]]);
+  // v0 sent the first item; the second still waits for the operator.
+  l.updateOutbox(l.outboxByApproval('20261025-soomgo-000000a1').id, { status: 'observed', receipt: { observed: true }, updatedAt: AT });
+  l.close();
+  return { instance, read: (id) => JSON.parse(readFileSync(join(dir, id + '.json'), 'utf8')) };
+}
+
+test('a second file holding an item v0 sent is written sent too, and one whose row is still open is left alone', () => {
+  const s = instanceWithDuplicates();
+  const check = cli(s.instance, '--check');
+  assert.equal(check.status, 1);
+  assert.match(check.stdout, /^20261025-soomgo-000000a2: holds the same item as row 1, which is observed, and the file is approved$/m);
+  const r = cli(s.instance, '--apply');
+  assert.equal(r.status, 0, r.stdout);
+  assert.deepEqual([s.read('20261025-soomgo-000000a1').status, s.read('20261025-soomgo-000000a2').status], ['sent', 'sent']);
+  assert.match(s.read('20261025-soomgo-000000a2').detail, /^the same item as 20261025-soomgo-000000a1/);
+  assert.deepEqual([s.read('20261025-soomgo-000000b1').status, s.read('20261025-soomgo-000000b2').status], ['open', 'approved']);
+  assert.equal(cli(s.instance, '--check').status, 0);
+  assert.match(cli(s.instance, '--apply').stdout, /0 file\(s\) written/);
+});
+
+test('duplicateNext follows only a send: a rejected or stale row leaves the other file as it is', () => {
+  assert.equal(duplicateNext(row('rejected', { operator: { resolvedAt: AT } }), { status: 'approved' }), null);
+  assert.equal(duplicateNext(row('stale'), { status: 'open' }), null);
+  assert.equal(duplicateNext(row('observed'), { status: 'sent' }), null);
+  assert.equal(duplicateNext(row('sending'), { status: 'approved' }).status, 'unobserved');
+  assert.equal(fileKey({ kind: 'nope', platform: 'soomgo', threadRef: 'x' }), null);
 });

@@ -19,8 +19,8 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
-import { FINAL_FILE, STATUS_OF, importApprovals } from '../src/core/approvals-import.mjs';
-import { openLedger } from '../src/core/ledger.mjs';
+import { FINAL_FILE, KIND_OF as IMPORT_KIND, OPEN_ROW, SENT_FILE, STATUS_OF, importApprovals } from '../src/core/approvals-import.mjs';
+import { openLedger, outboxKey } from '../src/core/ledger.mjs';
 
 // The status the importer reads a file as: an open file the old code could not observe is unobserved.
 const fileStatus = (record) => (record.status === 'open' && record.unobserved === true ? 'unobserved' : record.status);
@@ -75,6 +75,41 @@ export function nextRecord(row, record) {
 const sha = (text) => createHash('sha256').update(text).digest('hex');
 const OPEN_V0 = ['planned', 'awaiting_operator', 'approved', 'sending'];
 
+// The outbox key the importer gives a file (rowFromApproval in src/core/approvals-import.mjs), or null
+// for a file it cannot key.
+export function fileKey(a) {
+  const kind = IMPORT_KIND[a.kind];
+  if (!kind || !a.platform || a.threadRef == null || a.threadRef === '') return null;
+  return outboxKey({ platform: a.platform, threadRef: String(a.threadRef), kind, text: a.finalText ?? a.draft ?? null, amountKRW: a.quote?.amountKRW ?? a.amountKRW ?? null, files: a.files ?? [] });
+}
+
+// Rows whose item went out or may have: a second file holding the same item follows them.
+const WENT_OUT = ['observed', 'sending', 'unobserved'];
+// Rows the importer moves when a file holding their item reads sent (FOLLOWS in approvals-import.mjs).
+const FOLLOWS_FILE = [...OPEN_ROW, 'sending'];
+
+// Pure: the next content of a file the importer skipped because an older file holding the same item owns
+// the row ('same key as outbox row N'), or null. Only a send closes the duplicate, as the importer and the
+// old code treat it: a rejection or a stale row of one file leaves the other one as it is.
+export function duplicateNext(row, record) {
+  if (!WENT_OUT.includes(row.status) || FINAL_FILE.includes(fileStatus(record))) return null;
+  const out = fileOutcome(row);
+  return { ...record, ...out, detail: 'the same item as ' + (row.approvalId ?? 'outbox row ' + row.id) + (out.detail ? '; ' + out.detail : '') };
+}
+
+// Every file no row owns whose key equals a row's key, with that row.
+function duplicates(rows, records) {
+  const owned = new Set(rows.map((r) => r.approvalId).filter(Boolean));
+  const byKey = new Map(rows.map((r) => [r.key, r]));
+  const out = [];
+  for (const [id, found] of records) {
+    if (owned.has(id)) continue;
+    const row = byKey.get(fileKey(found.record));
+    if (row) out.push({ id, found, row });
+  }
+  return out;
+}
+
 // Every *.json file of the approvals directory, parsed: {records: Map id -> {file, text, record}, unreadable}.
 export function readApprovals(dir) {
   const records = new Map();
@@ -115,6 +150,10 @@ export function planWriteback(rows, { records, unreadable }) {
     const next = nextRecord(row, found.record);
     if (next) writes.push({ id: row.approvalId, file: found.file, before: found.text, from: found.record.status, next });
   }
+  for (const { id, found, row } of duplicates(rows, records)) {
+    const next = duplicateNext(row, found.record);
+    if (next) writes.push({ id, file: found.file, before: found.text, from: found.record.status, next });
+  }
   return { writes, problems, notes };
 }
 
@@ -144,6 +183,12 @@ export function writeback(instance, mode = 'dry') {
       const found = read.records.get(row.approvalId);
       const why = found ? disagreement(row, found.record) : null;
       if (why) findings.push(row.approvalId + ': ' + why);
+    }
+    // A duplicate file disagrees with its row when the row's item went out and the file could still send
+    // it, or the file sent it and the row could still send it again (the importer's reconcile closes that).
+    for (const { id, found, row } of duplicates(rows, read.records)) {
+      const fs = fileStatus(found.record);
+      if (duplicateNext(row, found.record) || (SENT_FILE.includes(fs) && FOLLOWS_FILE.includes(row.status))) findings.push(id + ': holds the same item as row ' + row.id + ', which is ' + row.status + ', and the file is ' + found.record.status);
     }
     lines.push(...findings, 'approvals-writeback --' + mode + ': ' + rows.length + ' outbox rows, ' + findings.length + ' disagreement(s)');
     return { lines, exit: findings.length ? 1 : 0 };

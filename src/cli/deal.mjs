@@ -50,11 +50,16 @@ export async function run(argv, ctx = {}) {
     await applyEffects(r.effects, { instance, ledger, ...(ctx.notify ? { notify: ctx.notify } : {}) });
     // A refused permission writes deal.refused; a review on a job not yet delivered is recorded unapplied.
     const refused = ledger.db.prepare("SELECT payload FROM events WHERE id > ? AND kind = 'deal.refused' AND ref = ?").get(before, job.id);
-    const review = sub === 'review' ? ledger.db.prepare("SELECT payload FROM events WHERE id > ? AND kind = 'money.review'").get(before) : null;
+    // The deal keys an operator review by its job (moneyKey in src/deal/advance.mjs), so this entry's
+    // events are found by that key and by the job's review row, never by an event ref that names a thread.
+    const ownKey = (payload) => String(JSON.parse(payload).key ?? '').endsWith(':review:operator:' + job.id);
+    const review = sub === 'review' ? ledger.db.prepare("SELECT payload FROM events WHERE id > ? AND kind = 'money.review'").all(before).find((e) => ownKey(e.payload)) ?? null : null;
     const reason = refused ? JSON.parse(refused.payload).reason : review && !JSON.parse(review.payload).applied ? JSON.parse(review.payload).note : null;
     // A job has one review: entering it again corrects that row or, unchanged, records nothing.
-    if (sub === 'review' && !review) {
-      const corrected = ledger.db.prepare("SELECT payload FROM events WHERE id > ? AND kind = 'deal.review_corrected' AND ref = ?").get(before, job.id);
+    if (sub === 'review' && !review && !refused) {
+      const kept = ledger.listMoneyEvents({ jobId: job.id, event: 'review' }).find((e) => JSON.parse(e.evidence).source === 'operator');
+      const reviewId = kept ? JSON.parse(kept.evidence).reviewId : null;
+      const corrected = ledger.db.prepare("SELECT payload FROM events WHERE id > ? AND kind = 'deal.review_corrected'").all(before).find((e) => JSON.parse(e.payload).reviewId === reviewId);
       log('job ' + job.id + ' review ' + (corrected ? 'corrected; the job keeps one review, now rating ' + JSON.parse(corrected.payload).to.rating : 'already recorded with this rating and text; nothing changed'));
       return 0;
     }

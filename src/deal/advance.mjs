@@ -267,7 +267,9 @@ function lose(ledger, out, { signal, thread, job, note }) {
 // nothing. Different ones correct that one row, since a client leaves one review and a second entry is
 // the operator fixing what he typed; keeping both would rank the job on two reviews. The old values stay
 // in the deal.review_corrected event.
-function correctReview(ledger, out, signal, prior) {
+// The correction is a review case of its own, naming what it replaced, so the learning reads the rating
+// the operator settled on.
+function correctReview(ledger, out, signal, thread, prior) {
   const ev = signal.evidence;
   const id = JSON.parse(prior.evidence).reviewId;
   const row = ledger.jobReviews(prior.jobId).find((r) => r.id === id);
@@ -275,7 +277,8 @@ function correctReview(ledger, out, signal, prior) {
   if (row.rating === next.rating && row.text === next.text && row.liked === next.liked) return;
   ledger.updateReview(id, next);
   ledger.addEvent({ kind: 'deal.review_corrected', platform: signal.platform, ref: prior.jobId, payload: { jobId: prior.jobId, reviewId: id, from: { rating: row.rating, text: row.text, liked: row.liked }, to: next } });
-  out.effects.push({ type: 'sync_portfolio' });
+  const job = ledger.getJob(prior.jobId);
+  out.effects.push({ type: 'sync_portfolio' }, caseEffect({ kind: 'review', platform: signal.platform, service: job?.service ?? null, threadRef: thread.externalId, jobId: prior.jobId, text: String(next.text ?? 'review'), ...(next.rating != null ? { rating: next.rating } : {}), note: 'corrects the review recorded with rating ' + (row.rating ?? 'none') + ' (review ' + id + ')' }));
 }
 
 function money(ledger, out, signal, thread, { instance, descriptor, now }) {
@@ -290,12 +293,16 @@ function money(ledger, out, signal, thread, { instance, descriptor, now }) {
   // hire is recorded, it is that hire repeated, never a past hire to record as history.
   if (signal.type === 'hired' && !live && ev.source === 'row-status' && ledger.getMoneyEvent(moneyKey(ledger, signal, thread, true))) return;
   const key = moneyKey(ledger, signal, thread, live);
+  // A review that names its job (the operator's fsw deal entry, a parsed row matched to a job) belongs to
+  // that job, never to the newest one on the thread, which can be a later job for the same client.
+  const named = signal.type === 'review' && signal.jobId ? ledger.getJob(signal.jobId) : null;
+  if (signal.type === 'review' && signal.jobId && named?.threadId !== thread.id) return refuse(ledger, out, signal, named, 'review names job ' + signal.jobId + ', which ' + (named ? 'is not on thread ' + thread.externalId : 'does not exist'));
   const prior = ledger.getMoneyEvent(key);
   if (prior) {
-    if (signal.type === 'review' && ev.source === 'operator') correctReview(ledger, out, signal, prior);
+    if (signal.type === 'review' && ev.source === 'operator') correctReview(ledger, out, signal, thread, prior);
     return;
   }
-  let job = findJob(ledger, signal.platform, thread, ev.requestId);
+  let job = named ?? findJob(ledger, signal.platform, thread, ev.requestId);
   let applied = false;
   let paymentId = null;
   let reviewId = null;

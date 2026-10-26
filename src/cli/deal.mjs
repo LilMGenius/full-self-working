@@ -45,12 +45,15 @@ export async function run(argv, ctx = {}) {
       signal = { type: 'review', platform: job.platform, threadId: job.threadId, jobId: job.id, at, evidence: { source: 'operator', text: o.text ?? 'operator recorded a ' + rating + ' star review', rating, liked: o.liked === undefined ? null : o.liked === 'true' } };
     } else throw new Error(USAGE);
     const before = ledger.db.prepare('SELECT max(id) AS id FROM events').get().id ?? 0;
+    const prior = job.meta?.portfolio ?? {};
     const r = advance(ledger, signal, { instance, descriptor: loadDescriptor(job.platform), now: new Date(at) });
     await applyEffects(r.effects, { instance, ledger, ...(ctx.notify ? { notify: ctx.notify } : {}) });
     // A refused permission writes deal.refused; a review on a job not yet delivered is recorded unapplied.
     const refused = ledger.db.prepare("SELECT payload FROM events WHERE id > ? AND kind = 'deal.refused' AND ref = ?").get(before, job.id);
     const review = sub === 'review' ? ledger.db.prepare("SELECT payload FROM events WHERE id > ? AND kind = 'money.review'").get(before) : null;
     const reason = refused ? JSON.parse(refused.payload).reason : review && !JSON.parse(review.payload).applied ? JSON.parse(review.payload).note : null;
+    // A grant over a refusal publishes work the client asked to keep private, so the operator sees what he lifted.
+    if (!reason && signal.type === 'permission_granted' && prior.permission === 'denied') log('job ' + job.id + ' permission granted lifts the refusal recorded ' + (prior.answeredAt ?? 'earlier') + ' from ' + (prior.source ?? 'unknown') + (prior.quote ? ': "' + prior.quote + '"' : ' (no client sentence kept)'));
     log('job ' + job.id + ' ' + sub + (reason ? ' refused: ' + reason : ' recorded; the portfolio is synced and the next daily publish shows it'));
     return reason ? 1 : 0;
   } finally {

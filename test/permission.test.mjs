@@ -98,6 +98,18 @@ test('a refusal needs no quote and becomes permission_refused', () => {
   assert.deepEqual(r.signal.evidence, { quote: null, source: 'brain' });
 });
 
+test('a refusal keeps the client sentence when the page holds it, and the deal stores it', () => {
+  const NO = '포트폴리오에는 올리지 말아 주세요.';
+  const r = single({ thread: thread([msg('in', '글꼴 바꿔 주세요. ' + NO, '2026-10-20T11:00:00+09:00')]), job, decision: decision('refused', NO) });
+  assert.deepEqual(r.signal.evidence, { quote: NO, quoteAt: '2026-10-20T11:00:00+09:00', source: 'brain' });
+  const invented = single({ thread: thread([msg('in', '글꼴 바꿔 주세요.', '2026-10-20T11:00:00+09:00')]), job, decision: decision('refused', NO) });
+  assert.deepEqual([invented.signal.type, invented.signal.evidence.quote], ['permission_refused', null]);
+  const s = setup();
+  const { threadId, ...signal } = r.signal;
+  s.deal({ ...signal, at: '2026-10-20T12:00:00+09:00' });
+  assert.deepEqual([s.ledger.getJob('kmong-k1').meta.portfolio.permission, s.ledger.getJob('kmong-k1').meta.portfolio.quote], ['denied', NO]);
+});
+
 test('a refusal reaches every job of the thread that was ever delivered, the older ones included', () => {
   const old = { ...job, id: 'kmong-k1-a', status: 'closed' };
   const rerun = { ...job, id: 'kmong-k1-b', status: 'revision' };

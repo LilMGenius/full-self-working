@@ -34,7 +34,11 @@ export function permissionSignal({ thread, jobs, decision, at = new Date().toISO
     const delivered = jobs.filter((j) => j.deliveredAt);
     // Nothing delivered means no job the operator could record it on yet.
     if (!delivered.length) return { signals: [], reason: 'refusal on a thread whose job was never delivered', jobId: null };
-    return { signals: delivered.map((j) => signal('permission_refused', j, { quote: null })), reason: null, jobId: job.id };
+    // The client's own sentence is kept for the operator when the page holds it; a refusal applies either way.
+    const said = bare(decision.permissionQuote);
+    const from = said.length >= 2 ? (thread.messages ?? []).find((m) => m.direction === 'in' && unitsOf(msgText(m)).some((u) => bare(u) === said)) : null;
+    const evidence = from ? { quote: norm(decision.permissionQuote), quoteAt: from.at ?? null } : { quote: null };
+    return { signals: delivered.map((j) => signal('permission_refused', j, evidence)), reason: null, jobId: job.id };
   }
   if (!job || !['delivered', 'closed'].includes(job.status)) return none(null);
   const after = Date.parse(job.deliveredAt ?? '');

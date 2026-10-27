@@ -92,10 +92,10 @@ const CASE = [{ id: 'c1', kind: 'approval_rejected', text: TEXT }];
 
 test('a mistyped or Korean scope names its platform, and an unknown or empty one applies everywhere', () => {
   const { rules, scopeDropped } = compileGateRules([lesson('a', ['Kmong']), lesson('b', ['kmong ']), lesson('c', ['크몽']), lesson('d', ['Kmongg']), lesson('e', []), lesson('f', ['위시켓', 'nowhere'])], CASE);
-  assert.deepEqual(rules.map((r) => [r.id, r.appliesTo]), [['a', ['kmong']], ['b', ['kmong']], ['c', ['kmong']], ['d', ['all']], ['e', ['all']], ['f', ['wishket']]]);
+  assert.deepEqual(rules.map((r) => [r.id, r.appliesTo]), [['a', ['kmong']], ['b', ['kmong']], ['c', ['kmong']], ['d', ['all']], ['e', ['all']], ['f', ['all']]]);
   assert.deepEqual(scopeDropped, [{ class: 'd', values: ['Kmongg'] }, { class: 'f', values: ['nowhere'] }]);
   for (const id of ['a', 'b', 'c']) assert.deepEqual(learned(verdict('kmong', rules.filter((r) => r.id === id))), ['learned.' + id]);
-  for (const id of ['d', 'e']) for (const p of ['kmong', 'soomgo', 'wishket']) assert.deepEqual(learned(verdict(p, rules.filter((r) => r.id === id))), ['learned.' + id], id + ' on ' + p);
+  for (const id of ['d', 'e', 'f']) for (const p of ['kmong', 'soomgo', 'wishket']) assert.deepEqual(learned(verdict(p, rules.filter((r) => r.id === id))), ['learned.' + id], id + ' on ' + p);
 });
 
 test('an empty scope already on disk applies everywhere, in the gate and in the prompt', () => {
@@ -119,4 +119,33 @@ test('writeLessons stores a scope the prompts can match, records what it dropped
   assert.deepEqual(logs.map((e) => e.dropped), [[{ class: 'odd_scope', values: ['huh'] }]]);
   const allowed = schema.properties.lessons.items.properties.appliesTo.items.enum;
   assert.deepEqual([...allowed].sort(), [...listDescriptors(), 'all'].sort());
+});
+
+// A scope read back from disk is normalized too: lessons.jsonl and gate-rules.json written before 4078793, or
+// edited by hand, still reach their platform; a scope with any value no id matches widens to all.
+test('a scope on disk written by hand or before normalizing reaches its platform, and a partly valid one applies everywhere', () => {
+  const at = (n) => '2026-10-2' + n + 'T00:00:00.000Z';
+  const instance = makeInstance([
+    { class: 'cased', rule: 'r1', appliesTo: ['Soomgo'], updatedAt: at(1) },
+    { class: 'korean', rule: 'r2', appliesTo: ['크몽'], updatedAt: at(2) },
+    { class: 'partly', rule: 'r3', appliesTo: ['kmong', 'xyz'], updatedAt: at(3) },
+  ]);
+  const classes = (platform) => loadLessons(instance, { platform }).map((l) => l.class);
+  assert.deepEqual(classes('soomgo'), ['partly', 'cased']);
+  assert.deepEqual(classes('kmong'), ['partly', 'korean']);
+  assert.deepEqual(classes('wishket'), ['partly']);
+  assert.deepEqual(learned(verdict('soomgo', [rule({ appliesTo: ['Soomgo'] })])), ['learned.no_rush']);
+  assert.deepEqual(learned(verdict('kmong', [rule({ appliesTo: ['크몽 '] })])), ['learned.no_rush']);
+  assert.deepEqual(learned(verdict('kmong', [rule({ appliesTo: ['Soomgo'] })])), []);
+  for (const p of ['kmong', 'soomgo', 'wishket']) assert.deepEqual(learned(verdict(p, [rule({ appliesTo: ['kmong', 'xyz'] })])), ['learned.no_rush'], p);
+});
+
+test('writeLessons widens a partly valid scope to all and keeps the dropped value on the event', async () => {
+  const instance = makeInstance();
+  const c = recordOutcome(instance, null, { kind: 'lead_lost', platform: 'soomgo', text: '다른 분과 진행하기로 했어요' });
+  const answer = { lessons: [{ class: 'half_known', rule: 'Ask for the deadline.', evidence: [c.id], gate: 'judgment', pattern: null, appliesTo: ['kmong', 'xyz'] }] };
+  await writeLessons(instance, { runCodex: async () => ({ data: answer }) });
+  assert.deepEqual(readLessons(instance).map((l) => [l.class, l.appliesTo]), [['half_known', ['all']]]);
+  const logs = readdirSync(instance.paths.logs).flatMap((f) => readFileSync(join(instance.paths.logs, f), 'utf8').trim().split('\n')).map((l) => JSON.parse(l)).filter((e) => e.kind === 'learning.scope_dropped');
+  assert.deepEqual(logs.map((e) => e.dropped), [[{ class: 'half_known', values: ['xyz'] }]]);
 });

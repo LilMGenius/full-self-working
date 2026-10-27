@@ -62,7 +62,10 @@ export async function step(platform, ctx) {
   const effCtx = { instance, ledger, notify: ctx.notify, spawnJob: ctx.spawnJob, loadRecipe: load };
   const effects = [];
   const bump = (bucket, key) => (result[bucket][key] = (result[bucket][key] ?? 0) + 1);
-  const event = (kind, ref, payload) => ledger.addEvent({ kind, platform, ref, payload });
+  // Every event the step writes carries the step's now: the supply report counts parks and paced waits in a
+  // window ending at its own now, and a time from the machine clock (the ledger's default) falls outside it on
+  // a replay or a test whose clock is injected.
+  const event = (kind, ref, payload) => ledger.addEvent({ kind, platform, ref, payload, at: now.toISOString() });
   // The day's cash use as the drain will see it: what went out today plus the cash quotes still waiting to
   // go, which the drain sends oldest first before any request planned now (b223ed7 sent them before the
   // lists were read).

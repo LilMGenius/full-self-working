@@ -166,7 +166,7 @@ test('an hour of polls that each list new requests leaves the hourly reads and t
 });
 
 
-test('requests beyond the read share wait and are reported, while a customer chat is read at once', async () => {
+async function readShareSpent() {
   const instance = makeInstance();
   const ledger = openLedger(':memory:');
   const acct = account({ chats: [] });
@@ -186,10 +186,11 @@ test('requests beyond the read share wait and are reported, while a customer cha
   const report = await supplyReport('soomgo', { instance, ledger, now: acct.now(), openSurface: acct.surface });
   assert.deepEqual(report.paced, { waited: 1, parkedUnread: 0 });
   assert.match(supplyLines({ reports: [report] })[0], /1 requests waited for the hourly read share/);
-});
+}
+test('requests beyond the read share wait and are reported, while a customer chat is read at once', readShareSpent);
 
 
-test('a request that waited for the read share and then expired is parked as unread and counted', async () => {
+async function pacedThenExpired() {
   const instance = makeInstance();
   const ledger = openLedger(':memory:');
   const acct = account({ chats: [] });
@@ -205,4 +206,16 @@ test('a request that waited for the read share and then expired is parked as unr
   const park = ledger.db.prepare("SELECT payload FROM events WHERE kind = 'thread.skipped' AND ref = 'late'").get();
   assert.equal(JSON.parse(park.payload).paced, true);
   assert.deepEqual((await supplyReport('soomgo', { instance, ledger, now: acct.now(), openSurface: acct.surface })).paced, { waited: 1, parkedUnread: 1 });
-});
+}
+test('a request that waited for the read share and then expired is parked as unread and counted', pacedThenExpired);
+
+// The account's clock is injected (START); a time read from the machine's clock instead (new Date() in an
+// event write or a window) makes these pass only while the real day matches START, as 2026-10-27 10:00 KST
+// showed. Both run again with Date itself a day after and a day before START.
+for (const [label, shift] of [['a day after', 86_400_000], ['a day before', -86_400_000]]) {
+  test('the read share cases hold with the machine clock ' + label + ' the injected one', async (t) => {
+    t.mock.timers.enable({ apis: ['Date'], now: START + shift });
+    await readShareSpent();
+    await pacedThenExpired();
+  });
+}

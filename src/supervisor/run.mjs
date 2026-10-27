@@ -363,9 +363,28 @@ export const JOB_HANDLERS = {
     renameSync(file + '.tmp', file);
     return { status: 'ok', file, arms: weights.filter((w) => w.weight > 0).length };
   },
+  // The day's reach and quality (read once per Seoul day) and README captures for repository items with no
+  // media, then the ranked save. Items with neither media nor a repository are told to the operator once.
   async portfolio(ctx) {
-    const { syncPortfolio } = await import('../portfolio/store.mjs');
-    return { status: 'ok', shown: syncPortfolio(ctx.instance, ctx.ledger).length };
+    const [{ syncPortfolio, loadItems, itemsFromProfile }, { readSignals }, { captureRepoMedia }, { openRenderer }] = await Promise.all([
+      import('../portfolio/store.mjs'), import('../portfolio/signals.mjs'), import('../portfolio/media.mjs'), import('../render/html2png.mjs'),
+    ]);
+    const open = ctx.openRenderer ?? openRenderer;
+    const saved = loadItems(ctx.instance);
+    // Today's contribution marks come from the profile, so a saved item made before this unit is marked too.
+    const marked = new Map(itemsFromProfile(ctx.instance.profile).map((i) => [i.id, i.contribution]));
+    const items = (saved.length ? saved : itemsFromProfile(ctx.instance.profile)).map((i) => ({ ...i, contribution: marked.get(i.id) ?? i.contribution ?? false }));
+    const signals = await readSignals(ctx.instance, items, { fetch: ctx.fetch ?? fetch, openRenderer: open, now: ctx.now });
+    const renderer = await open();
+    let captured;
+    try {
+      captured = await captureRepoMedia(items, { renderer, dir: join(ctx.instance.paths.portfolio, 'media'), reach: signals.reach });
+    } finally {
+      await renderer.close();
+    }
+    if (captured.missing.length) await (ctx.notify ?? notifyOperator)(ctx.instance, { kind: 'portfolio', title: captured.missing.length + ' portfolio items have no media', body: 'Add an image to profile.projects[].media for: ' + captured.missing.join(', '), dedupeKey: 'portfolio-media:' + captured.missing.join(',') });
+    const shown = syncPortfolio(ctx.instance, ctx.ledger, { signals, media: captured.media });
+    return { status: 'ok', shown: shown.length, withFame: shown.filter((i) => i.reach?.fame != null).length, missingMedia: captured.missing.length };
   },
   async publish(ctx) {
     // A forced observe pass is read-only, and a deploy is an outbound action; keepDue leaves the period

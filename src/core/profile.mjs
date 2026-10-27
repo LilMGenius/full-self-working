@@ -25,6 +25,10 @@ const monthsBetween = (a, b) => {
   return (y.getUTCFullYear() - x.getUTCFullYear()) * 12 + (y.getUTCMonth() - x.getUTCMonth()) - (y.getUTCDate() < x.getUTCDate() ? 1 : 0);
 };
 
+// A profile project the operator contributed to in another maintainer's repository (AGENTS.md publicClaims): the
+// resume lists it apart and the portfolio labels it and reads no fame for it, by this one rule.
+export const isContribution = (p) => p?.contribution === true || /\bcontribut/i.test(p?.role ?? '');
+
 export function careerMonths(profile, now = new Date()) {
   const roles = profile?.roles ?? [];
   if (!roles.length) return null;

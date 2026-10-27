@@ -9,10 +9,13 @@
 // 2c77326. A cash quote held only by the day's caps waits as a planned row that asks nobody, and the rows
 // go oldest first, so the first one the day cannot pay holds every newer cash quote (b223ed7).
 import { randomBytes } from 'node:crypto';
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { dayKey } from '../core/clock.mjs';
 import { classifyNotice } from '../core/notices.mjs';
 import { notifyOperator } from '../core/notify.mjs';
-import { filesHash } from '../core/reviewed.mjs';
+import { copiesHash } from '../core/reviewed.mjs';
 import { transaction } from '../core/tx.mjs';
 import { HOLD_RULES, spendsCash } from '../policy/authorize.mjs';
 import { baseName, setStatus } from './plan.mjs';
@@ -78,14 +81,40 @@ async function readBack(surface, row) {
 // so in-process code could build one by hand and pass authorizedSend. The token stays unbound until wp9's
 // src/core/authz.mjs, which signs {key, digest, mac} over row.key and the text sent here and checks it in
 // authorizedSend.
-function callSurface(surface, row, verdict, approved, descriptor) {
+// files: the frozen copies a delivery uploads (freeze below), never the paths its payload names.
+function callSurface(surface, row, verdict, approved, descriptor, files) {
   const p = row.payload;
   const text = textOf(row);
   // customer: soomgo observes the quote from its charge for this customer (e8ea6a6, 7b9524e; 003 Surface).
   if (row.kind === 'quote') return surface.quote(p.threadRef, { amountKRW: p.amountKRW, priceType: p.priceType ?? 'fixed', text, authorized: verdict, allowSpendCash: spendsCash(descriptor, p.thread?.kind), customer: p.customer ?? null });
   if (row.kind === 'pay_request') return surface.payRequest(p.threadRef, { amountKRW: p.amountKRW, approved, authorized: verdict });
   if (row.kind === 'proposal') return surface.propose(p.threadRef, { text, amountKRW: p.amountKRW, phases: p.proposal?.phases ?? [], files: p.files ?? [], authorized: verdict });
-  return surface.send(p.threadRef, { text, files: row.kind === 'delivery' ? p.files ?? [] : [], authorized: verdict });
+  return surface.send(p.threadRef, { text, files: row.kind === 'delivery' ? files : [], authorized: verdict });
+}
+
+// A delivery uploads copies of its files taken once, before the claim: the surface reads them only later (soomgo
+// sets the file input after it opens the chat and types), so uploading the original paths would send whatever they
+// hold by then, and the approved hash would have been checked against other bytes. Each copy sits in its own
+// numbered folder under its own name, as the platform shows it; a file gone before the copy has none, which hashes
+// as missing. The caller removes the folder once the send settles.
+function freeze(files) {
+  const dir = mkdtempSync(join(tmpdir(), 'fsw-send-'));
+  try {
+    const copies = files.map((f, i) => {
+      const to = join(dir, String(i), baseName(f));
+      mkdirSync(join(dir, String(i)));
+      try {
+        copyFileSync(f, to);
+      } catch (err) {
+        if (err.code !== 'ENOENT') throw err;
+      }
+      return to;
+    });
+    return { dir, copies, hash: copiesHash(files, copies) };
+  } catch (err) {
+    rmSync(dir, { recursive: true, force: true });
+    throw err;
+  }
 }
 
 export function signalOf(row, receipt, now) {
@@ -173,18 +202,6 @@ export async function drain(ledger, { platform, surface, authorize, ctx }) {
       continue;
     }
     const approved = row.status === 'approved';
-    // An approved delivery goes out only as the bytes the operator approved (resolve stamps operator.filesHash); one
-    // whose files changed since, or approved without the stamp, is blocked for the operator.
-    if (approved && row.kind === 'delivery' && row.operator?.filesHash !== filesHash(row.payload.files ?? [])) {
-      const reason = 'the delivery files changed since the operator approved it; nothing was sent: ' + (row.payload.files ?? []).map(baseName).join(', ');
-      if (!setStatus(ledger, row.id, { from: 'approved', to: 'blocked', reason })) {
-        moved(row);
-        continue;
-      }
-      await notify({ kind: 'order', title: platform + ' delivery for job ' + (row.jobId ?? '-') + ' is blocked', body: reason + '\nCheck the files, then plan the delivery again.', dedupeKey: 'outbox-blocked:' + row.id });
-      out.push({ id: row.id, kind: row.kind, action: 'blocked', reason });
-      continue;
-    }
     const verdict = authorize(itemOf(row), { ...ctx, now, approved, priceRow: row.payload.priceRow ?? null, usage: usage() });
     if (verdict.verdict === 'refuse') {
       const reason = verdict.violations.map((v) => v.rule + ' ' + v.detail).join('; ');
@@ -232,33 +249,51 @@ export async function drain(ledger, { platform, surface, authorize, ctx }) {
       out.push({ id: row.id, kind: row.kind, action: 'held', reason: hold });
       continue;
     }
-    // The claim: a second drain on this row (a second process on the instance, which the pid lock fsw run and fsw tick share keeps out) finds it moved and skips it.
-    if (!setStatus(ledger, row.id, { from: row.status, to: 'sending', verdict })) {
-      moved(row);
-      continue;
-    }
+    // A delivery is frozen before the claim (freeze above) and uploads those copies; an approved one goes out only as
+    // the bytes the operator approved (resolve stamps operator.filesHash), so one whose copies differ, or one approved
+    // without the stamp, is blocked for the operator. The folder goes once the send settles, on every path out.
+    const frozen = row.kind === 'delivery' ? freeze(row.payload.files ?? []) : null;
     let receipt;
     try {
-      receipt = await callSurface(surface, row, verdict, approved, ctx.descriptor);
-    } catch (err) {
-      if (STALE_NOT_SENT.includes(err.code)) {
-        // receipt.refused keeps the platform's refusal code on the row, where src/economics/quote-results.mjs
-        // reads a refused quote; nothing was sent or charged, so no other receipt field applies.
-        if (transaction(ledger, () => setStatus(ledger, row.id, { from: 'sending', to: row.status, reason: err.message }) && setStatus(ledger, row.id, { from: row.status, to: 'stale', reason: err.message, receipt: { refused: err.code, at: now.toISOString() } }))) out.push({ id: row.id, kind: row.kind, action: 'stale', code: err.code, reason: err.message });
-        else moved(row);
-        continue;
-      }
-      if (NOT_SENT.includes(err.code)) {
-        setStatus(ledger, row.id, { from: 'sending', to: row.status, reason: err.message });
-        ledger.addEvent({ kind: 'send.deferred', platform, ref: row.payload.threadRef, payload: { outboxId: row.id, kind: row.kind, code: err.code, reason: err.message } });
-        out.push({ id: row.id, kind: row.kind, action: 'deferred', code: err.code, reason: err.message });
-        if (PROPOSAL_NOT_SENT.includes(err.code) && row.kind === 'proposal') {
-          proposalsStopped = true;
+      if (approved && frozen && row.operator?.filesHash !== frozen.hash) {
+        const reason = 'the delivery files changed since the operator approved it; nothing was sent: ' + (row.payload.files ?? []).map(baseName).join(', ');
+        if (!setStatus(ledger, row.id, { from: 'approved', to: 'blocked', reason })) {
+          moved(row);
           continue;
         }
-        break;
+        await notify({ kind: 'order', title: platform + ' delivery for job ' + (row.jobId ?? '-') + ' is blocked', body: reason + '\nCheck the files, then plan the delivery again.', dedupeKey: 'outbox-blocked:' + row.id });
+        out.push({ id: row.id, kind: row.kind, action: 'blocked', reason });
+        continue;
       }
-      receipt = mayHaveSpent(row, { observed: false, reason: (err.code ? err.code + ' ' : '') + err.message }, now.toISOString());
+      // The claim: a second drain on this row (a second process on the instance, which the pid lock fsw run and fsw tick share keeps out) finds it moved and skips it.
+      if (!setStatus(ledger, row.id, { from: row.status, to: 'sending', verdict })) {
+        moved(row);
+        continue;
+      }
+      try {
+        receipt = await callSurface(surface, row, verdict, approved, ctx.descriptor, frozen?.copies ?? []);
+      } catch (err) {
+        if (STALE_NOT_SENT.includes(err.code)) {
+          // receipt.refused keeps the platform's refusal code on the row, where src/economics/quote-results.mjs
+          // reads a refused quote; nothing was sent or charged, so no other receipt field applies.
+          if (transaction(ledger, () => setStatus(ledger, row.id, { from: 'sending', to: row.status, reason: err.message }) && setStatus(ledger, row.id, { from: row.status, to: 'stale', reason: err.message, receipt: { refused: err.code, at: now.toISOString() } }))) out.push({ id: row.id, kind: row.kind, action: 'stale', code: err.code, reason: err.message });
+          else moved(row);
+          continue;
+        }
+        if (NOT_SENT.includes(err.code)) {
+          setStatus(ledger, row.id, { from: 'sending', to: row.status, reason: err.message });
+          ledger.addEvent({ kind: 'send.deferred', platform, ref: row.payload.threadRef, payload: { outboxId: row.id, kind: row.kind, code: err.code, reason: err.message } });
+          out.push({ id: row.id, kind: row.kind, action: 'deferred', code: err.code, reason: err.message });
+          if (PROPOSAL_NOT_SENT.includes(err.code) && row.kind === 'proposal') {
+            proposalsStopped = true;
+            continue;
+          }
+          break;
+        }
+        receipt = mayHaveSpent(row, { observed: false, reason: (err.code ? err.code + ' ' : '') + err.message }, now.toISOString());
+      }
+    } finally {
+      if (frozen) rmSync(frozen.dir, { recursive: true, force: true });
     }
     if (receipt?.observed === true) {
       if (observe(ledger, row, receipt, verdict)) {

@@ -10,15 +10,22 @@ import { join, resolve } from 'node:path';
 // A missing file hashes as missing, so a deleted file reads as a change rather than an error.
 const digest = (file) => (existsSync(file) ? createHash('sha256').update(readFileSync(file)).digest('hex') : 'missing');
 
-// files: paths relative to dir, hashed by name and bytes.
-export function hashTree(dir, files) {
+// pairs: [name, path the bytes are read from], hashed by name and bytes in name order.
+function hashPairs(pairs) {
   const h = createHash('sha256');
-  for (const f of [...files].sort()) h.update(f + '\0' + digest(join(dir, f)) + '\n');
+  for (const [name, path] of [...pairs].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))) h.update(name + '\0' + digest(path) + '\n');
   return h.digest('hex');
 }
 
-// files: the delivery's own paths (payload.files), as the drain sends them.
+// files: paths relative to dir, hashed by name and bytes.
+export const hashTree = (dir, files) => hashPairs(files.map((f) => [f, join(dir, f)]));
+
+// files: the delivery's own paths (payload.files), as the approval stamps them.
 export const filesHash = (files) => hashTree('', files);
+
+// The same hash over copies of the delivery's files: copies[i] holds the bytes of files[i] (the drain's frozen send
+// folder), so it equals filesHash(files) exactly when the copies hold the bytes the files held.
+export const copiesHash = (files, copies) => hashPairs(files.map((f, i) => [f, copies[i]]));
 
 // The delivery against its review: changed when a reviewed file is gone or its bytes differ from the reviewed hash
 // (a review without its file list cannot be checked and counts as changed); unreviewed lists the delivery files the

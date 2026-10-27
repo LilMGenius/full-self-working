@@ -437,15 +437,18 @@ export async function openRenderer({ chrome = process.env.FSW_CHROME ?? DEFAULT_
   }
 
   // Which font drew the text of every element that holds text, summed per face: CDP
-  // CSS.getPlatformFontsForNode, the renderer's own record, so a fallback cannot hide behind a stack.
+  // CSS.getPlatformFontsForNode, the renderer's own record, so a fallback cannot hide behind a stack. The
+  // walk pierces shadow roots (open ones and the user-agent root that draws an input's placeholder and
+  // value) and frames, and asks every pseudo-element too, since ::before and ::after content is text no
+  // element child holds.
   async function platformFonts(sessionId) {
     await cdp.send('DOM.enable', {}, sessionId);
     await cdp.send('CSS.enable', {}, sessionId);
-    const { root } = await cdp.send('DOM.getDocument', { depth: -1 }, sessionId);
+    const { root } = await cdp.send('DOM.getDocument', { depth: -1, pierce: true }, sessionId);
     const holders = [];
     const walk = (node) => {
-      if (node.nodeType === 1 && (node.children ?? []).some((c) => c.nodeType === 3 && c.nodeValue.trim())) holders.push(node.nodeId);
-      for (const c of node.children ?? []) walk(c);
+      if (node.nodeType === 1 && (node.pseudoType || (node.children ?? []).some((c) => c.nodeType === 3 && c.nodeValue.trim()))) holders.push(node.nodeId);
+      for (const c of [...(node.pseudoElements ?? []), ...(node.shadowRoots ?? []), ...(node.contentDocument ? [node.contentDocument] : []), ...(node.children ?? [])]) walk(c);
     };
     walk(root);
     const faces = new Map();

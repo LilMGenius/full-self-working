@@ -229,7 +229,9 @@ export async function drain(ledger, { platform, surface, authorize, ctx }) {
       receipt = await callSurface(surface, row, verdict, approved, ctx.descriptor);
     } catch (err) {
       if (STALE_NOT_SENT.includes(err.code)) {
-        if (transaction(ledger, () => setStatus(ledger, row.id, { from: 'sending', to: row.status, reason: err.message }) && setStatus(ledger, row.id, { from: row.status, to: 'stale', reason: err.message }))) out.push({ id: row.id, kind: row.kind, action: 'stale', code: err.code, reason: err.message });
+        // receipt.refused keeps the platform's refusal code on the row, where src/economics/quote-results.mjs
+        // reads a refused quote; nothing was sent or charged, so no other receipt field applies.
+        if (transaction(ledger, () => setStatus(ledger, row.id, { from: 'sending', to: row.status, reason: err.message }) && setStatus(ledger, row.id, { from: row.status, to: 'stale', reason: err.message, receipt: { refused: err.code, at: now.toISOString() } }))) out.push({ id: row.id, kind: row.kind, action: 'stale', code: err.code, reason: err.message });
         else moved(row);
         continue;
       }

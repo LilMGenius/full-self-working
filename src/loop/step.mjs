@@ -18,6 +18,8 @@ import { quotaUsage } from '../outbox/usage.mjs';
 import { advance, jobsOfThread, moneyToSignals, readiness, stageOf, unappliedObserved } from '../deal/index.mjs';
 import { answeredServices, parkKey } from '../economics/catalog.mjs';
 import { latestAllocation, prioritize } from '../economics/priority.mjs';
+import { paceSpent } from '../economics/quote-gate.mjs';
+import { dayStart } from '../economics/quote-results.mjs';
 import { loadRecipe } from '../work/index.mjs';
 import { applyEffects } from './effects.mjs';
 import { recordFunnel } from './funnel.mjs';
@@ -195,9 +197,21 @@ export async function step(platform, ctx) {
       // While the day's budget can pay for no quote, a buyer request stays unread on the platform with no
       // read, park, event or model call, and every tick checks again, so the first ticks of the next Seoul
       // day pick requests by the allocation priority (b223ed7).
-      if (t.action === 'open' && mode === 'auto' && spendsCash(descriptor, ib.kind) && budgetSpent(cfg, cashUsage())) {
-        bump('threads', 'budget');
-        continue;
+      if (t.action === 'open' && mode === 'auto' && spendsCash(descriptor, ib.kind)) {
+        const usage = cashUsage();
+        if (budgetSpent(cfg, usage)) {
+          bump('threads', 'budget');
+          continue;
+        }
+        // While the day's quote cash runs ahead of the elapsed share of the Seoul day (platforms.<id>.quoteGate
+        // pace even), the request waits unread the same way, so one burst of requests cannot spend the morning on
+        // whatever arrived first. The first hold of a request in a Seoul day is an event the supply report counts.
+        if (paceSpent(cfg, usage, now)) {
+          bump('threads', 'pace');
+          const heldToday = ledger.db.prepare("SELECT 1 FROM events WHERE kind = 'quote.pace_held' AND platform = ? AND ref = ? AND at >= ? LIMIT 1").get(platform, ref, dayStart(dayKey(now)).toISOString());
+          if (!heldToday) event('quote.pace_held', ref, { service: ib.service ?? null, cashKRW: usage.cashKRW, maxCashPerDay: cfg.maxCashPerDay });
+          continue;
+        }
       }
       // With the hour's read share spent, a request waits for a later poll unread and unparked, keeping its
       // place in the order, so the list loads, the hourly reads and the sends keep their room in the action

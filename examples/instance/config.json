@@ -39,6 +39,9 @@
       "maxQuotesPerDay": 5,
       "maxCashPerDay": 0,
       "platformSpendMaxPerDay": null,
+      "quoteGate": {
+        "pace": "even"
+      },
       "services": null
     },
     "wishket": {

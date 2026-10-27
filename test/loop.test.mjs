@@ -440,6 +440,38 @@ test('cash quotes still waiting from an earlier day fill the cap before a new re
   assert.deepEqual([r.threads.budget, codex.calls, reads(surface).length], [1, 0, 0]);
 });
 
+// The day's quote cash is spread over the Seoul day (quoteGate.pace even): at 12:00 a cap of 5,000 allows 2,500, so
+// a request waits unread while 3,000 is spent, and opens once the day's share passes the spend.
+test('a buyer request waits unread while the day\'s cash runs ahead of the Seoul day, is read once the share catches up, and pace off or draft mode never waits', async () => {
+  const s = setup();
+  const old = s.ledger.upsertThread({ platform: 'soomgo', externalId: 'old', kind: 'request' });
+  s.ledger.addQuote({ threadId: old.id, platform: 'soomgo', service: 'landing_page_web', amountKRW: 300000, costKRW: 3000, status: 'sent', at: hoursBefore(NOON, 2) });
+  const req = (now) => inbound('soomgo', 'r1', { kind: 'request', service: '웹 개발', quotable: true, quoteCostKRW: 990, at: hoursBefore(now, 1) });
+  const thread = (ref) => ({ ...chat('soomgo', ref, '웹 개발\n회사 소개 랜딩 페이지가 필요합니다.'), kind: 'request', quoteCostKRW: 990 });
+  const codex = codexWith(decision({ intent: 'quote_request', reply: null }));
+  for (const minutes of [0, 5]) {
+    const surface = scriptedSurface({ sense: [req(NOON)], threads: thread });
+    const r = await s.run('soomgo', surface, { runCodex: codex, now: new Date(NOON.getTime() + minutes * 60_000) });
+    assert.deepEqual([r.threads.pace, r.threads.budget, reads(surface).length, codex.calls], [1, undefined, 0, 0]);
+  }
+  assert.equal(s.ledger.listThreads({ platform: 'soomgo' }).find((t) => t.externalId === 'r1').meta, null);
+  // One event a request a Seoul day, however many ticks hold it.
+  assert.deepEqual(s.events('quote.pace_held').map((e) => [e.ref, e.cashKRW]), [['r1', 3000]]);
+  const evening = new Date('2026-10-20T18:00:00+09:00');
+  const later = scriptedSurface({ sense: [req(evening)], threads: thread });
+  const r = await s.run('soomgo', later, { runCodex: codex, now: evening });
+  assert.deepEqual([r.threads.pace, reads(later).length, codex.calls], [undefined, 1, 1]);
+  // quoteGate.pace off leaves only the day caps, and draft mode, where the operator approves each quote, is never paced.
+  for (const edit of [(p) => ({ ...p, quoteGate: { pace: 'off' } }), (p) => ({ ...p, mode: 'draft' })]) {
+    const s = setup((c) => ({ ...c, platforms: { ...c.platforms, soomgo: edit(c.platforms.soomgo) } }));
+    const old = s.ledger.upsertThread({ platform: 'soomgo', externalId: 'old', kind: 'request' });
+    s.ledger.addQuote({ threadId: old.id, platform: 'soomgo', service: 'landing_page_web', amountKRW: 300000, costKRW: 3000, status: 'sent', at: hoursBefore(NOON, 2) });
+    const codex = codexWith(decision({ intent: 'quote_request', reply: null }));
+    const surface = scriptedSurface({ sense: [inbound('soomgo', 'r1', { kind: 'request', service: '웹 개발', quotable: true, quoteCostKRW: 990 })], threads: (ref) => ({ ...chat('soomgo', ref, '웹 개발\n회사 소개 랜딩 페이지가 필요합니다.'), kind: 'request', quoteCostKRW: 990 }) });
+    const r = await s.run('soomgo', surface, { runCodex: codex });
+    assert.deepEqual([r.threads.pace, reads(surface).length, codex.calls], [undefined, 1, 1]);
+  }
+});
 test('an expired request whose thread has a quoted job loses the job', async () => {
   const s = setup();
   const t = s.ledger.upsertThread({ platform: 'soomgo', externalId: 'r9', kind: 'request' });

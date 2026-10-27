@@ -74,7 +74,7 @@ Accepted work is reviewed before the operator sees its delivery: `reviewDelivera
 
 ## Loop step
 
-`step(platform, ctx)` runs one platform pass: login; sense, with every list row's money handed to the deal; triage; while the Seoul day's budget pays no quote, a buyer request on a cash platform is left unread with no model call (`threads.budget`); read, decide and plan at most `MAX_THREADS_PER_PLATFORM` opened threads (a buyer request ruled unsupported plans nothing and counts as `thread.operator`); the deal effects; then the drain (outside observe mode) and the effects of what it observed.
+`step(platform, ctx)` runs one platform pass: login; sense, with every list row's money handed to the deal; triage; while the Seoul day's budget pays no quote, a buyer request on a cash platform is left unread with no model call (`threads.budget`), and while the day's quote cash runs ahead of `maxCashPerDay` times the share of the Seoul day gone by (`quoteGate.pace` even) it waits the same way (`threads.pace`, one `quote.pace_held` event a request a Seoul day); read, decide and plan at most `MAX_THREADS_PER_PLATFORM` opened threads (a buyer request ruled unsupported plans nothing and counts as `thread.operator`); the deal effects; then the drain (outside observe mode) and the effects of what it observed.
 
 ## Instance
 

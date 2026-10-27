@@ -89,6 +89,25 @@ test('freelancer signIn presses the framed Google button on the login page, and 
   assert.equal(pressed.length, 2);
 });
 
+test('googleSignIn reads the opener page when the chooser tab closes under the engine after the pick', async () => {
+  const { googleSignIn } = await import('../src/platforms/onboarding.mjs');
+  const email = 'operator@example.invalid';
+  let picked = false;
+  const bsk = {
+    observe: async ({ tabId }) => ({ text: tabId ? 'option "' + email + '" @e2' : 'button "Continue as Operator, ' + email + '. Opens in new tab" @e1' }),
+    click: async (_ref, { tabId } = {}) => {
+      if (!tabId) return;
+      picked = true;
+      throw new Error('No tab with id: 527361333.');
+    },
+    tabList: async () => ({ tabs: picked ? [] : [{ tab_id: 7, url: 'https://accounts.google.com/v3/signin/accountchooser', scope: 'agent' }] }),
+    evaluate: async () => ({ value: JSON.stringify({ accounts: [email], password: false }) }),
+  };
+  const session = { session: bsk, evaluate: async () => (picked ? '/dashboard' : '/login') };
+  assert.equal(await googleSignIn(session, { framed: true, email, wait: async () => {} }), '/dashboard');
+  assert.equal(picked, true);
+});
+
 test('openSurface opens freelancer on the session it is given, as a publicSense surface', async () => {
   assert.equal(hasSurface('freelancer'), true);
   const s = await openSurface('freelancer', { session: fakeSession(null) });

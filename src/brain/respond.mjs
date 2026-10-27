@@ -144,15 +144,32 @@ export function gateThread(thread) {
 
 // A buyer request on a bidding board is answered with a proposal (U8.11 of wp8), elsewhere with a quote.
 export const biddingBoard = (descriptor) => [descriptor?.model].flat().includes('bidding');
-// A proposal on a board priced outside KRW also states its code-set price in the board's currency, at the
-// day's rate, which travels with it so the drain can tell a stale rate.
+// A proposal on a board priced outside KRW also states its code-set price in the project's own currency (a
+// freelancer client posts in INR, EUR or USD), at the day's rate, which travels with it so the drain can tell a
+// stale rate.
 export const needsFx = (thread, descriptor) => thread.kind === 'request' && biddingBoard(descriptor) && (descriptor.currency ?? 'KRW') !== 'KRW';
+// The currency the project states its budget in, as the surface read it; null when it stated none.
+export const projectCurrency = (thread) => thread.currency ?? thread.budget?.currency ?? null;
+
+// The terms of a converted proposal: the project's currency, the amount at the day's rate and that rate. A
+// project with no currency, no day's rate, or a rate without its currency leaves amount and fx null, so
+// authorize refuses the proposal by name (price.terms) and the operator is told why.
+function foreignTerms(thread, amountKRW, fx) {
+  const currency = projectCurrency(thread);
+  if (!currency || !fx || !amountKRW) return { currency, amount: null, fx: null };
+  try {
+    return { currency, amount: foreignAmount(amountKRW, currency, fx), fx: fxNote(currency, fx) };
+  } catch (err) {
+    if (err.code !== 'FSW_FX_MISSING') throw err;
+    return { currency, amount: null, fx: null };
+  }
+}
 
 export function outboundItem(thread, decision, text, { descriptor = null, fx = null } = {}) {
   const answer = biddingBoard(descriptor) ? 'proposal' : 'quote';
   const kind = thread.kind === 'request' ? answer : decision.quote ? 'quote' : 'message';
   const amountKRW = decision.quote?.amountKRW;
-  const foreign = kind === 'proposal' && needsFx(thread, descriptor) && fx && amountKRW ? { currency: descriptor.currency, amount: foreignAmount(amountKRW, descriptor.currency, fx), fx: fxNote(descriptor.currency, fx) } : {};
+  const foreign = kind === 'proposal' && needsFx(thread, descriptor) ? foreignTerms(thread, amountKRW, fx) : {};
   // decision rides on the item so the loop stores it in the outbox payload and authorize reads its rules.
   return {
     platform: thread.platform, kind, text, amountKRW, ...foreign,
@@ -217,9 +234,20 @@ export async function decide(thread, ctx) {
     }
     return decision;
   };
-  // The day's rate for a board priced outside KRW, read once and only once the model has drafted a reply.
+  // The day's rate for a board priced outside KRW, read once and only once the model has drafted a reply. A
+  // rate that cannot be read leaves the proposal without one, which authorize refuses (price.terms) with that
+  // reason rather than a guessed amount.
   let fx = null;
-  const rate = async () => (fx ??= needsFx(thread, descriptor) ? await (ctx.loadFx ?? defaultLoadFx)(instance) : null);
+  let fxError = null;
+  const rate = async () => {
+    if (fx || fxError || !needsFx(thread, descriptor) || !projectCurrency(thread)) return;
+    try {
+      fx = await (ctx.loadFx ?? defaultLoadFx)(instance);
+    } catch (err) {
+      if (err.code !== 'FSW_FX_UNAVAILABLE') throw err;
+      fxError = err;
+    }
+  };
   const gate = (decision) => {
     const priceRow = decision.service ? priceRowFor(priceTable, descriptor.id, decision.service) : null;
     const item = outboundItem(thread, decision, decision.reply, { descriptor, fx });

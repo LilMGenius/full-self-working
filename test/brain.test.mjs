@@ -233,7 +233,7 @@ test('a freelancer request yields a proposal in USD with its rate, and a soomgo 
   const reply = 'I can build this landing page with the three sections you listed and deliver it within a week.';
   const codex = fakeCodex([decision({ intent: 'quote_request', language: 'en', quote, reply })]);
   const reads = [];
-  const t = thread([{ direction: 'in', text: 'Need a landing page with three sections' }], { platform: 'freelancer', kind: 'request', quoteCostKRW: 0, serviceLabel: 'Website Design' });
+  const t = thread([{ direction: 'in', text: 'Need a landing page with three sections' }], { platform: 'freelancer', kind: 'request', quoteCostKRW: 0, serviceLabel: 'Website Design', budget: { min: 250, max: 750, currency: 'USD' } });
   const r = await decide(t, ctx(makeInstance(), 'freelancer', codex, { priceTable: [row], loadFx: async () => (reads.push(1), FX) }));
   assert.equal(r.decision.quote.amountKRW, 480000);
   // 480,000 KRW at 1,400 KRW a dollar is 342.86 USD, rounded up to the whole dollar so the bid never undercuts it.
@@ -246,4 +246,35 @@ test('a freelancer request yields a proposal in USD with its rate, and a soomgo 
   const k = thread([{ direction: 'in', text: '세 섹션짜리 랜딩 페이지가 필요합니다' }], { platform: 'soomgo', kind: 'request', quoteCostKRW: 1990, serviceLabel: '웹 디자인' });
   const s = await decide(k, ctx(makeInstance(), 'soomgo', ko, { priceTable: [soomgoRow], loadFx: async () => assert.fail('soomgo reads no rate') }));
   assert.deepEqual([s.item.kind, s.item.currency, s.item.amount, s.item.fx], ['quote', undefined, undefined, undefined]);
+});
+
+// The proposal states its price in the project's own currency, read from the project (the C review of wp8,
+// finding 4); a project with no currency, or a day with no rate for it, plans terms authorize refuses by name.
+test('an INR project is proposed in INR at the day rate, and a project with no currency or no rate is refused by name', async () => {
+  const { authorize } = await import('../src/policy/authorize.mjs');
+  const fx = { ...FX, rates: { USD: 1, KRW: 1400, INR: 84 } };
+  const row = { platform: 'freelancer', service: 'landing_page_web', baseKRW: 400000, floorKRW: 200000, ceilingKRW: 1200000, costFloorKRW: 60000, viable: true };
+  const quote = { amountKRW: 1, scope: ['landing page'], deliveryDays: 7, priceType: 'fixed', complexity: 1 };
+  const reply = 'I can build this landing page with the three sections you listed and deliver it within a week.';
+  const project = (budget) => thread([{ direction: 'in', text: 'Need a landing page with three sections' }], { platform: 'freelancer', kind: 'request', quoteCostKRW: 0, serviceLabel: 'Website Design', budget });
+  const plan = async (budget, loadFx) => {
+    const reads = [];
+    const r = await decide(project(budget), ctx(makeInstance(), 'freelancer', fakeCodex([decision({ intent: 'quote_request', language: 'en', quote, reply })]), { priceTable: [row], loadFx: async () => (reads.push(1), loadFx()) }));
+    return { item: r.item, reads: reads.length };
+  };
+  // 400,000 KRW at 1400/84 KRW a rupee is 24,000 INR.
+  const inr = await plan({ min: 10000, max: 30000, currency: 'INR' }, async () => fx);
+  assert.deepEqual([inr.item.kind, inr.item.currency, inr.item.amount, inr.item.fx.currency, inr.item.fx.date, inr.reads], ['proposal', 'INR', 24000, 'INR', '2026-10-19', 1]);
+  const descriptor = structuredClone(loadDescriptor('freelancer'));
+  descriptor.forms.proposal = { mapped: true, mappedAt: '2026-10-28T00:00:00Z', recording: 'test fixture', readBack: true };
+  const judge = (item) => authorize(item, { descriptor, instance: makeInstance(), mode: 'auto', now: new Date('2026-10-20T12:00:00+09:00'), priceRow: row, usage: { bidMonthKRW: 0, bidUnanswered: 0 }, approved: true });
+  assert.equal(judge(inr.item).verdict, 'send');
+  const none = await plan({ min: 10000, max: 30000, currency: null }, async () => fx);
+  assert.deepEqual([none.item.currency, none.item.amount, none.reads], [null, null, 0]);
+  assert.deepEqual([judge(none.item).verdict, judge(none.item).reasons[0].detail], ['refuse', 'the proposal names no currency for its amount']);
+  const down = await plan({ min: 10000, max: 30000, currency: 'INR' }, async () => Promise.reject(Object.assign(new Error('HTTP 503'), { code: 'FSW_FX_UNAVAILABLE' })));
+  assert.deepEqual([down.item.currency, down.item.amount, down.item.fx], ['INR', null, null]);
+  assert.deepEqual([judge(down.item).verdict, judge(down.item).reasons[0].detail], ['refuse', 'the proposal in INR carries no dated INR rate']);
+  const unlisted = await plan({ min: 10000, max: 30000, currency: 'XOF' }, async () => fx);
+  assert.deepEqual([unlisted.item.currency, unlisted.item.amount, judge(unlisted.item).verdict], ['XOF', null, 'refuse']);
 });

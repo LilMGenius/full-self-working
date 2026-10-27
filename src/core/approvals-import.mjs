@@ -92,8 +92,13 @@ export function rowFromApproval(ledger, a) {
   const threadId = threadIdFor(ledger, a);
   // A deferred quote whose thread the ledger lacks has nothing to send to, so it keeps the operator's mapping.
   const deferred = deferredForBudget(a) && threadId != null;
-  const status = deferred ? 'planned' : statusOf(a);
-  if (!status) return { skip: 'status ' + a.status + ' has no outbox status' };
+  const mappedStatus = deferred ? 'planned' : statusOf(a);
+  if (!mappedStatus) return { skip: 'status ' + a.status + ' has no outbox status' };
+  // A 2c77326 delivery was never reviewed (src/work/review.mjs came after it), so an approved one is asked again
+  // and every imported delivery carries review error, which src/outbox/resolve.mjs reads as needing a reason.
+  const review = kind === 'delivery' ? { verdict: 'error', findings: [{ severity: 'blocker', file: null, detail: 'imported from a d605c5d approval file without a review' }] } : null;
+  const reAsk = review && mappedStatus === 'approved';
+  const status = reAsk ? 'awaiting_operator' : mappedStatus;
   if (!a.platform || a.threadRef == null) return { skip: 'no platform or threadRef' };
   const text = a.finalText ?? a.draft ?? null;
   const files = a.files ?? [];
@@ -106,12 +111,12 @@ export function rowFromApproval(ledger, a) {
       threadId,
       jobId: a.jobId && ledger.getJob(a.jobId) ? a.jobId : null,
       kind,
-      payload: { text: a.draft ?? null, amountKRW, split: a.quote?.split ?? null, scope: a.quote?.scope ?? null, deliveryDays: a.quote?.deliveryDays ?? null, files, costKRW: a.costKRW ?? a.deferredForBudget?.costKRW ?? null, threadRef: String(a.threadRef), importedFrom: 'operator/approvals/' + a.id + '.json', ...(deferred ? deferredPayload(ledger, a, threadId) : {}), ...(kind === 'proposal' ? proposalPayload(a) : {}) },
+      payload: { text: a.draft ?? null, amountKRW, split: a.quote?.split ?? null, scope: a.quote?.scope ?? null, deliveryDays: a.quote?.deliveryDays ?? null, files, costKRW: a.costKRW ?? a.deferredForBudget?.costKRW ?? null, threadRef: String(a.threadRef), importedFrom: 'operator/approvals/' + a.id + '.json', ...(review ? { review } : {}), ...(deferred ? deferredPayload(ledger, a, threadId) : {}), ...(kind === 'proposal' ? proposalPayload(a) : {}) },
       verdict: null,
       status,
-      reason: a.reason ?? null,
+      reason: reAsk ? 'approved under the d605c5d code with no review; approve it again' : a.reason ?? null,
       approvalId: a.id,
-      operator: resolved,
+      operator: reAsk ? null : resolved,
       receipt: receiptOf(status) ? { ...receiptOf(status), ...pressOf(a) } : null,
       createdAt: a.createdAt ?? new Date().toISOString(),
       updatedAt: a.closedAt ?? a.resolvedAt ?? a.createdAt ?? new Date().toISOString(),

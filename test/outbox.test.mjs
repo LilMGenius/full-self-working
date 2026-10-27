@@ -11,7 +11,7 @@ import { authorize } from '../src/policy/authorize.mjs';
 import { drain, plan, resolve, setStatus, settleSent, signalOf } from '../src/outbox/index.mjs';
 import { NOT_SENT, handles } from '../src/outbox/drain.mjs';
 import { TRANSITIONS } from '../src/outbox/plan.mjs';
-import { quotaUsage } from '../src/outbox/usage.mjs';
+import { bidUsage, quotaUsage } from '../src/outbox/usage.mjs';
 import { scriptedSurface } from './helpers/surface.mjs';
 import { tempDir } from './tmp.mjs';
 
@@ -682,4 +682,39 @@ test('a send folder that cannot be removed leaves the receipt observed, the next
   for (const e of left) utimesSync(e.dir, old, old);
   await s.run(scriptedSurface());
   for (const e of left) assert.equal(existsSync(e.dir), false, e.dir + ' is swept');
+});
+
+// wp8: proposals that spend bids (freelancer, upwork) go out inside platforms.<id>.bidBudget, counted from the
+// outbox rows the drain itself sets observed, so two proposals in one drain never both pass on one count.
+const mappedFreelancer = () => {
+  const d = structuredClone(loadDescriptor('freelancer'));
+  d.forms.proposal = { mapped: true, mappedAt: '2026-10-28T00:00:00Z', recording: 'test fixture', readBack: true };
+  return d;
+};
+const EN = 'I can build this with the layout you described. Let me know the schedule you have in mind.';
+const bidPayload = (costKRW, i) => ({ text: EN + ' ' + i, amountKRW: 400000, costKRW, thread: { kind: 'request', stage: 'pre_order', lastInboundText: 'Need a landing page', recentOutbound: [] }, decision: decision({ intent: 'quote_request', language: 'en', reply: EN }) });
+const bidSetup = (bidBudget) => setup('freelancer', (c) => ({ ...c, platforms: { ...c.platforms, freelancer: { ...c.platforms.freelancer, enabled: true, mode: 'auto', bidBudget } } }));
+
+test('two priced proposals with room for one: the first goes out and the second is blocked by budget.bid', async () => {
+  const s = bidSetup({ monthlyKRW: 3000, stopAfterUnanswered: 20 });
+  const rows = ['p1', 'p2'].map((ref, i) => plan(s.ledger, { platform: 'freelancer', threadId: s.thread(ref, 'request').id, kind: 'proposal', payload: bidPayload(2000, i) }));
+  const surface = scriptedSurface({ methods: ['propose'] });
+  const out = await s.run(surface, { descriptor: mappedFreelancer() });
+  assert.deepEqual(out.map((x) => [x.id, x.action]), [[rows[0].id, 'observed'], [rows[1].id, 'blocked']]);
+  assert.equal(surface.count('propose'), 1);
+  assert.match(s.ledger.getOutbox(rows[1].id).reason, /^budget\.bid .*the month's bid budget is spent \(2000 \+ 2000 over 3000 KRW\)/);
+  assert.deepEqual(bidUsage(s.ledger, 'freelancer', NOON), { bidMonthKRW: 2000, bidUnanswered: 1 });
+});
+
+test('one more unanswered proposal than the limit allows stops the next bid, and a reply frees its place', async () => {
+  const s = bidSetup({ monthlyKRW: 100000, stopAfterUnanswered: 1 });
+  const threads = ['p1', 'p2'].map((ref) => s.thread(ref, 'request'));
+  const rows = threads.map((t, i) => plan(s.ledger, { platform: 'freelancer', threadId: t.id, kind: 'proposal', payload: bidPayload(0, i) }));
+  const surface = scriptedSurface({ methods: ['propose'] });
+  const out = await s.run(surface, { descriptor: mappedFreelancer() });
+  assert.deepEqual(out.map((x) => [x.id, x.action]), [[rows[0].id, 'observed'], [rows[1].id, 'blocked']]);
+  assert.match(s.ledger.getOutbox(rows[1].id).reason, /1 sent proposals have no reply; bids stop at 1/);
+  const sentAt = Date.parse(s.ledger.getOutbox(rows[0].id).updatedAt);
+  s.ledger.addMessage({ threadId: threads[0].id, direction: 'in', body: 'Thanks, can we talk?', externalId: 'r1', at: new Date(sentAt + 60_000).toISOString() });
+  assert.deepEqual(bidUsage(s.ledger, 'freelancer', NOON), { bidMonthKRW: 0, bidUnanswered: 0 });
 });

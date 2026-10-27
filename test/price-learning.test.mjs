@@ -6,6 +6,7 @@ import { openLedger } from '../src/core/ledger.mjs';
 import { plan, setStatus } from '../src/outbox/index.mjs';
 import { QUOTE_RESULTS, dayStart, priceIndex, quoteFunnel, quoteResults } from '../src/economics/quote-results.mjs';
 import { learnPriceRows, learnedFactor } from '../src/economics/price-learning.mjs';
+import { armStats } from '../src/economics/yield.mjs';
 import { quoteForRequest } from '../src/economics/pricing.mjs';
 import { quoteFromRow } from '../src/economics/quote.mjs';
 import { sellerNet } from '../src/economics/fees.mjs';
@@ -109,14 +110,16 @@ test('quoteResults needs a day and a positive expiry, and Infinity turns the age
 });
 
 // soomgo refunds a quote the customer has not opened 48 hours after it went out (descriptor
-// bidCost.unreadRefundHours), so such a quote can no longer win: it resolves as expired with cause unread within
-// two days instead of fourteen. An expired quote is a loss to price learning (learnedFactor) and to the allocation
-// (yield.mjs), and the funnel no longer counts it as no answer yet.
-test('a soomgo quote unread past the refund window is expired with cause unread, and an opened one stays open', () => {
+// bidCost.unreadRefundHours), so such a quote can no longer win: once a poll saw its chat still unopened past the
+// window (quote.unread, src/loop/funnel.mjs) it resolves as expired with cause unread within two days instead of
+// fourteen. An expired quote is a loss to price learning (learnedFactor) and to the allocation (yield.mjs), and the
+// funnel no longer counts it as no answer yet.
+test('a soomgo quote seen unread past the refund window is expired with cause unread, and an opened one stays open', () => {
   const ledger = openLedger(':memory:');
   const unread = sent(ledger, { ref: 'u' });
   const opened = sent(ledger, { ref: 'o' });
   ledger.addEvent({ kind: 'quote.opened', platform: 'soomgo', ref: 'c-o', at: plus(T0, DAY), payload: { quoteId: opened.quote.id } });
+  ledger.addEvent({ kind: 'quote.unread', platform: 'soomgo', ref: 'c-u', at: plus(T0, 2 * DAY), payload: { quoteId: unread.quote.id } });
   const at = (hours, expireAfterDays = 14) => byId(quoteResults(ledger, { asOf: new Date(plus(T0, hours * 3_600_000)), expireAfterDays }));
   const pick = (r, x) => [r['quote:' + x.quote.id].result, r['quote:' + x.quote.id].cause, r['quote:' + x.quote.id].aged];
   assert.deepEqual(pick(at(47), unread), ['open', null, false]);
@@ -126,6 +129,27 @@ test('a soomgo quote unread past the refund window is expired with cause unread,
   assert.deepEqual(pick(at(48, Infinity), unread), ['expired', 'unread', true]);
   const f = quoteFunnel(ledger, { platform: 'soomgo', now: new Date(plus(T0, 2 * DAY)), days: 7 });
   assert.deepEqual([f.sent, f.opened, f.noAnswer], [2, 1, 1]);
+});
+
+// A missing opened signal is no evidence that a quote went unread: the funnel reads only the chat list's first page,
+// so a quote whose chat it never saw has no opened event either. Such a quote stays open past the refund window, and
+// the price learning and the allocation read it exactly as they did inside the window, until the age rule ends it.
+test('a soomgo quote no poll observed stays open past the refund window, and learning and allocation do not move', () => {
+  const ledger = openLedger(':memory:');
+  const quiet = sent(ledger, { ref: 'q' });
+  const results = (hours, expireAfterDays = 14) => quoteResults(ledger, { asOf: new Date(plus(T0, hours * 3_600_000)), expireAfterDays });
+  const inputs = (rs) => {
+    const r = rs.find((x) => x.id === quiet.quote.id);
+    const arm = armStats(ledger, { descriptors, services: { detail_page_design: { agentHours: { standard: 1 }, humanMinutes: { standard: 0 } } }, config: { yield: { humanHourWeight: 4 } }, results: rs }).find((a) => a.platform === 'soomgo' && a.service === 'detail_page_design');
+    return [r.result, r.cause, r.aged, learnedFactor(rs, { step: 0.2, maxMove: 0.3 }), arm.losses];
+  };
+  const inside = inputs(results(1));
+  assert.deepEqual(inside, ['open', null, false, 1, 0]);
+  for (const hours of [48, 72, 13 * 24]) assert.deepEqual(inputs(results(hours)), inside, hours + ' hours');
+  assert.deepEqual(inputs(results(72, Infinity)), inside, 'the funnel read, with the age rule off');
+  assert.equal(quoteFunnel(ledger, { platform: 'soomgo', now: new Date(plus(T0, 3 * DAY)), days: 7 }).noAnswer, 1);
+  // The age rule still ends it at 14 days, with no unread cause.
+  assert.deepEqual(inputs(results(14 * 24)).slice(0, 3), ['expired', null, true]);
 });
 
 const SETTINGS = { enabled: true, minCases: 5, step: 0.2, maxMove: 0.3, expireAfterDays: 14, lookbackDays: 180 };

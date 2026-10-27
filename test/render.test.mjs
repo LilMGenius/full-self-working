@@ -47,3 +47,26 @@ test('render with fontReport proves the inlined face and catches a fallback', { 
   }
 });
 
+// Text no element child holds: generated content, a placeholder (drawn in the input's user-agent shadow
+// root) and an open shadow root. Each is drawn in Georgia on an otherwise Pretendard page.
+test('the font report reaches pseudo-element content, placeholders and shadow roots', { skip: !existsSync(process.env.FSW_CHROME ?? DEFAULT_CHROME) && 'Chrome not installed', timeout: 120000 }, async () => {
+  const dir = tempDir('fsw-render-test-');
+  const page = (css, body) => '<!doctype html><html lang="en"><head><meta charset="utf-8"><style>' + pretendardFontFace() + 'body{font-family:"Pretendard"}' + css + '</style></head><body><p>Pretendard text</p>' + body + '</body></html>';
+  const cases = {
+    pseudo: page('.tag::before{content:"Generated words";font-family:Georgia}', '<span class="tag"></span>'),
+    placeholder: page('input{font-family:Georgia;width:300px}', '<input placeholder="Placeholder words">'),
+    shadow: page('', '<div id="host"></div><script>document.getElementById("host").attachShadow({ mode: "open" }).innerHTML = \'<span style="font-family:Georgia">Shadow words</span>\';</script>'),
+  };
+  const renderer = await openRenderer();
+  const missed = [];
+  try {
+    for (const [name, html] of Object.entries(cases)) {
+      const shot = await renderer.render({ html, width: 390, height: 300, out: join(dir, name + '.jpg'), fontReport: true });
+      if (!platformFontProblems(shot.platformFonts, 'Pretendard').some((p) => p.startsWith('fallback font '))) missed.push(name + ' ' + JSON.stringify(shot.platformFonts));
+    }
+  } finally {
+    await renderer.close();
+  }
+  assert.deepEqual(missed, [], 'a Georgia run the report did not see');
+});
+

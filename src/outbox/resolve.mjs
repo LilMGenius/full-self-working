@@ -21,12 +21,17 @@ export function resolve(ledger, approvalId, { approve, editedText, reason } = {}
   if (from !== 'awaiting_operator' && !(['unobserved', 'approved'].includes(from) && approve === false)) throw resolved();
   // wp7: a delivery is approved only after a passed review of the bytes it holds now (src/work/review.mjs,
   // src/core/reviewed.mjs), or with the operator's stated reason; the approval stamps the hash of its files, which
-  // the drain checks before it sends.
+  // the drain checks before it sends. A file the review never read (one an operator step added after the run) is
+  // unreviewed bytes the stamp would cover, so it needs the stated reason as a changed file does.
   const delivery = row.kind === 'delivery';
   const review = delivery ? row.payload.review?.verdict ?? 'error' : null;
   const stated = Boolean((reason ?? '').trim());
   if (approve && delivery && review !== 'pass' && !stated) throw Object.assign(new Error('delivery ' + approvalId + ' has review ' + review + '; approving it needs --reason'), { code: 'FSW_REVIEW_NOT_PASSED' });
-  if (approve && delivery && review === 'pass' && !stated && reviewDrift(row.payload.review, row.payload.files ?? []).changed) throw Object.assign(new Error('delivery ' + approvalId + ' changed since its review; approving it needs --reason'), { code: 'FSW_REVIEW_CHANGED' });
+  if (approve && delivery && review === 'pass' && !stated) {
+    const drift = reviewDrift(row.payload.review, row.payload.files ?? []);
+    if (drift.changed) throw Object.assign(new Error('delivery ' + approvalId + ' changed since its review; approving it needs --reason'), { code: 'FSW_REVIEW_CHANGED' });
+    if (drift.unreviewed.length) throw Object.assign(new Error('delivery ' + approvalId + ' holds files its review never read: ' + drift.unreviewed.join(', ') + '; approving it needs --reason'), { code: 'FSW_REVIEW_UNREVIEWED' });
+  }
   const edited = typeof editedText === 'string' && editedText.trim() ? editedText.trim() : null;
   const draft = row.payload.text ?? null;
   const operator = { resolvedAt: new Date().toISOString(), finalText: approve ? edited ?? draft : null, edited: approve && edited !== null && edited !== draft, resolutionReason: reason ?? null, ...(approve && delivery ? { filesHash: filesHash(row.payload.files ?? []) } : {}) };

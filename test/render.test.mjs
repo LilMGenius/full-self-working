@@ -104,3 +104,9 @@ test('a DevToolsActivePort read that is busy or gone once waits for the next pol
   const never = () => { throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); };
   await assert.rejects(readActivePort('C:/profile', alive, 200, { read: never }), { code: 'FSW_RENDER_TIMEOUT' });
 });
+
+test('a DevToolsActivePort that stays busy until the deadline names the last read error as the cause', async () => {
+  const { readActivePort } = await import('../src/render/html2png.mjs');
+  const busy = () => { throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' }); };
+  await assert.rejects(readActivePort('C:/profile', { exitCode: null }, 200, { read: busy }), (err) => err.code === 'FSW_RENDER_TIMEOUT' && err.cause?.code === 'EPERM' && /last read: EPERM/.test(err.message));
+});

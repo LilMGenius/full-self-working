@@ -173,7 +173,7 @@ export async function decide(thread, ctx) {
     catalog,
     priceRows: priceTable.filter((r) => r.platform === descriptor.id && ids.includes(r.service)),
     playbook: ctx.playbook ?? loadPlaybook(instance, descriptor.id),
-    lessons: ctx.lessons ?? loadLessons(instance),
+    lessons: ctx.lessons ?? loadLessons(instance, { platform: descriptor.id }),
   };
   const lessonsRules = ctx.lessonsRules ?? loadGateRules(instance);
   const ask = async (extra) => {

@@ -3,14 +3,14 @@
 // own order with its own tier. Quote costs count whether or not the quote won.
 import { sellerNet } from './fees.mjs';
 import { EconomicsError, requireNumber } from './errors.mjs';
+import { quoteResults } from './quote-results.mjs';
 
 const WON = new Set(['ordered', 'in_progress', 'delivered', 'revision', 'closed']);
-const LOST_QUOTE = new Set(['declined', 'expired']);
 
 const keyOf = (platform, service) => `${platform}\u0000${service ?? ''}`;
 
 function emptyArm(platform, service) {
-  return { platform, service, leads: 0, quotes: 0, wins: 0, losses: 0, revenueKRW: 0, feesKRW: 0, quoteCostKRW: 0, toolCostKRW: 0, netKRW: 0, agentHours: 0, humanHours: 0, closedWeightedHours: 0, closedWins: 0, leadKeys: new Set() };
+  return { platform, service, leads: 0, quotes: 0, wins: 0, losses: 0, refused: 0, revenueKRW: 0, feesKRW: 0, quoteCostKRW: 0, toolCostKRW: 0, netKRW: 0, agentHours: 0, humanHours: 0, closedWeightedHours: 0, closedWins: 0, leadKeys: new Set() };
 }
 
 // Weighted hours one win is expected to take: observed hours per closed job once there is one,
@@ -24,7 +24,9 @@ function expectedHours(arm, services, weight) {
   return agent + human * weight;
 }
 
-export function armStats(ledger, { descriptors, services, config }) {
+// results: quoteResults (src/economics/quote-results.mjs), the list the price table learns from; the default
+// reads statuses only, with no age rule.
+export function armStats(ledger, { descriptors, services, config, results = quoteResults(ledger, { asOf: new Date(), expireAfterDays: Infinity }) }) {
   const weight = requireNumber(config?.yield?.humanHourWeight, 'config.yield.humanHourWeight');
   const arms = new Map();
   const arm = (platform, service) => {
@@ -43,11 +45,13 @@ export function armStats(ledger, { descriptors, services, config }) {
 
   for (const t of ledger.listThreads()) arm(t.platform, t.service).leadKeys.add(`thread:${t.id}`);
 
-  const threadsWithJobs = new Set();
+  // Threads whose job already decided its quote: a job past quoted counts its own win or loss. A soomgo job
+  // moves to its chat thread and names the request thread its quote sits on (findJob in src/deal/advance.mjs).
+  const decidedThreads = new Set();
   for (const job of ledger.listJobs()) {
     const a = arm(job.platform, job.service);
     a.leadKeys.add(job.threadId != null ? `thread:${job.threadId}` : `job:${job.id}`);
-    if (job.threadId != null) threadsWithJobs.add(job.threadId);
+    if (job.status !== 'quoted') for (const t of [job.threadId, job.meta?.requestThreadId]) if (t != null) decidedThreads.add(t);
     const won = WON.has(job.status);
     if (won) a.wins += 1;
     if (job.status === 'lost') a.losses += 1;
@@ -72,8 +76,14 @@ export function armStats(ledger, { descriptors, services, config }) {
     a.quotes += 1;
     a.quoteCostKRW += q.costKRW ?? 0;
     if (q.threadId != null) a.leadKeys.add(`thread:${q.threadId}`);
-    // A lost quote whose thread has a job is already counted through the job's status.
-    if (LOST_QUOTE.has(q.status) && !(q.threadId != null && threadsWithJobs.has(q.threadId))) a.losses += 1;
+  }
+  // Losses from the replayed results, the list the price table learns from: a lost or expired quote counts
+  // here unless its job already counted it, so an aged quote whose job still waits at quoted counts here. A
+  // refused send never reached the client: neither a win nor a loss.
+  for (const r of results) {
+    const a = arm(r.platform, r.service);
+    if (r.result === 'refused') a.refused += 1;
+    else if ((r.result === 'lost' || r.result === 'expired') && !(r.threadId != null && decidedThreads.has(r.threadId))) a.losses += 1;
   }
 
   return [...arms.values()]
@@ -86,6 +96,7 @@ export function armStats(ledger, { descriptors, services, config }) {
         netKRW,
         weightedHours,
         netPerWeightedHour: weightedHours > 0 ? netKRW / weightedHours : null,
+        quoteCostPerQuoteKRW: a.quotes > 0 ? a.quoteCostKRW / a.quotes : 0,
         expectedHours: expectedHours({ ...a, closedWeightedHours, closedWins }, services, weight),
       };
     })

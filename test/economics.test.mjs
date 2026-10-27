@@ -8,6 +8,7 @@ import { sellerNet } from '../src/economics/fees.mjs';
 import { buildPriceTable, costFloor, quoteForRequest, splitPayment } from '../src/economics/pricing.mjs';
 import { armStats } from '../src/economics/yield.mjs';
 import { allocate, beta, mulberry32 } from '../src/economics/allocate.mjs';
+import { quoteResults } from '../src/economics/quote-results.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
 import { tempDir } from './tmp.mjs';
 
@@ -298,4 +299,42 @@ test('with more young arms than the floors can serve, the floors share the explo
   for (const s of services) assert.ok(mean[s] >= floor - 1e-12, s + ' kept its exploration floor');
   assert.ok(mean.s23 > 3 * mean.s00, 'the most valuable arm gets several times the least valuable one');
   assert.ok(mean.s23 > 1 / 24 + 0.02, 'weights are not uniform');
+});
+
+test('armStats counts an aged quote of a quoted job as a loss, a refused send apart, and a chat job deciding its request quote once', () => {
+  const ledger = openLedger(':memory:');
+  const T0 = '2026-10-01T00:00:00.000Z';
+  // A quote whose job still waits at quoted, 15 days old: the results call it expired, and no job counted it.
+  const q = ledger.upsertThread({ platform: 'free', externalId: 'q', kind: 'request', service: 'svc' });
+  ledger.addQuote({ threadId: q.id, platform: 'free', service: 'svc', amountKRW: 100000, costKRW: 1990, status: 'sent', at: T0 });
+  ledger.upsertJob({ id: 'jq', threadId: q.id, platform: 'free', service: 'svc', status: 'quoted' });
+  // A soomgo-style hire: the job moved to its chat and names the request thread its quote sits on.
+  const r = ledger.upsertThread({ platform: 'free', externalId: 'r', kind: 'request', service: 'svc' });
+  const c = ledger.upsertThread({ platform: 'free', externalId: 'c', kind: 'message', service: 'svc' });
+  ledger.addQuote({ threadId: r.id, platform: 'free', service: 'svc', amountKRW: 100000, costKRW: 1990, status: 'declined', at: T0 });
+  ledger.upsertJob({ id: 'jc', threadId: c.id, platform: 'free', service: 'svc', status: 'lost', meta: { requestThreadId: r.id } });
+  // A send the platform refused: no quote row, never seen by the client.
+  const f = ledger.upsertThread({ platform: 'free', externalId: 'f', kind: 'request', service: 'svc' });
+  ledger.addOutbox({ key: 'k-f', platform: 'free', threadId: f.id, kind: 'quote', payload: { amountKRW: 100000, service: 'svc' }, status: 'stale', receipt: { refused: 'FSW_SOOMGO_REQUEST_FULL', at: T0 }, createdAt: T0 });
+  const results = quoteResults(ledger, { asOf: new Date('2026-10-16T00:00:00.000Z'), expireAfterDays: 14 });
+  const arm = armStats(ledger, { descriptors: { free }, services, config: { yield: { humanHourWeight: 4 } }, results }).find((a) => a.platform === 'free' && a.service === 'svc');
+  assert.deepEqual([arm.wins, arm.losses, arm.refused, arm.quotes, arm.quoteCostPerQuoteKRW], [0, 2, 1, 2, 1990]);
+  const statusesOnly = armStats(ledger, { descriptors: { free }, services, config: { yield: { humanHourWeight: 4 } } }).find((a) => a.platform === 'free' && a.service === 'svc');
+  assert.deepEqual([statusesOnly.losses, statusesOnly.refused], [1, 1], 'without the age rule the waiting quote is open');
+  const none = armStats(openLedger(':memory:'), { descriptors: { free }, services, config: { yield: { humanHourWeight: 4 } } }).find((a) => a.platform === 'free' && a.service === 'svc');
+  assert.equal(none.quoteCostPerQuoteKRW, 0);
+  ledger.close();
+});
+
+test('allocate charges each arm the cost of a quote, so a costly quote scores lower at the same draw', () => {
+  const table = [rowP('svc', 300000)];
+  const arm = { platform: 'p', service: 'svc', leads: 20, wins: 2, losses: 8, expectedHours: 5 };
+  const [cheap] = allocate([{ ...arm, quoteCostPerQuoteKRW: 0 }], { priceTable: table, config: allocConfig, rng: mulberry32(9) });
+  const [costly] = allocate([{ ...arm, quoteCostPerQuoteKRW: 20000 }], { priceTable: table, config: allocConfig, rng: mulberry32(9) });
+  assert.equal(costly.winRate, cheap.winRate);
+  assert.deepEqual([cheap.quoteCostKRW, costly.quoteCostKRW], [0, 20000]);
+  assert.equal(costly.score, Math.max(0, cheap.winRate * 300000 - 20000) / 5);
+  assert.ok(costly.score < cheap.score);
+  const [ruinous] = allocate([{ ...arm, quoteCostPerQuoteKRW: 10_000_000 }], { priceTable: table, config: allocConfig, rng: mulberry32(9) });
+  assert.equal(ruinous.score, 0, 'never below 0');
 });

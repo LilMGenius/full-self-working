@@ -12,7 +12,7 @@ import { loadInstance, repoRoot } from '../core/instance.mjs';
 import { openLedger } from '../core/ledger.mjs';
 import { logEvent } from '../core/log.mjs';
 import { notifyOperator } from '../core/notify.mjs';
-import { effectiveMode } from '../core/settings.mjs';
+import { effectiveMode, priceLearningSettings } from '../core/settings.mjs';
 import { importApprovals } from '../core/approvals-import.mjs';
 import { loadDescriptor } from '../platforms/registry.mjs';
 import { answeredServices } from '../economics/catalog.mjs';
@@ -342,15 +342,19 @@ export const JOB_HANDLERS = {
     return { status: 'ok', written: r.written, rows: r.rows.length, viable: r.rows.filter((x) => x.viable).length, learned: r.rows.filter((x) => x.learned && x.learned.factor !== 1).length };
   },
   async allocation(ctx) {
-    const [{ armStats }, { allocate }, services] = await Promise.all([
+    const [{ armStats }, { allocate }, { dayStart, quoteResults }, services] = await Promise.all([
       import('../economics/yield.mjs'),
       import('../economics/allocate.mjs'),
+      import('../economics/quote-results.mjs'),
       import('../economics/services.json', { with: { type: 'json' } }).then((m) => m.default),
     ]);
     const enabled = Object.entries(ctx.instance.config.platforms ?? {}).filter(([, q]) => q.enabled).map(([id]) => id);
     const descriptors = Object.fromEntries(enabled.map((id) => [id, loadDescriptor(id)]));
     // A catalog service a platform does not answer (config platforms.<id>.services) gets no arm there (14d2f17).
-    const arms = armStats(ctx.ledger, { descriptors, services, config: ctx.instance.config })
+    // The results, as of the same 00:00 Seoul, that the price job learned from a moment earlier (JOBS order,
+    // src/supervisor/schedule.mjs).
+    const results = quoteResults(ctx.ledger, { asOf: dayStart(dayKey(ctx.now)), expireAfterDays: priceLearningSettings(ctx.instance.config).expireAfterDays });
+    const arms = armStats(ctx.ledger, { descriptors, services, config: ctx.instance.config, results })
       .filter((a) => !(a.service in services) || answeredServices(ctx.instance.config, a.platform, services).includes(a.service));
     const weights = allocate(arms, { priceTable: latestPriceRows(ctx.instance), config: ctx.instance.config });
     const file = join(ctx.instance.paths.pricing, 'allocation-' + dayKey(ctx.now) + '.json');

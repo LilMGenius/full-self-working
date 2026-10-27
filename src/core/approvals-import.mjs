@@ -39,9 +39,9 @@ const pressOf = (a) => (a.pressed ? { pressed: true, pressedAt: a.pressed.at ?? 
 // (isDeferredForBudget, src/pipeline/thread.mjs:102 on main: open, no orderItem, and deferredForBudget set or
 // a reason starting "cash quote refused: daily "). The old code sent it in auto mode, oldest first, once a
 // later day's budget paid for it, and left it to the operator only when its service was no longer answered
-// or no day could pay it (thread.mjs:270-300). It imports as a planned quote, so the drain holds it under
-// budget.cash and sends it when the caps allow, exactly like a row v0 deferred (b223ed7); authorize sends
-// the other two cases to the operator (decision.answered, budget.unpayable).
+// or no day could pay it (thread.mjs:270-300). It imports as a planned quote with what the drain reads, and
+// the drain blocks it: the value gate (src/economics/quote-gate.mjs) never judged it, so authorize refuses it
+// unapproved (gate.unjudged) and it is never sent.
 export const deferredForBudget = (a) => a.status === 'open' && a.unobserved !== true && !a.orderItem && a.kind === 'quote' && (a.deferredForBudget != null || /^cash quote refused: daily /.test(a.reason ?? ''));
 
 // What the drain and authorize read on a planned quote, rebuilt from the old file: the request thread its

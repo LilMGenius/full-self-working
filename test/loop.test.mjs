@@ -524,6 +524,29 @@ test('a paid quote with a positive value is planned and its verdict recorded, a 
   await c.run('soomgo', cs, { runCodex: codexWith(decision({ intent: 'quote_request', reply: QUOTE_TEXT, quote: { amountKRW: 300000, scope: ['랜딩 페이지 1개'], deliveryDays: 7, priceType: 'fixed', complexity: 1 } })) });
   assert.deepEqual([c.ledger.listOutbox().map((x) => x.kind), c.events('quote.judged').length], [['quote'], 0]);
 });
+
+// A paid request quote planned before the value gate existed carries no verdict on its payload. Unapproved, the drain
+// blocks it and the surface never quotes; the operator's approval is his own judgment and still sends it. A quote the
+// step plans now carries the send verdict it was judged at.
+test('a paid request quote planned without a value gate verdict is blocked unsent unless approved, and a new one carries its verdict', async () => {
+  for (const approved of [false, true]) {
+    const s = setup();
+    const t = s.ledger.upsertThread({ platform: 'soomgo', externalId: 'r1', kind: 'request' });
+    const old = plan(s.ledger, { platform: 'soomgo', threadId: t.id, kind: 'quote', payload: { text: QUOTE_TEXT, amountKRW: 300000, costKRW: 990, service: 'landing_page_web', serviceLabel: '웹 개발', thread: { kind: 'request', stage: 'pre_order' }, decision: paidQuote(undefined), priceRow: ROW } });
+    if (approved) {
+      setStatus(s.ledger, old.id, { from: 'planned', to: 'awaiting_operator', approvalId: '20261020-soomgo-00000001' });
+      setStatus(s.ledger, old.id, { from: 'awaiting_operator', to: 'approved' });
+    }
+    const surface = scriptedSurface({ receipts: { quote: [{ observed: true, cashSpentKRW: 990 }] } });
+    await s.run('soomgo', surface);
+    assert.deepEqual([s.ledger.getOutbox(old.id).status, surface.count('quote')], approved ? ['observed', 1] : ['blocked', 0], 'approved ' + approved);
+    if (!approved) assert.match(s.ledger.getOutbox(old.id).reason, /^gate\.unjudged /);
+  }
+  const s = setup();
+  await s.run('soomgo', scriptedSurface({ sense: [request('r2')], threads: requestPage }), { runCodex: codexWith(paidQuote('strong')) });
+  const [row] = s.ledger.listOutbox();
+  assert.deepEqual([row.payload.gate.verdict, row.payload.gate.p, Math.round(row.payload.gate.evKRW), row.payload.gate.at], ['send', 1 / 3, Math.round(250000 / 3 - 990), NOON.toISOString()]);
+});
 test('a read request keeps the snapshot it was decided on, rewritten only when its quote count, cost or budget moves', async () => {
   const s = setup();
   const codex = codexWith(decision({ intent: 'quote_request', reply: null }));

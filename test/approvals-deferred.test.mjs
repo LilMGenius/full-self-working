@@ -1,5 +1,5 @@
-// Quotes the 2c77326 pipeline deferred only for the day's cash caps: imported as planned quote rows the
-// drain holds under budget.cash and sends when the caps allow (main src/pipeline/thread.mjs:102, :270-300).
+// Quotes the 2c77326 pipeline deferred only for the day's cash caps: imported as planned quote rows, which the
+// drain blocks since the value gate never judged them (main src/pipeline/thread.mjs:102, :270-300).
 // Synthetic approval files in the shape of the live ones; no value comes from an operator instance.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -61,56 +61,31 @@ test('an open quote deferred only for the day cash caps imports as a planned quo
   assert.equal(s.imp().already, 1, 'a second start imports nothing');
 });
 
-test('with the day caps spent the drain holds the imported quote and asks nobody', async () => {
-  const s = setup();
-  s.deferredFile('076f83fd', { ref: 'R1' });
-  s.imp();
-  s.spend(8000);
-  const surface = quoteSurface();
-  const out = await s.run(surface);
-  assert.deepEqual(out.map((x) => x.action), ['held']);
-  assert.match(out[0].reason, /daily cash budget spent/);
-  assert.deepEqual([surface.count('quote'), s.notes.length, s.ledger.listOutbox({ kinds: ['quote'] })[0].status], [0, 0, 'planned']);
+// None of these quotes was ever judged by the value gate (src/economics/quote-gate.mjs), which postdates them, so
+// the drain refuses each one unapproved (gate.unjudged) whatever the caps say: it is blocked, sent never, and the
+// operator is told once. The cases the old pipeline told apart (caps spent, room, a service no longer answered, a
+// cost over a whole day) all end there.
+test('an imported deferred quote carries no value gate verdict, so the drain blocks it in every case and sends nothing', async () => {
+  const cases = [
+    ['caps spent', {}, { ref: 'R1' }, (s) => s.spend(8000)],
+    ['room', {}, { ref: 'R1', costKRW: 5890, createdAt: '2026-10-25T23:45:56.565Z' }, () => {}],
+    ['service no longer answered', { services: ['landing_page_web'] }, { ref: 'R3', service: 'game_dev', costKRW: 2090, amountKRW: 1200000 }, () => {}],
+    ['over a whole day', {}, { ref: 'R1', costKRW: 20000 }, () => {}],
+  ];
+  for (const [name, soomgo, file, before] of cases) {
+    const s = setup(soomgo);
+    const { id } = s.deferredFile('076f83fd', file);
+    s.imp();
+    before(s);
+    const surface = quoteSurface();
+    const out = await s.run(surface);
+    assert.deepEqual(out.map((x) => x.action), ['blocked'], name);
+    assert.match(out[0].reason, /^gate\.unjudged /, name);
+    assert.deepEqual([s.ledger.outboxByApproval(id).status, surface.count('quote'), s.notes.length], ['blocked', 0, 1], name);
+    await s.run(quoteSurface());
+    assert.deepEqual([s.ledger.outboxByApproval(id).status, s.notes.length], ['blocked', 1], name + ': never sent later');
+  }
 });
-
-test('with room the drain sends the oldest deferred quote once with the cash check applied, and holds the next', async () => {
-  const s = setup();
-  const older = s.deferredFile('1f3d6cfc', { ref: 'R1', costKRW: 5890, createdAt: '2026-10-25T23:45:56.565Z' });
-  const newer = s.deferredFile('076f83fd', { ref: 'R2', costKRW: 4490 });
-  s.imp();
-  const surface = quoteSurface();
-  const out = await s.run(surface);
-  assert.deepEqual(out.map((x) => [x.action, x.kind]), [['observed', 'quote'], ['held', 'quote']]);
-  const call = surface.calls.find((c) => c.name === 'quote');
-  assert.deepEqual([surface.count('quote'), call.ref, call.args.amountKRW, call.args.allowSpendCash, call.args.customer, call.args.text], [1, 'R1', 300000, true, 'buyer-1f3d6cfc', TEXT]);
-  assert.deepEqual([s.ledger.outboxByApproval(older.id).status, s.ledger.outboxByApproval(newer.id).status], ['observed', 'planned']);
-  assert.equal(out[0].signal.type, 'quote_observed');
-  await s.run(quoteSurface());
-  assert.equal(s.ledger.outboxByApproval(older.id).status, 'observed', 'never sent twice');
-});
-
-test('a deferred quote whose service is no longer answered goes to the operator under its file id', async () => {
-  const s = setup({ services: ['landing_page_web'] });
-  const { id } = s.deferredFile('fcecf9c3', { ref: 'R3', service: 'game_dev', costKRW: 2090, amountKRW: 1200000 });
-  s.imp();
-  const surface = quoteSurface();
-  const out = await s.run(surface);
-  assert.deepEqual(out.map((x) => [x.action, x.approvalId]), [['awaiting_operator', id]]);
-  assert.match(out[0].reason, /no longer answered/);
-  assert.deepEqual([s.ledger.outboxByApproval(id).status, surface.count('quote'), s.notes.filter((n) => n.kind === 'approval').length], ['awaiting_operator', 0, 1]);
-});
-
-test('a deferred quote costing more than a whole day of cash goes to the operator', async () => {
-  const s = setup();
-  const { id } = s.deferredFile('076f83fd', { ref: 'R1', costKRW: 20000 });
-  s.imp();
-  const surface = quoteSurface();
-  const out = await s.run(surface);
-  assert.deepEqual(out.map((x) => x.action), ['awaiting_operator']);
-  assert.match(out[0].reason, /cash quote refused/);
-  assert.deepEqual([s.ledger.outboxByApproval(id).status, surface.count('quote')], ['awaiting_operator', 0]);
-});
-
 test('an open quote not deferred for the budget, or one the old code could not observe, keeps its mapping', () => {
   const s = setup();
   const { id } = s.deferredFile('076f83fd', { ref: 'R1' });

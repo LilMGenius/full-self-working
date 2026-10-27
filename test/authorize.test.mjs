@@ -23,7 +23,9 @@ const TEXT = '요청하신 구성으로 진행 가능합니다. 원하시는 일
 const decision = (over = {}) => ({ intent: 'inquiry', service: 'landing_page_web', language: 'ko', reply: TEXT, quote: null, needsOperator: false, operatorReason: null, confidence: 0.9, claimsUsed: [], statedBudgetKRW: null, ...over });
 const message = (over = {}) => ({ platform: 'kmong', kind: 'message', text: TEXT, amountKRW: undefined, costKRW: 0, serviceLabel: null, attachments: [], thread: { kind: 'message', stage: 'pre_order', lastInboundText: '랜딩 페이지 가능한가요?', recentOutbound: [] }, decision: decision(), ...over });
 const ROW = { platform: 'soomgo', service: 'landing_page_web', baseKRW: 300000, floorKRW: 100000, ceilingKRW: 1000000, costFloorKRW: 50000, viable: true };
-const quote = (over = {}) => message({ platform: 'soomgo', kind: 'quote', amountKRW: 300000, costKRW: 990, serviceLabel: '웹 개발', thread: { kind: 'request', stage: 'pre_order', lastInboundText: '웹 개발 견적 부탁드립니다', recentOutbound: [] }, decision: decision({ intent: 'quote_request' }), ...over });
+// gate: the value gate's send verdict the loop stamps on a paid request quote it plans (src/loop/step.mjs).
+const GATE = { verdict: 'send', evKRW: 82000, p: 1 / 3, at: NOON.toISOString() };
+const quote = (over = {}) => message({ platform: 'soomgo', kind: 'quote', amountKRW: 300000, costKRW: 990, serviceLabel: '웹 개발', thread: { kind: 'request', stage: 'pre_order', lastInboundText: '웹 개발 견적 부탁드립니다', recentOutbound: [] }, decision: decision({ intent: 'quote_request' }), gate: GATE, ...over });
 const ctx = (instance, over = {}) => ({ descriptor: kmong, instance, mode: 'auto', now: NOON, ...over });
 const sctx = (instance, over = {}) => ctx(instance, { descriptor: soomgo, priceRow: ROW, ...over });
 const rules = (v) => v.reasons.map((r) => r.rule);
@@ -114,6 +116,20 @@ test('a quote for a service the instance stopped answering waits for the operato
   assert.equal(v.verdict, 'operator');
   assert.ok(rules(v).includes('decision.answered'));
   assert.equal(authorize(quote(), sctx(off, { approved: true })).verdict, 'send');
+});
+
+// A paid quote planned before the value gate existed, or whose stamp says anything but send, was never judged: it is
+// refused unapproved, whatever the caps, while the operator's approval and a quote that costs nothing pass.
+test('an unapproved paid request quote without the value gate send verdict is refused; an approved one and a chat quote are not', () => {
+  const i = makeInstance();
+  for (const gate of [undefined, null, { verdict: 'drop', evKRW: -10, p: 0.1, at: NOON.toISOString() }, {}]) {
+    const v = authorize(quote({ gate }), sctx(i));
+    assert.deepEqual([v.verdict, rules(v)], ['refuse', ['gate.unjudged']], JSON.stringify(gate));
+    assert.equal(authorize(quote({ gate }), sctx(i, { usage: { quotes: 1, cashKRW: 4500 } })).verdict, 'refuse', 'a spent day still refuses it');
+  }
+  assert.equal(authorize(quote({ gate: undefined }), sctx(i, { approved: true })).verdict, 'send');
+  assert.equal(authorize(quote(), sctx(i)).verdict, 'send');
+  assert.equal(authorize(quote({ gate: undefined, thread: { kind: 'message', stage: 'pre_order', lastInboundText: '웹 개발 견적 부탁드립니다', recentOutbound: [] } }), sctx(i)).verdict, 'send');
 });
 
 test('a stated budget under the cost floor asks the operator; at the floor or approved it does not', () => {

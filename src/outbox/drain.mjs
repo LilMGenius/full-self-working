@@ -65,7 +65,7 @@ export function proposalTerms(row, descriptor) {
 // proposal with the terms propose will receive and the rate they were stated at.
 export function itemOf(row, descriptor = null) {
   const p = row.payload;
-  return { platform: row.platform, kind: row.kind, text: textOf(row), amountKRW: p.amountKRW, costKRW: p.costKRW ?? null, serviceLabel: p.serviceLabel ?? null, attachments: (p.files ?? []).map(baseName), thread: p.thread ?? { kind: 'message', stage: 'pre_order' }, ...(p.decision ? { decision: p.decision } : {}), ...(row.kind === 'proposal' ? { ...proposalTerms(row, descriptor), fx: p.fx ?? null } : {}) };
+  return { platform: row.platform, kind: row.kind, text: textOf(row), amountKRW: p.amountKRW, costKRW: p.costKRW ?? null, serviceLabel: p.serviceLabel ?? null, attachments: (p.files ?? []).map(baseName), thread: p.thread ?? { kind: 'message', stage: 'pre_order' }, ...(p.decision ? { decision: p.decision } : {}), ...(p.gate ? { gate: p.gate } : {}), ...(row.kind === 'proposal' ? { ...proposalTerms(row, descriptor), fx: p.fx ?? null } : {}) };
 }
 
 // What the page shows after an interrupted send: the outbound bubble for a message or a delivery, the

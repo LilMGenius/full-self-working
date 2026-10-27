@@ -59,7 +59,7 @@
             "null"
           ],
           "minimum": 0,
-          "description": "the most cash in KRW a day the platform's own automatic sending (smart quote campaigns) may budget here, apart from fsw's own quotes that maxCashPerDay bounds; a campaign over it is reported to you once a day, null reports budgets without a limit",
+          "description": "the most cash in KRW a day the platform's own automatic sending (smart quote campaigns) may budget here, which bounds only that sending while fsw's own quotes are bounded by maxCashPerDay; a campaign over it is reported to you once a day, null reports budgets without a limit",
           "default": null
         },
         "quoteGate": {

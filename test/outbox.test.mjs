@@ -543,14 +543,18 @@ test('a soomgo quote the platform refused as full goes stale, counts no press an
 // U7.7: a delivery is approved only after a passed review, or with the operator's stated reason.
 test('resolve refuses a delivery without a passed review unless a reason is given, and stores nothing when it refuses', () => {
   const s = setup('soomgo');
-  const waiting = (ref, id, review) => {
-    const row = plan(s.ledger, { platform: 'soomgo', threadId: s.thread(ref).id, kind: 'delivery', payload: { text: '전달드립니다', files: ['C:/jobs/j1/work/copy/a.md'], runAt: '2026-10-20T10:00:00Z', ...(review ? { review } : {}) } });
+  const waiting = (ref, id, review, files = ['C:/jobs/j1/work/copy/a.md']) => {
+    const row = plan(s.ledger, { platform: 'soomgo', threadId: s.thread(ref).id, kind: 'delivery', payload: { text: '전달드립니다', files, runAt: '2026-10-20T10:00:00Z', ...(review ? { review } : {}) } });
     setStatus(s.ledger, row.id, { from: 'planned', to: 'awaiting_operator', approvalId: id, reason: 'delivery' });
     return row;
   };
   const failed = waiting('d1', '20261020-soomgo-0000d001', { verdict: 'fail', findings: [{ severity: 'blocker', file: null, detail: 'x' }] });
   const none = waiting('d2', '20261020-soomgo-0000d002', null);
-  const passed = waiting('d3', '20261020-soomgo-0000d003', passedReview());
+  // The passed review read the one file the delivery holds.
+  const work = tempDir('fsw-outbox-reviewed-');
+  mkdirSync(join(work, 'copy'), { recursive: true });
+  writeFileSync(join(work, 'copy', 'a.md'), '# 빵집\n');
+  const passed = waiting('d3', '20261020-soomgo-0000d003', { verdict: 'pass', findings: [], reviewed: ['copy/a.md'], work, hash: hashTree(work, ['copy/a.md']) }, [join(work, 'copy', 'a.md')]);
   for (const reason of [undefined, '', '   ']) assert.throws(() => resolve(s.ledger, '20261020-soomgo-0000d001', { approve: true, reason }), { code: 'FSW_REVIEW_NOT_PASSED', message: /has review fail; approving it needs --reason/ });
   assert.throws(() => resolve(s.ledger, '20261020-soomgo-0000d002', { approve: true }), { code: 'FSW_REVIEW_NOT_PASSED', message: /has review error/ });
   for (const r of [failed, none]) assert.deepEqual([s.ledger.getOutbox(r.id).status, s.ledger.getOutbox(r.id).operator ?? null], ['awaiting_operator', null]);
@@ -566,15 +570,19 @@ test('resolve refuses a delivery without a passed review unless a reason is give
 
 // Complete mediation for a reviewed delivery: resolve itself refuses a changed one without a reason, and the drain
 // sends only the bytes the operator approved.
-function reviewedDelivery(s, ref, approvalId) {
+// added: names of files an operator step wrote beside the work after the review, which the review never read.
+function reviewedDelivery(s, ref, approvalId, added = []) {
   const work = join(tempDir('fsw-outbox-work-'), 'work');
   mkdirSync(join(work, 'copy'), { recursive: true });
   const file = join(work, 'copy', 'a.md');
   writeFileSync(file, '# 빵집\n');
+  const extra = added.map((name) => join(work, '..', 'handoff', name));
+  if (extra.length) mkdirSync(join(work, '..', 'handoff'), { recursive: true });
+  for (const f of extra) writeFileSync(f, 'bytes of ' + f);
   const review = { verdict: 'pass', findings: [], reviewed: ['copy/a.md'], work, hash: hashTree(work, ['copy/a.md']) };
-  const row = plan(s.ledger, { platform: 'soomgo', threadId: s.thread(ref).id, kind: 'delivery', payload: { text: '전달드립니다', files: [file], runAt: '2026-10-20T10:00:00Z', review } });
+  const row = plan(s.ledger, { platform: 'soomgo', threadId: s.thread(ref).id, kind: 'delivery', payload: { text: '전달드립니다', files: [file, ...extra], runAt: '2026-10-20T10:00:00Z', review } });
   setStatus(s.ledger, row.id, { from: 'planned', to: 'awaiting_operator', approvalId, reason: 'delivery' });
-  return { row, file };
+  return { row, file, added: extra };
 }
 
 test('resolve refuses a passed delivery whose reviewed files changed unless a reason is given', () => {
@@ -586,6 +594,17 @@ test('resolve refuses a passed delivery whose reviewed files changed unless a re
   const done = resolve(s.ledger, '20261020-soomgo-0000e001', { approve: true, reason: 'I changed the title' });
   assert.equal(done.status, 'approved');
   assert.match(done.operator.filesHash, /^[0-9a-f]{64}$/);
+});
+
+// A file the review never read (handoff.xlsx added after the run) is covered by the approval stamp and sent, so it
+// needs the operator's stated reason as a changed file does, and the refusal names it.
+test('resolve refuses a passed delivery holding a file its review never read unless a reason is given', () => {
+  const s = setup('soomgo');
+  const { row, added } = reviewedDelivery(s, 'd1', '20261020-soomgo-0000e004', ['handoff.xlsx']);
+  for (const reason of [undefined, '', ' ']) assert.throws(() => resolve(s.ledger, '20261020-soomgo-0000e004', { approve: true, reason }), (err) => err.code === 'FSW_REVIEW_UNREVIEWED' && err.message.includes('holds files its review never read: ' + added[0]) && /approving it needs --reason/.test(err.message));
+  assert.deepEqual([s.ledger.getOutbox(row.id).status, s.ledger.getOutbox(row.id).operator ?? null], ['awaiting_operator', null]);
+  const done = resolve(s.ledger, '20261020-soomgo-0000e004', { approve: true, reason: 'I wrote the handoff sheet myself' });
+  assert.deepEqual([done.status, done.operator.resolutionReason], ['approved', 'I wrote the handoff sheet myself']);
 });
 
 test('the drain blocks a delivery whose files changed after its approval and tells the operator once', async () => {

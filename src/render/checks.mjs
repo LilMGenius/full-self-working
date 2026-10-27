@@ -5,14 +5,25 @@
 import { platformFontProblems } from './fonts.mjs';
 import { viewportName } from './viewports.mjs';
 
-// A template marks an element that must stay legible at every width (the wordmark, the primary button, an icon) with
-// data-min-size="<px>": its rendered box must be at least that many CSS pixels wide and tall. Overflow alone misses a
-// wordmark shrunk to a line or icons collapsed to specks, since neither overflows.
-export const MIN_SIZE_ATTR = 'data-min-size';
+// A template marks an element that must stay legible or tappable at every width. Overflow alone misses a wordmark
+// shrunk to a line or icons collapsed to specks, since neither overflows.
+// - data-min-size="<px>": a screen or a tap target; its rendered box must be at least that many CSS pixels wide and tall.
+// - data-min-font="<px>": a text mark such as the wordmark; its computed font-size must be at least that many pixels.
+//   A box cannot hold this floor: a wordmark set down from 20 to 14 px still draws a line box of about 16 px.
+// - data-min-media="<media query>": the floors apply only while the query matches in the element's own window, for an
+//   element the layout hides on purpose (the nav links below 720 px); hidden while it matches, the element fails.
+const MIN_SIZE_ATTR = 'data-min-size';
+const MIN_FONT_ATTR = 'data-min-font';
+const MIN_MEDIA_ATTR = 'data-min-media';
 
-// Shared page-side helpers: an element's short name, and the key elements below their minimum size.
+// Shared page-side helpers: an element's short name, and the key elements below a floor, each as
+// { name, kind: 'size' | 'font', min, w, h, font }.
 const PAGE_HELPERS = 'const name = (e) => e.tagName.toLowerCase() + (typeof e.className === "string" && e.className ? "." + e.className.split(" ")[0] : "");' +
-  ' const small = (d) => [...d.querySelectorAll("[' + MIN_SIZE_ATTR + ']")].map((e) => { const r = e.getBoundingClientRect(); return { name: name(e), min: Number(e.getAttribute("' + MIN_SIZE_ATTR + '")), w: Math.round(r.width), h: Math.round(r.height) }; }).filter((k) => !(k.w >= k.min && k.h >= k.min));';
+  ' const small = (d) => [...d.querySelectorAll("[' + MIN_SIZE_ATTR + '],[' + MIN_FONT_ATTR + ']")].filter((e) => { const q = e.getAttribute("' + MIN_MEDIA_ATTR + '"); return !q || d.defaultView.matchMedia(q).matches; }).flatMap((e) => {' +
+  '   const out = []; const r = e.getBoundingClientRect(); const w = Math.round(r.width); const h = Math.round(r.height);' +
+  '   if (e.hasAttribute("' + MIN_SIZE_ATTR + '")) { const min = Number(e.getAttribute("' + MIN_SIZE_ATTR + '")); if (!(w >= min && h >= min)) out.push({ name: name(e), kind: "size", min, w, h }); }' +
+  '   if (e.hasAttribute("' + MIN_FONT_ATTR + '")) { const min = Number(e.getAttribute("' + MIN_FONT_ATTR + '")); const font = Math.round(parseFloat(d.defaultView.getComputedStyle(e).fontSize) * 10) / 10; if (!(font >= min) || !(w > 0 && h > 0)) out.push({ name: name(e), kind: "font", min, w, h, font }); }' +
+  '   return out; });';
 
 // The layout viewport width (clientWidth), not innerWidth: under mobile emulation a page wider than the screen is
 // zoomed out, and innerWidth grows with it, so a phone overflow would measure against its own width.
@@ -20,7 +31,9 @@ export const OVERFLOW_PROBE = '(() => { ' + PAGE_HELPERS + ' const iw = document
   ' const wide = [...document.querySelectorAll("body *")].filter((e) => e.getBoundingClientRect().right > iw + 1).slice(0, 5).map(name);' +
   ' return { iw, sw, wide, small: small(document) }; })()';
 
-const smallLine = (k) => k.name + ' drawn ' + k.w + 'x' + k.h + ', under its minimum size ' + k.min + ' px';
+const smallLine = (k) => k.kind === 'font'
+  ? k.name + ' set at ' + k.font + ' px' + (k.w > 0 && k.h > 0 ? '' : ' and not drawn') + ', under its minimum font ' + k.min + ' px'
+  : k.name + ' drawn ' + k.w + 'x' + k.h + ', under its minimum size ' + k.min + ' px';
 
 export async function checkPage(renderer, { url, viewport, family = null, label = url, out }) {
   const r = await renderer.render({ url, ...viewport, fullPage: true, maxSide: 1600, format: 'jpeg', quality: 80, fontReport: family != null, probe: OVERFLOW_PROBE, out });
@@ -62,7 +75,7 @@ const widthProbe = ({ from, to, step }) => '(async () => { ' + PAGE_HELPERS +
   ' for (let w = ' + from + '; w <= ' + to + '; w += ' + step + ') {' +
   '   f.style.width = w + "px"; const de = d.documentElement; const iw = de.clientWidth; const sw = de.scrollWidth; const issues = [];' +
   '   if (sw > iw) { const wide = [...d.querySelectorAll("body *")].filter((e) => e.getBoundingClientRect().right > iw + 1).slice(0, 3).map(name); issues.push("horizontal overflow" + (wide.length ? " (" + wide.join(", ") + ")" : "")); }' +
-  '   for (const k of small(d)) issues.push(k.name + " under its minimum size " + k.min + " px");' +
+  '   for (const k of small(d)) issues.push(k.name + (k.kind === "font" ? " under its minimum font " : " under its minimum size ") + k.min + " px");' +
   '   rows.push([w, issues]); }' +
   ' return rows; })()';
 

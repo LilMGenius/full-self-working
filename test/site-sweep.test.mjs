@@ -174,3 +174,35 @@ test('a key element below its minimum size at a fixed viewport is named with its
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// A text mark is held by its computed font-size, which a box floor misses (a 20 px wordmark set at 14 px still draws
+// a line box near 16 px), and a floor with a media query applies only while the query matches.
+test('a text mark set below its font floor fails, and a floor bound to a media query skips the widths the layout hides it at', chrome, async () => {
+  const fine = { range: { from: 320, to: 1920 }, step: 1, heights: [568] };
+  const navCss = '.nav{display:inline-block;padding:4px 0;font-size:15px}@media (max-width:719px){.nav{display:none}}';
+  // The paragraph keeps text on the page at the widths that hide the link, for the font report.
+  const navLink = '<p>본문</p><a class="nav" href="#work" data-min-size="24" data-min-media="(min-width: 720px)">작업 목록</a>';
+  const mark = '<a class="mark" data-min-font="20" href="/">이름</a>';
+  const cases = [
+    ['<style>.mark{font-size:20px}@media (min-width:500px) and (max-width:560px){.mark{font-size:14px}}</style>' + mark, ['index.html@500-560x568 (every 1 px): a.mark under its minimum font 20 px']],
+    ['<style>' + navCss + '@media (min-width:900px) and (max-width:1000px){.nav{font-size:4px;padding:0}}</style>' + navLink, ['index.html@900-1000x568 (every 1 px): a.nav under its minimum size 24 px']],
+    ['<style>.mark{font-size:20px}' + navCss + '</style>' + mark + navLink, []],
+  ];
+  for (const [body, expected] of cases) {
+    const dir = site(body);
+    try {
+      const report = await sweep({ dist: dir, out: join(dir, '..', 'font-' + Date.now()), family: 'Pretendard', fine });
+      assert.deepEqual(report.problems, expected, body);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+  // At a fixed viewport the line names the size the mark was set at.
+  const dir = site('<style>.mark{font-size:20px}@media (max-width:400px){.mark{font-size:14px}}</style>' + mark);
+  try {
+    const report = await sweep({ dist: dir, out: join(dir, '..', 'font-fixed-' + Date.now()), family: 'Pretendard', viewports: PHONE, fine: false });
+    assert.deepEqual(report.problems, ['index.html@320x568: a.mark set at 14 px, under its minimum font 20 px']);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

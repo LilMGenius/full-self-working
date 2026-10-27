@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Checks every HTML page of a built site in two passes and fails on any problem:
 //  - at the nine fixed viewports of src/render/viewports.mjs, with a capture each: horizontal overflow, a key element
-//    below its minimum size (data-min-size), a text node drawn in a fallback font (CDP CSS.getPlatformFontsForNode)
-//    and a broken image;
+//    below its floor (data-min-size for a drawn box, data-min-font for a text mark's font-size, each only while its
+//    data-min-media matches), a text node drawn in a fallback font (CDP CSS.getPlatformFontsForNode) and a broken image;
 //  - at every width from 320 to 1920 px in 1 px steps, at heights 568, 800 and 1080, with no capture: horizontal
 //    overflow and key elements below their minimum size (src/render/checks.mjs, checkWidths).
 // The folder is served over http on 127.0.0.1, since the pages load /assets, /media and /favicon.svg by root-relative

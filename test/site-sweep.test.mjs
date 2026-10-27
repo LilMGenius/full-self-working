@@ -3,8 +3,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, createReadStream, existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
+import { Readable } from 'node:stream';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { buildSite } from '../site/build.mjs';
@@ -64,6 +65,27 @@ test('the static host refuses a file reached through a link inside the folder th
     rmSync(join(dir, 'link'), { force: true });
     rmSync(dir, { recursive: true, force: true });
     rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test('a file that fails to read answers 404 and the host keeps serving', async () => {
+  const dir = site('<p>안녕하세요</p>');
+  let fail = true;
+  const open = (file) => {
+    if (!fail) return createReadStream(file);
+    fail = false;
+    // Like a file stream, it fails on its own as soon as it tries to open, before anything reads it.
+    const stream = new Readable({ read() {} });
+    process.nextTick(() => stream.destroy(Object.assign(new Error('EBUSY: resource busy or locked'), { code: 'EBUSY' })));
+    return stream;
+  };
+  const host = await serveDir(dir, { open });
+  try {
+    assert.equal(await get(host.origin, '/assets/sans.woff2'), 404);
+    assert.equal(await get(host.origin, '/assets/sans.woff2'), 200);
+  } finally {
+    await host.close();
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 

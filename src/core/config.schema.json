@@ -494,6 +494,19 @@
         }
       }
     },
+    "priceLearning": {
+      "type": "object",
+      "description": "how the price table and the allocation learn from how fsw's own quotes ended",
+      "default": { "enabled": true, "minCases": 5, "step": 0.2, "maxMove": 0.3, "expireAfterDays": 14, "lookbackDays": 180 },
+      "properties": {
+        "enabled": { "type": "boolean", "description": "whether quote results move price rows; off keeps every row on the market price", "default": true },
+        "minCases": { "type": "integer", "minimum": 1, "description": "decided quotes (won, lost or expired) a price row needs before it moves; with 4 decided and no win the 95% interval of the win rate still spans 0 to 0.52", "default": 5 },
+        "step": { "type": "number", "exclusiveMinimum": 0, "maximum": 1, "description": "how far one decided quote moves a row's price factor toward where it won or under where it lost; at 0.2 the newest five cases carry 67% of the factor", "default": 0.2 },
+        "maxMove": { "type": "number", "minimum": 0, "exclusiveMaximum": 1, "description": "the most a learned price may differ from the market price, as a share of it; a row held there is marked capped, a sampling question for you", "default": 0.3 },
+        "expireAfterDays": { "type": "integer", "minimum": 1, "description": "days after which a sent quote with no hire, order or refusal counts as expired; 14 gives a client two weekends to answer", "default": 14 },
+        "lookbackDays": { "type": "integer", "minimum": 1, "description": "days of quote results a price row learns from; long enough that a slow service reaches minCases, short enough to drop prices set against an old market", "default": 180 }
+      }
+    },
     "notify": {
       "type": "object",
       "description": "how fsw tells you",

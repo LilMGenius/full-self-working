@@ -24,7 +24,8 @@ function latestFiles(dir, re, n) {
   return readdirSync(dir).filter((f) => re.test(f)).sort().slice(-n).map((f) => ({ file: f, data: JSON.parse(readFileSync(join(dir, f), 'utf8')) }));
 }
 
-// Rows of the two newest price tables whose base or viability differ.
+// Rows of the two newest price tables whose base or viability differ. learned: the row's price factor from
+// quote results (src/economics/price-learning.mjs) when it moved the base.
 export function priceChanges(pricingDir) {
   const tables = latestFiles(pricingDir, /^price-table-\d{8}\.json$/, 2);
   const cur = tables.at(-1) ?? null;
@@ -35,7 +36,7 @@ export function priceChanges(pricingDir) {
   const before = new Map(prev.data.rows.map((r) => [key(r), r]));
   const changes = cur.data.rows
     .filter((r) => !before.has(key(r)) || before.get(key(r)).baseKRW !== r.baseKRW || before.get(key(r)).viable !== r.viable)
-    .map((r) => ({ row: key(r), from: before.get(key(r))?.baseKRW ?? null, to: r.baseKRW, viable: r.viable }));
+    .map((r) => ({ row: key(r), from: before.get(key(r))?.baseKRW ?? null, to: r.baseKRW, viable: r.viable, learned: r.learned && r.learned.factor !== 1 ? { factor: r.learned.factor, cases: r.learned.cases, priced: r.learned.priced, capped: r.learned.capped } : null }));
   return { table: cur.file, previous: prev.file, changes };
 }
 
@@ -141,7 +142,7 @@ export function renderDigest(n) {
     '',
     '## Price table',
     '',
-    !n.prices.table ? '- none' : n.prices.first ? '- ' + n.prices.table + ' is the first table' : n.prices.changes.length ? n.prices.changes.map((c) => '- ' + c.row + ': ' + (c.from == null ? 'new' : krw(c.from)) + ' to ' + krw(c.to) + (c.viable ? '' : ' (not viable)')).join('\n') : '- no change from ' + n.prices.previous,
+    !n.prices.table ? '- none' : n.prices.first ? '- ' + n.prices.table + ' is the first table' : n.prices.changes.length ? n.prices.changes.map((c) => '- ' + c.row + ': ' + (c.from == null ? 'new' : krw(c.from)) + ' to ' + krw(c.to) + (c.viable ? '' : ' (not viable)') + (c.learned ? ' (learned x' + c.learned.factor + ' from ' + c.learned.priced + ' priced of ' + c.learned.cases + ' decided quotes' + (c.learned.capped ? ', capped' : '') + ')' : '')).join('\n') : '- no change from ' + n.prices.previous,
     '',
     '## Market medians',
     '',

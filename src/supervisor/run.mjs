@@ -338,8 +338,8 @@ export const JOB_HANDLERS = {
   },
   // Each row's adapter flag says whether this build has a surface for its platform.
   async price(ctx) {
-    const r = await refreshPriceTable(ctx.instance, { adapterFor: hasSurface, log: ctx.log });
-    return { status: 'ok', written: r.written, rows: r.rows.length, viable: r.rows.filter((x) => x.viable).length };
+    const r = await refreshPriceTable(ctx.instance, { adapterFor: hasSurface, ledger: ctx.ledger, day: dayKey(ctx.now), log: ctx.log });
+    return { status: 'ok', written: r.written, rows: r.rows.length, viable: r.rows.filter((x) => x.viable).length, learned: r.rows.filter((x) => x.learned && x.learned.factor !== 1).length };
   },
   async allocation(ctx) {
     const [{ armStats }, { allocate }, services] = await Promise.all([

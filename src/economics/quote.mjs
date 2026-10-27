@@ -11,5 +11,6 @@ export function quoteFromRow({ row, complexity }) {
   if (!(row?.baseKRW > 0)) throw Object.assign(new Error('no price row base to quote from'), { code: 'FSW_PRICE_ROW_MISSING' });
   const raw = row.baseKRW * complexity;
   const clamped = Math.min(row.ceilingKRW ?? raw, Math.max(row.floorKRW ?? raw, raw));
-  return { amountKRW: roundTo1000(clamped), basis: { source: 'price-row', base: row.baseKRW, complexity, raw, floorKRW: row.floorKRW ?? null, ceilingKRW: row.ceilingKRW ?? null } };
+  // reference is the row base before learning, so quoteResults reads this quote's index against the market.
+  return { amountKRW: roundTo1000(clamped), basis: { source: 'price-row', base: row.baseKRW, reference: row.learned?.fromKRW ?? row.baseKRW, learnedFactor: row.learned?.factor ?? 1, complexity, raw, floorKRW: row.floorKRW ?? null, ceilingKRW: row.ceilingKRW ?? null } };
 }

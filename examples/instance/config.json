@@ -98,6 +98,14 @@
     "explorationShare": 0.3,
     "exploreUntilLeads": 10
   },
+  "priceLearning": {
+    "enabled": true,
+    "minCases": 5,
+    "step": 0.2,
+    "maxMove": 0.3,
+    "expireAfterDays": 14,
+    "lookbackDays": 180
+  },
   "notify": {
     "toast": true,
     "webhookUrl": null

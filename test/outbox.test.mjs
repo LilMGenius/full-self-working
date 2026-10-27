@@ -919,3 +919,27 @@ test('a wishket application the surface refuses for its unmapped form returns to
   assert.deepEqual([quotaUsage(s.ledger, 'wishket', NOON), bidUsage(s.ledger, 'wishket', NOON)], [{ quotes: 0, cashKRW: 0 }, { bidMonthKRW: 0, bidUnanswered: 0, unknownCost: [] }]);
   assert.deepEqual(events(s.ledger, 'send.unobserved'), []);
 });
+
+// 088 unit 2: an upwork or fiverr proposal the shell refuses returns to approved and counts no bid, for the
+// drain's PROPOSAL_NOT_SENT is built from each shell's NOT_TYPED list.
+test('an upwork or fiverr proposal refused by the shell returns to approved and counts no spend', async () => {
+  for (const platform of ['upwork', 'fiverr']) {
+    const { NOT_TYPED } = await import('../src/surface/' + platform + '.mjs');
+    const opener = platform === 'upwork' ? (await import('../src/surface/upwork.mjs')).openUpworkSurface : (await import('../src/surface/fiverr.mjs')).openFiverrSurface;
+    for (const code of NOT_TYPED) assert.ok(PROPOSAL_NOT_SENT.includes(code), code);
+    const s = setup(platform, (c) => ({ ...c, platforms: { ...c.platforms, [platform]: { ...c.platforms[platform], enabled: true, mode: 'auto', bidBudget: { monthlyKRW: 3000, stopAfterUnanswered: 20 } } } }));
+    const descriptor = structuredClone(s.descriptor);
+    descriptor.forms.proposal = { mapped: true, mappedAt: '2026-10-28T00:00:00Z', recording: 'test fixture', readBack: true };
+    const row = plan(s.ledger, { platform, threadId: s.thread('j1', 'request').id, kind: 'proposal', payload: { ...bidPayload(0, 0), priceRow: { ...ROW, platform } } });
+    setStatus(s.ledger, row.id, { from: 'planned', to: 'awaiting_operator', approvalId: '20261020-' + platform + '-00000001' });
+    resolve(s.ledger, '20261020-' + platform + '-00000001', { approve: true });
+    const calls = [];
+    const session = { navigate: async (u) => calls.push(u), evaluate: async () => calls.push('evaluate'), stop: async () => {} };
+    const out = await s.run(await opener({ session }), { descriptor, loadFx: dayRate });
+    assert.deepEqual(out.map((x) => [x.action, x.code]), [['deferred', NOT_TYPED[0]]], platform);
+    assert.equal(s.ledger.getOutbox(row.id).status, 'approved', platform);
+    assert.deepEqual(calls, [], platform + ': no driver call');
+    assert.deepEqual(bidUsage(s.ledger, platform, NOON), { bidMonthKRW: 0, bidUnanswered: 0, unknownCost: [] }, platform);
+    assert.deepEqual(events(s.ledger, 'send.unobserved'), [], platform);
+  }
+});

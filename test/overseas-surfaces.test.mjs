@@ -176,6 +176,46 @@ test('every wishket write throws APPLY_UNMAPPED before the project reader is ope
   await s.stop();
 });
 
+// 088 unit 2: the sign-in probe and the upwork and fiverr shells, which sense nothing and refuse every write.
+const probeSession = (landed, page = {}) => {
+  const calls = [];
+  return { calls, navigate: async (url) => (calls.push(['navigate', url]), landed), evaluate: async () => (calls.push(['evaluate']), { url: landed, title: '', text: '', ...page }), stop: async () => {} };
+};
+const SHELLS = [['upwork', 'FSW_UPWORK_UNMAPPED', 'https://www.upwork.com/ab/account-security/login?redir=%2Fnx%2Ffind-work%2F'], ['fiverr', 'FSW_FIVERR_UNMAPPED', 'https://www.fiverr.com/login?source=inbox']];
+
+test('probeSignIn reads a redirect to the login route and a bot wall as signed out, and anything else as unknown', async () => {
+  const { probeSignIn } = await import('../src/platforms/signin.mjs');
+  const opts = { startUrl: 'https://example.invalid/inbox', loginRoute: /\/login/ };
+  const out = probeSession('https://example.invalid/login?next=inbox');
+  assert.deepEqual(await probeSignIn(out, opts), { loggedIn: false, detail: 'redirected to the login page https://example.invalid/login?next=inbox' });
+  assert.deepEqual(out.calls[0], ['navigate', 'https://example.invalid/inbox']);
+  assert.deepEqual(await probeSignIn(probeSession('https://example.invalid/inbox', { text: 'Press & Hold to confirm you are a human' }), opts), { loggedIn: false, detail: 'challenge: perimeterx' });
+  assert.deepEqual(await probeSignIn(probeSession('https://example.invalid/inbox', { title: 'Just a moment...' }), opts), { loggedIn: false, detail: 'challenge: cloudflare' });
+  const stayed = await probeSignIn(probeSession('https://example.invalid/inbox', { text: 'Inbox' }), opts);
+  assert.equal(stayed.loggedIn, null, 'no signed-in marker is mapped, so staying on the page proves nothing');
+});
+
+test('upwork and fiverr open on the operator session, probe their login routes, sense nothing and refuse every read and write before any driver call', async () => {
+  for (const [platform, code, loginPage] of SHELLS) {
+    assert.equal(hasSurface(platform), true, platform);
+    const session = probeSession(loginPage);
+    const s = await openSurface(platform, { session });
+    assert.deepEqual([s.platform, s.publicSense, s.session === session, typeof s.signIn], [platform, false, true, 'undefined'], platform);
+    const login = await s.login();
+    assert.equal(login.loggedIn, false, platform);
+    assert.match(login.detail, /login page/);
+    session.calls.length = 0;
+    assert.deepEqual(await s.sense(), [], platform);
+    await assert.rejects(s.read('1', { kind: 'request' }), { code });
+    for (const [write, args] of Object.entries(WISHKET_WRITES)) await assert.rejects(s[write]('1', { ...args, authorized: { verdict: 'send' } }), { code });
+    assert.deepEqual(session.calls, [], platform + ': nothing reached the session after the login probe');
+    const { NOT_TYPED } = await import('../src/surface/' + platform + '.mjs');
+    assert.deepEqual(NOT_TYPED, [code]);
+  }
+  // The fiverr login route is the /login page itself, never a path that merely contains it.
+  assert.equal((await (await openSurface('fiverr', { session: probeSession('https://www.fiverr.com/inbox', { text: 'Inbox' }) })).login()).loggedIn, null);
+});
+
 function makeInstance() {
   const dir = tempDir('fsw-overseas-');
   for (const f of ['profile.json', 'business.json']) copyFileSync(join(exampleDir, f), join(dir, f));

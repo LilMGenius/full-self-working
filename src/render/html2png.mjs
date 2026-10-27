@@ -86,7 +86,7 @@ export async function readActivePort(profile, proc, timeoutMs, { read = (file) =
 // the browser itself exited. Windows has no process list with command lines short of CIM, which costs
 // one to three seconds a call, so it runs only when a removal has already failed or leftovers exist, and
 // timeoutMs ends the listing process when the caller's time is up.
-function profileProcesses({ timeoutMs = 60000 } = {}) {
+export function profileProcesses({ timeoutMs = 60000 } = {}) {
   return new Promise((ok, reject) => {
     const done = (parse) => (err, stdout) => {
       if (err) return reject(new RenderError('FSW_RENDER_PROCESSES', 'cannot list processes: ' + err.message));

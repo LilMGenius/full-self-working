@@ -160,3 +160,8 @@ test('the pending identity request is the newest written, and a request older th
   ledger.addEvent({ kind: 'platform.identity_request', platform: 'wishket', ref: 'identity', at: ago(50), payload: { file: 'c.png' } });
   assert.equal(pendingIdentity(ledger, now), null);
 });
+
+test('a ledger that cannot be read is an error, never "no pending request"', () => {
+  const broken = { db: { prepare: () => { throw new Error('database disk image is malformed'); } } };
+  assert.throws(() => pendingIdentity(broken, Date.now()), /malformed/);
+});

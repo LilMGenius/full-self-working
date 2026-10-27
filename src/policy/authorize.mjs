@@ -13,12 +13,13 @@ import { isActive } from '../core/clock.mjs';
 import { effectiveMode, ordersWatched, pipelineSettings } from '../core/settings.mjs';
 import { answeredServices, catalogServicesFor } from '../economics/catalog.mjs';
 import { foreignAmount, fxOfNote } from '../economics/fx.mjs';
+import { paceSpent } from '../economics/quote-gate.mjs';
 import { gateOutbound } from './gate.mjs';
 
 // soomgo's file picker shows 0/10 attachments; more files need packaging (src/orders/delivery.mjs:25-27).
 export const MAX_DELIVERY_FILES = 10;
 export const OPERATOR_ONLY_KINDS = ['pay_request', 'delivery'];
-export const HOLD_RULES = ['mode.observe', 'hours.closed', 'budget.cash'];
+export const HOLD_RULES = ['mode.observe', 'hours.closed', 'budget.cash', 'budget.pace'];
 
 export const spendsCash = (descriptor, threadKind) => threadKind === 'request' && descriptor.bidCost?.unit !== 'none';
 
@@ -169,6 +170,10 @@ export function authorize(item, ctx) {
       // the operator's even after an approval; holding it would hold every newer cash quote with it.
       if (!check.ok && check.spent) holds.push(rule('budget.cash', 'cash quote refused: ' + check.reason));
       else if (!check.ok) operator.push(rule('budget.unpayable', 'cash quote refused: ' + check.reason));
+      // The day's pace (platforms.<id>.quoteGate.pace, paceSpent of src/economics/quote-gate.mjs, the check the loop
+      // makes before opening a request) holds an unapproved quote at send as well, so a row planned earlier and
+      // retried later cannot spend ahead of the Seoul day; it stays planned and costs nothing.
+      if (!approved && paceSpent(instance.config?.platforms?.[item.platform], usage, now)) holds.push(rule('budget.pace', "cash quote held: the day's quote cash " + usage.cashKRW + ' runs ahead of the Seoul day'));
     }
   }
   // 5. Kinds the platform sends only on a person's confirmation (descriptor automation.sendRequiresOperator).

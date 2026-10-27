@@ -547,6 +547,27 @@ test('a paid request quote planned without a value gate verdict is blocked unsen
   const [row] = s.ledger.listOutbox();
   assert.deepEqual([row.payload.gate.verdict, row.payload.gate.p, Math.round(row.payload.gate.evKRW), row.payload.gate.at], ['send', 1 / 3, Math.round(250000 / 3 - 990), NOON.toISOString()]);
 });
+
+// The pace is checked when a request is opened, and a quote planned then can still be retried later in the day. One the
+// driver deferred (FSW_PACING_LIMIT) is retried at 12:00 with 3,000 of a 5,000 cap spent, ahead of the 2,500 the day
+// allows: the drain holds it planned, uncharged, and sends it once the day's share passes the spend.
+test('a paid quote retried while the day\'s cash runs ahead of the Seoul day stays planned until the share catches up', async () => {
+  const s = setup();
+  const limited = Object.assign(new Error('synthetic action limit'), { code: 'FSW_PACING_LIMIT' });
+  const first = scriptedSurface({ sense: [request('r1')], threads: requestPage, receipts: { quote: [limited] } });
+  await s.run('soomgo', first, { runCodex: codexWith(paidQuote('strong')) });
+  const [row] = s.ledger.listOutbox();
+  assert.equal(row.status, 'planned');
+  const old = s.ledger.upsertThread({ platform: 'soomgo', externalId: 'old', kind: 'request' });
+  s.ledger.addQuote({ threadId: old.id, platform: 'soomgo', service: 'landing_page_web', amountKRW: 300000, costKRW: 3000, status: 'sent', at: NOON.toISOString() });
+  const retry = scriptedSurface({ sense: [{ ...request('r1'), unread: false }], threads: requestPage, receipts: { quote: [{ observed: true, cashSpentKRW: 990 }] } });
+  const r = await s.run('soomgo', retry, { runCodex: codexWith(paidQuote('strong')) });
+  assert.deepEqual([r.outbox.held, retry.count('quote'), s.ledger.getOutbox(row.id).status], [1, 0, 'planned']);
+  const evening = new Date('2026-10-20T18:00:00+09:00');
+  const later = scriptedSurface({ sense: [{ ...request('r1'), unread: false }], threads: requestPage, receipts: { quote: [{ observed: true, cashSpentKRW: 990 }] } });
+  await s.run('soomgo', later, { runCodex: codexWith(paidQuote('strong')), now: evening });
+  assert.deepEqual([later.count('quote'), s.ledger.getOutbox(row.id).status], [1, 'observed']);
+});
 test('a read request keeps the snapshot it was decided on, rewritten only when its quote count, cost or budget moves', async () => {
   const s = setup();
   const codex = codexWith(decision({ intent: 'quote_request', reply: null }));

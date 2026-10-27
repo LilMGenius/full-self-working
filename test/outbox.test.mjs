@@ -353,8 +353,9 @@ test('quotes deferred by the daily caps ask nobody, then go out oldest first wit
   assert.deepEqual(rows.map((r) => s.ledger.getOutbox(r.id).status), ['planned', 'planned', 'planned']);
   assert.equal(s.notes.length, 0);
   assert.equal(first.count('quote'), 0);
-  // The next Seoul day pays 500 then 400; 300 more would pass 1000, so the third waits for another day.
-  const next = new Date('2026-10-21T09:00:00+09:00');
+  // The next Seoul day pays 500 then 400; 300 more would pass 1000, so the third waits for another day. At 22:00 the
+  // day's pace allows 916 of the 1000, so only the cap holds the third.
+  const next = new Date('2026-10-21T22:00:00+09:00');
   const surface = scriptedSurface({ receipts: { quote: [{ observed: true, cashSpentKRW: 500 }, { observed: true, cashSpentKRW: 400 }] } });
   const out = await s.run(surface, { now: next });
   assert.deepEqual(out.map((x) => x.action), ['observed', 'observed', 'held']);

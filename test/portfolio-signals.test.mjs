@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isContribution } from '../src/core/profile.mjs';
 import { captureRepoMedia } from '../src/portfolio/media.mjs';
-import { fameOf, githubLogin, qualityOf, readReach, readSignals, repoOf } from '../src/portfolio/signals.mjs';
+import { fameOf, githubLogin, githubOrgs, npmUser, qualityOf, readReach, readSignals, repoOf } from '../src/portfolio/signals.mjs';
 import { itemsFromProfile, loadItems, syncPortfolio } from '../src/portfolio/store.mjs';
 import { proofPlan } from '../src/listings/proofs.mjs';
 import { openRenderer } from '../src/render/html2png.mjs';
@@ -213,4 +213,59 @@ test('a repository that answered nothing and has no media is listed missing with
   const r = await JOB_HANDLERS.portfolio({ instance, ledger: openLedger(':memory:'), fetch: stubFetch({}), openRenderer: async () => ({ close: async () => {}, render: async () => { throw new Error('nothing to render'); } }), notify: async (_i, n) => (notes.push(n), {}), now: new Date('2026-10-27T03:00:00.000Z') });
   assert.equal(r.missingMedia, 2);
   assert.match(notes[0].body, /: bg-kyro \(github maker\/kyro answered 404\), bg-bare$/);
+});
+
+// A package with no GitHub URL is the operator's only when its npm record says so: the operator's npm user among
+// its maintainers, or a repository that passes the same GitHub authorship check; anything unread is no figure.
+function withRegistry(base, records) {
+  const fn = async (url, opts) => {
+    const m = /^https:\/\/registry\.npmjs\.org\/(.+)$/.exec(url);
+    if (m) {
+      fn.calls.push(url);
+      const rec = records[decodeURIComponent(m[1])];
+      return rec ? res(200, rec) : res(404, {});
+    }
+    return base(url, opts);
+  };
+  fn.calls = base.calls;
+  return fn;
+}
+
+test('a package without a GitHub URL counts only when the operator maintains it or its repository is the operator\'s', async () => {
+  const base = stubFetch({ repos: { 'maker/tool': { stars: 30 }, 'other/lib': { stars: 900, owner: 'other' } }, npm: { 'someone-elses-pkg': 50000, 'mine-by-maintainer': 120, 'mine-by-repo': 80, '@maker/scoped': 5 } });
+  const fetch = withRegistry(base, {
+    'someone-elses-pkg': { maintainers: [{ name: 'other' }], repository: { type: 'git', url: 'git+https://github.com/other/lib.git' } },
+    'mine-by-maintainer': { maintainers: [{ name: 'Maker-npm' }] },
+    'mine-by-repo': { maintainers: [{ name: 'someone' }], repository: 'github:maker/tool' },
+    '@maker/scoped': { maintainers: [{ name: 'maker-npm' }] },
+  });
+  const pkg = (id, name) => ({ id, source: 'background', url: null, package: name, media: [], contribution: false });
+  const reach = await readReach([pkg('theirs', 'someone-elses-pkg'), pkg('maint', 'mine-by-maintainer'), pkg('repo', 'mine-by-repo'), pkg('scoped', '@maker/scoped'), pkg('gone', 'unpublished')], { fetch, login: LOGIN, npmUser: 'maker-npm' });
+  assert.deepEqual([reach.theirs.authored, reach.theirs.why, reach.theirs.downloads, reach.theirs.stars], [false, 'npm package someone-elses-pkg: owned by other', null, null]);
+  assert.deepEqual([reach.maint.authored, reach.maint.downloads], [true, 120]);
+  assert.deepEqual([reach.repo.authored, reach.repo.stars, reach.repo.downloads], [true, 30, 80]);
+  assert.deepEqual([reach.scoped.authored, reach.scoped.downloads], [true, 5]);
+  assert.deepEqual([reach.gone.authored, reach.gone.why, reach.gone.errors], [false, 'npm package unpublished: record unread', ['npm registry unpublished answered 404']]);
+  assert.equal(fetch.calls.some((u) => u === 'https://registry.npmjs.org/@maker%2Fscoped'), true);
+  const fame = fameOf(reach);
+  assert.deepEqual([fame.theirs, fame.gone], [null, null]);
+  const nobody = await readReach([pkg('maint', 'mine-by-maintainer')], { fetch, login: LOGIN, npmUser: null });
+  assert.deepEqual([nobody.maint.authored, nobody.maint.why], [false, 'npm package mine-by-maintainer: no npm maintainer of the operator and no repository']);
+});
+
+test('a repository the operator created in an organization the profile names counts, still only with the operator\'s first commit', async () => {
+  const fetch = stubFetch({ repos: { 'studio/game': { stars: 40, owner: 'Studio' }, 'studio/borrowed': { stars: 40, owner: 'Studio', first: 'teammate' }, 'acme/thing': { stars: 9, owner: 'acme' } } });
+  const reach = await readReach([item('game', { url: 'https://github.com/studio/game' }), item('borrowed', { url: 'https://github.com/studio/borrowed' }), item('thing', { url: 'https://github.com/acme/thing' })], { fetch, login: LOGIN, orgs: ['studio'] });
+  assert.deepEqual([reach.game.authored, reach.game.stars], [true, 40]);
+  assert.deepEqual([reach.borrowed.authored, reach.borrowed.why], [false, 'first commit by teammate']);
+  assert.deepEqual([reach.thing.authored, reach.thing.why], [false, 'owned by acme']);
+  const down = await readReach([item('game', { url: 'https://github.com/studio/game' })], { fetch: stubFetch({ down: 403 }), login: LOGIN, orgs: ['studio'] });
+  assert.equal(down.game.authored, false);
+});
+
+test('the npm user and the organizations come from the profile', () => {
+  assert.equal(npmUser({ person: { links: ['https://github.com/maker', 'https://www.npmjs.com/~Maker-npm'] } }), 'maker-npm');
+  assert.equal(npmUser({ person: { links: ['https://github.com/maker'] } }), null);
+  assert.deepEqual(githubOrgs({ person: { githubOrgs: ['Studio', ' acme '] } }), ['studio', 'acme']);
+  assert.deepEqual(githubOrgs({ person: {} }), []);
 });

@@ -51,12 +51,53 @@ async function firstCommitter(fetch, repo, errors) {
   }
 }
 
+// The operator's npm user, from an npmjs.com/~user link in profile.person.links; null without one.
+export function npmUser(profile) {
+  const link = (profile?.person?.links ?? []).map(String).find((u) => /^https:\/\/(www\.)?npmjs\.com\/~[^/]+\/?$/.test(u));
+  return link ? link.replace(/\/$/, '').split('~').pop().toLowerCase() : null;
+}
+
+// The GitHub organizations the operator creates repositories in (profile.person.githubOrgs), lowercased.
+export const githubOrgs = (profile) => (profile?.person?.githubOrgs ?? []).map((o) => String(o).trim().toLowerCase()).filter(Boolean);
+
+// The GitHub repository an npm record names (repository as a string, a github: shorthand or {url}); null for any other host.
+function recordRepo(rec) {
+  const raw = String(typeof rec?.repository === 'string' ? rec.repository : rec?.repository?.url ?? '');
+  const m = /^(?:github:)?([\w.-]+)\/([\w.-]+?)(?:\.git)?$/.exec(raw) ?? /github\.com[/:]([\w.-]+)\/([\w.-]+?)(?:\.git)?(?:[#?/].*)?$/.exec(raw);
+  return m ? m[1] + '/' + m[2] : null;
+}
+
+// Whether a repository is the operator's (AGENTS.md publicClaims: the Author created it and made its first commit):
+// not a fork, owned by the operator's login or by an organization the profile names, first commit by that login.
+// why is null when it is; anything unread fails closed.
+async function repoAuthor(fetch, repo, { login, orgs }, errors) {
+  const gh = await readJsonFrom(fetch, 'https://api.github.com/repos/' + repo, { accept: 'application/vnd.github+json' }, errors, 'github ' + repo);
+  const owner = String(gh?.owner?.login ?? '').toLowerCase();
+  const first = gh && login ? await firstCommitter(fetch, repo, errors) : null;
+  const why = !login ? 'no github.com link in profile.person.links' : !gh ? 'repository unread' : gh.fork ? 'a fork' : owner !== login && !orgs.includes(owner) ? 'owned by ' + gh.owner?.login : first !== login ? 'first commit by ' + (first ?? 'an unknown author') : null;
+  return { why, stars: why === null ? gh.stargazers_count ?? null : null };
+}
+
+// A package named without a GitHub URL is the operator's only by its npm record: the operator's npm user among its
+// maintainers, or a repository that passes repoAuthor. A record that does not answer gives no figure.
+async function packageAuthor(fetch, name, ctx, errors) {
+  const rec = await readJsonFrom(fetch, 'https://registry.npmjs.org/' + name.replace('/', '%2F'), {}, errors, 'npm registry ' + name);
+  if (!rec) return { why: 'npm package ' + name + ': record unread', stars: null };
+  const maintained = ctx.npmUser != null && (rec.maintainers ?? []).some((m) => String(m?.name ?? '').toLowerCase() === ctx.npmUser);
+  const repo = recordRepo(rec);
+  const viaRepo = repo ? await repoAuthor(fetch, repo, ctx, errors) : null;
+  if (maintained) return { why: null, stars: viaRepo?.why === null ? viaRepo.stars : null };
+  if (!viaRepo) return { why: 'npm package ' + name + ': no npm maintainer of the operator and no repository', stars: null };
+  return { why: viaRepo.why === null ? null : 'npm package ' + name + ': ' + viaRepo.why, stars: viaRepo.stars };
+}
+
 // {authored, why, stars, downloads, errors} per item that names a repository or a package. Only an item the
 // operator authored carries figures (AGENTS.md publicClaims: a project's Author created the repository and made
-// its first commit): not a contribution in the profile, not a fork, owned by the operator's login, first commit by
-// that login. Another maintainer's repository stays a contribution with no fame, whatever its stars.
-export async function readReach(items, { fetch = globalThis.fetch, login = null } = {}) {
+// its first commit), checked by repoAuthor, or for a package with no repository URL by packageAuthor. Another
+// maintainer's repository or package stays a contribution with no fame, whatever its stars.
+export async function readReach(items, { fetch = globalThis.fetch, login = null, npmUser: npm = null, orgs = [] } = {}) {
   const out = {};
+  const ctx = { login, npmUser: npm, orgs };
   for (const i of items) {
     const repo = repoOf(i.url);
     if (!repo && !i.package) continue;
@@ -65,14 +106,7 @@ export async function readReach(items, { fetch = globalThis.fetch, login = null 
       out[i.id] = { authored: false, why: 'a contribution to another maintainer\'s repository', stars: null, downloads: null, errors };
       continue;
     }
-    let why = null;
-    let stars = null;
-    if (repo) {
-      const gh = await readJsonFrom(fetch, 'https://api.github.com/repos/' + repo, { accept: 'application/vnd.github+json' }, errors, 'github ' + repo);
-      const first = gh && login ? await firstCommitter(fetch, repo, errors) : null;
-      why = !login ? 'no github.com link in profile.person.links' : !gh ? 'repository unread' : gh.fork ? 'a fork' : String(gh.owner?.login ?? '').toLowerCase() !== login ? 'owned by ' + gh.owner?.login : first !== login ? 'first commit by ' + (first ?? 'an unknown author') : null;
-      stars = why === null ? gh.stargazers_count ?? null : null;
-    }
+    const { why, stars } = repo ? await repoAuthor(fetch, repo, ctx, errors) : await packageAuthor(fetch, i.package, ctx, errors);
     const npm = why === null && i.package ? await readJsonFrom(fetch, 'https://api.npmjs.org/downloads/point/last-month/' + encodeURIComponent(i.package), {}, errors, 'npm ' + i.package) : null;
     out[i.id] = { authored: why === null, why, stars, downloads: npm?.downloads ?? null, errors };
   }
@@ -120,7 +154,7 @@ export async function readSignals(instance, items, { fetch, openRenderer, now = 
   const day = dayKey(now);
   const file = join(instance.paths.portfolio, 'signals-' + day + '.json');
   if (existsSync(file)) return JSON.parse(readFileSync(file, 'utf8'));
-  const reach = await readReach(items, { fetch, login: githubLogin(instance.profile) });
+  const reach = await readReach(items, { fetch, login: githubLogin(instance.profile), npmUser: npmUser(instance.profile), orgs: githubOrgs(instance.profile) });
   const fame = fameOf(reach);
   const dir = join(instance.dir, 'qa', 'portfolio', day);
   ensureDir(dir);

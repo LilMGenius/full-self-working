@@ -77,7 +77,16 @@ function sourceRows(ledger, quotes, observed) {
 // the quote at the time of the tick that applied quote_observed. A send of the 2c77326 pipeline keeps the
 // quote's own time, since an import or the operator moved its row later (receipt.pipeline, as
 // src/deal/sweep.mjs reads it).
-const sentAt = (quote, row) => (row && row.receipt?.pipeline !== 'd605c5d' ? row.updatedAt : quote.at);
+// quoteSentAt is the one send time: quoteResults ages a quote from it, and the funnel (src/loop/funnel.mjs) judges
+// an unread observation against it through quoteSendTimes.
+export const quoteSentAt = (quote, row) => (row && row.receipt?.pipeline !== 'd605c5d' ? row.updatedAt : quote.at);
+
+// Every fsw quote's send time by quote id, paired to its observed outbox row as quoteResults pairs them.
+export function quoteSendTimes(ledger) {
+  const quotes = ledger.listQuotes();
+  const sources = sourceRows(ledger, quotes, ledger.listOutbox({ kinds: ['quote'], statuses: ['observed'] }));
+  return new Map(quotes.map((q) => [q.id, quoteSentAt(q, sources.get(q.id) ?? null)]));
+}
 
 // What the chat list showed customers do with fsw quotes (src/loop/funnel.mjs), as of a cut: the quote ids a
 // customer opened, those a poll saw still unopened past the platform's refund window (quote.unread), and those whose
@@ -121,7 +130,7 @@ export function quoteResults(ledger, { asOf, expireAfterDays }) {
   const out = [];
   for (const q of quotes) {
     const src = sources.get(q.id) ?? null;
-    const sent = sentAt(q, src);
+    const sent = quoteSentAt(q, src);
     const at = Date.parse(sent);
     if (at > cut) continue;
     // A customer who hired another pro decided this quote: lost at once, never aged or superseded. Accepted stays

@@ -3,7 +3,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openLedger } from '../src/core/ledger.mjs';
-import { FUNNEL_EVENTS } from '../src/economics/quote-results.mjs';
+import { FUNNEL_EVENTS, quoteResults } from '../src/economics/quote-results.mjs';
+import { plan, setStatus } from '../src/outbox/index.mjs';
 import { OTHER_HIRED, recordFunnel } from '../src/loop/funnel.mjs';
 
 const NOW = new Date('2026-10-27T03:00:00.000Z');
@@ -124,3 +125,26 @@ test('a chat row still showing our quote unopened past the refund window writes 
   recordFunnel(seen.ledger, { platform: 'soomgo', inbound: [chat('c2', { quote: { priceKRW: 300000, unit: 'total', opened: true } })], rows, now: new Date(Date.parse(seen.quote.at) + 49 * 3_600_000), refundHours: 48 });
   assert.deepEqual(seen.events().map((e) => e.kind), ['quote.opened']);
 });
+
+// The send time a quote ages from is the observed outbox row's, not the tick that recorded the quote: a send observed 10
+// minutes after its tick, polled unopened 47h55m after the send, is inside the 48 hour window, so it writes no
+// quote.unread and the quote does not expire as unread (AGENTS.md: one send time for funnel and quoteResults).
+test('an unopened poll inside the window of the observed send time is no unread evidence', () => {
+  const s = setup();
+  const sentAt = '2026-10-26T00:10:00.000Z';
+  const row = plan(s.ledger, { platform: 'soomgo', threadId: s.req.id, kind: 'quote', payload: { text: 'synthetic quote', amountKRW: 300000, service: 'detail_page_design', costKRW: 4000, thread: { kind: 'request' } } });
+  setStatus(s.ledger, row.id, { from: 'planned', to: 'sending' });
+  setStatus(s.ledger, row.id, { from: 'sending', to: 'observed', receipt: { observed: true, cashSpentKRW: 4000 } });
+  s.ledger.db.prepare('UPDATE outbox SET updated_at = ? WHERE id = ?').run(sentAt, row.id);
+  s.ledger.addEvent({ kind: 'deal.quote_observed', platform: 'soomgo', ref: 'r1', at: sentAt, payload: { outboxId: row.id, quoteId: s.quote.id } });
+  const rows = new Map([['c1', s.ledger.upsertThread({ platform: 'soomgo', externalId: 'c1', kind: 'message' })]]);
+  const poll = (now) => recordFunnel(s.ledger, { platform: 'soomgo', inbound: [chat('c1')], rows, now, refundHours: 48 });
+  poll(new Date(Date.parse(sentAt) + (47 * 60 + 55) * 60_000));
+  assert.equal(s.events().filter((e) => e.kind === 'quote.unread').length, 0, 'the quote is 47h55m past its send');
+  const asOf = new Date(Date.parse(sentAt) + 48 * 3_600_000);
+  assert.equal(quoteResults(s.ledger, { asOf, expireAfterDays: 14 })[0].cause, null, 'no unread observation, no unread expiry');
+  poll(new Date(Date.parse(sentAt) + 48 * 3_600_000));
+  assert.equal(s.events().filter((e) => e.kind === 'quote.unread').length, 1);
+  assert.equal(quoteResults(s.ledger, { asOf, expireAfterDays: 14 })[0].cause, 'unread');
+});
+

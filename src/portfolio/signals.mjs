@@ -110,10 +110,20 @@ async function packageAuthor(fetch, name, ctx, errors) {
   return { why: first.name === ctx.npmUser ? null : 'npm package ' + name + ': first version published by ' + (first.name ?? 'an unknown user'), stars: null };
 }
 
-// {authored, why, stars, downloads, errors} per item that names a repository or a package. Only an item the
+// Whether a package named beside a repository is that repository's: its npm record names the same GitHub repository.
+// null when it does, else the reason, so a passed repository never lends its authorship to another package.
+async function packageOfRepo(fetch, name, repo, errors) {
+  const rec = await readJsonFrom(fetch, 'https://registry.npmjs.org/' + name.replace('/', '%2F'), {}, errors, 'npm registry ' + name);
+  if (!rec) return 'npm package ' + name + ': record unread';
+  const named = recordRepo(rec);
+  return named && named.toLowerCase() === repo.toLowerCase() ? null : 'npm package ' + name + ' names ' + (named ? 'repository ' + named : 'no GitHub repository') + ', not ' + repo;
+}
+
+// {authored, why, stars, downloads, downloadsWhy?, errors} per item that names a repository or a package. Only an item the
 // operator authored carries figures (AGENTS.md publicClaims: a project's Author created the repository and made
-// its first commit), checked by repoAuthor, or for a package with no repository URL by packageAuthor. Another
-// maintainer's repository or package stays a contribution with no fame, whatever its stars.
+// its first commit), checked by repoAuthor, or for a package with no repository URL by packageAuthor. A package named
+// beside a repository counts its downloads only when its npm record names that repository (downloadsWhy says why
+// not). Another maintainer's repository or package stays a contribution with no fame, whatever its stars.
 export async function readReach(items, { fetch = globalThis.fetch, login = null, npmUser: npm = null, orgs = [] } = {}) {
   const out = {};
   const ctx = { login, npmUser: npm, orgs };
@@ -126,8 +136,9 @@ export async function readReach(items, { fetch = globalThis.fetch, login = null,
       continue;
     }
     const { why, stars } = repo ? await repoAuthor(fetch, repo, ctx, errors) : await packageAuthor(fetch, i.package, ctx, errors);
-    const npm = why === null && i.package ? await readJsonFrom(fetch, 'https://api.npmjs.org/downloads/point/last-month/' + encodeURIComponent(i.package), {}, errors, 'npm ' + i.package) : null;
-    out[i.id] = { authored: why === null, why, stars, downloads: npm?.downloads ?? null, errors };
+    const downloadsWhy = why === null && i.package && repo ? await packageOfRepo(fetch, i.package, repo, errors) : null;
+    const npm = why === null && i.package && !downloadsWhy ? await readJsonFrom(fetch, 'https://api.npmjs.org/downloads/point/last-month/' + encodeURIComponent(i.package), {}, errors, 'npm ' + i.package) : null;
+    out[i.id] = { authored: why === null, why, stars, downloads: npm?.downloads ?? null, ...(downloadsWhy ? { downloadsWhy } : {}), errors };
   }
   return out;
 }

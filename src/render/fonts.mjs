@@ -1,19 +1,22 @@
 // Fonts the renderer embeds, and the checks that a print used only them. Pretendard (SIL OFL 1.1,
 // assets/fonts/OFL.txt) is inlined as a data URL, so a print or a capture never races a font
 // download and silently falls back to an OS face (AGENTS.md webfontRace).
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { repoRoot } from '../core/instance.mjs';
 
 export const PRETENDARD = join(repoRoot, 'assets', 'fonts', 'PretendardVariable.woff2');
 
 // An @font-face whose source is the font file itself as a data URL, so no capture or print waits on a
-// download it can lose (AGENTS.md webfontRace). Cached per file and family.
+// download it can lose (AGENTS.md webfontRace). Cached per file, family, modification time and size, so a
+// font file replaced while the process runs is read again; the new rule takes the old one's place.
 const faces = new Map();
 export function inlineFontFace(file, family = 'Pretendard') {
+  const { mtimeMs, size } = statSync(file);
   const key = file + '|' + family;
-  if (!faces.has(key)) faces.set(key, '@font-face{font-family:"' + family + '";font-weight:100 900;font-display:block;src:url(data:font/woff2;base64,' + readFileSync(file).toString('base64') + ') format("woff2");}');
-  return faces.get(key);
+  const stamp = mtimeMs + '|' + size;
+  if (faces.get(key)?.stamp !== stamp) faces.set(key, { stamp, css: '@font-face{font-family:"' + family + '";font-weight:100 900;font-display:block;src:url(data:font/woff2;base64,' + readFileSync(file).toString('base64') + ') format("woff2");}' });
+  return faces.get(key).css;
 }
 
 export const pretendardFontFace = () => inlineFontFace(PRETENDARD, 'Pretendard');

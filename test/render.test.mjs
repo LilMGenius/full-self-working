@@ -2,7 +2,7 @@
 // prove which face drew its text (the per-node report from CDP CSS.getPlatformFontsForNode).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DEFAULT_CHROME, openRenderer } from '../src/render/html2png.mjs';
 import { inlineFontFace, platformFontProblems, PRETENDARD, pretendardFontFace } from '../src/render/fonts.mjs';
@@ -27,6 +27,20 @@ test('inlineFontFace builds one cached data-URL rule per file and family, and pr
   const other = inlineFontFace(PRETENDARD, 'Brand');
   assert.ok(other.startsWith('@font-face{font-family:"Brand";'));
   assert.notEqual(other, rule);
+});
+
+test('inlineFontFace reads a replaced font file again', () => {
+  const file = join(tempDir('fsw-render-font-'), 'face.woff2');
+  copyFileSync(PRETENDARD, file);
+  const first = inlineFontFace(file, 'Swap');
+  assert.ok(first.includes(readFileSync(PRETENDARD).toString('base64')));
+  writeFileSync(file, Buffer.from('another font'));
+  // A replacement can keep the old modification time; the size alone still tells them apart.
+  const later = new Date(Date.now() + 5000);
+  utimesSync(file, later, later);
+  const second = inlineFontFace(file, 'Swap');
+  assert.ok(second.includes(Buffer.from('another font').toString('base64')), 'the rule still carries the old bytes');
+  assert.equal(inlineFontFace(file, 'Swap'), second);
 });
 
 test('render with fontReport proves the inlined face and catches a fallback', { skip: !existsSync(process.env.FSW_CHROME ?? DEFAULT_CHROME) && 'Chrome not installed', timeout: 120000 }, async () => {

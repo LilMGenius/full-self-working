@@ -42,6 +42,7 @@ docs/DESIGN.md holds the module map and the contracts between modules.
 - A live job is retired only by the founder in writing; until then v0 runs every job the live supervisor runs, under the same id.
 - Schedules start on round Seoul marks; each cron carries its Seoul time and reason.
 - Module boundaries live in `scripts/check-imports.mjs`, part of `npm run check`: it fails a forbidden import between modules, a module with no row and a file-level import cycle, and a change that adds a module adds its row there and in docs/DESIGN.md.
+- A choice between mechanisms (an executor, a store, a send path, a browser engine) lands in the Decisions section of `docs/DESIGN.md` with its reason and evidence in the change that makes it; the plans the build ran on live outside the repository.
 - A lesson from a platform page, the market or a failure lands in `docs/NEGATIVE-CORPUS.md` with its holder; `scripts/check-negative-corpus.mjs` keeps every held row tied to a file that contains its anchor.
 - Commands: `npm ci` once (ajv, for `fsw settings` only), `npm test`, `npm run check` (tests, privacy scan, slop lint on examples, descriptor validation, example keys, the generated example config, module boundaries with the deploy package rule, negative corpus).
 - Commits are English: `type(scope): problem` in at most 72 characters and a body of single-line `-` bullets. `hooks/commit-msg` checks every commit and `.github/workflows/commits.yml` every push, both copies of the vibeghost floor.

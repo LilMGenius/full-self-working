@@ -46,7 +46,8 @@ export { MAX_THREADS_PER_PLATFORM } from '../loop/index.mjs';
 // A sign-in that found the account already signed in (alreadySignedIn: the first read was a page still
 // rendering, as on 2026-10-26 14:50Z) typed nothing, so it is recorded as platform.login_reread and does
 // not hold the next real sign-in for an hour; one that found no form and still signed out counts, since
-// a page asking for a human check shows no form either.
+// a page asking for a human check shows no form either. Every success, that one included, is the
+// surface's own login check reading true after the sign-in; any other reading is a failed sign-in.
 export const SIGN_IN_GAP_MS = 60 * 60_000;
 
 export async function signInAgain({ id, surface, instance, ledger, now, notify = notifyOperator }) {
@@ -77,8 +78,13 @@ export async function signInAgain({ id, surface, instance, ledger, now, notify =
       throw err;
     }
     if (r?.signedIn === true && r.alreadySignedIn === true) {
+      const back = await surface.login();
+      if (back?.loggedIn !== true) {
+        await failed({ code: null, reason: 'the sign-in found the account signed in, but the login check reads ' + String(back?.loggedIn ?? null) + (back?.detail ? ': ' + back.detail : '') });
+        return null;
+      }
       ledger.addEvent({ at: now.toISOString(), kind: 'platform.login_reread', platform: id, payload: { ok: true, reason: 'signed in already; nothing was pressed' } });
-      return surface.login();
+      return back;
     }
     if (r?.signedIn !== true) {
       await failed({ code: null, reason: r?.reason ?? 'still signed out after the Google sign-in' });
@@ -104,11 +110,22 @@ export async function signInAgain({ id, surface, instance, ledger, now, notify =
     throw Object.assign(new Error(message), { code: err.code ?? null });
   }
   if (r?.signedIn === true && r.alreadySignedIn === true) {
+    const back = await surface.login();
+    if (back?.loggedIn !== true) {
+      ledger.addEvent({ at: now.toISOString(), kind: 'platform.sign_in', platform: id, payload: { ok: false, reason: 'the sign-in found the account signed in, but the login check reads ' + String(back?.loggedIn ?? null) } });
+      return null;
+    }
     ledger.addEvent({ at: now.toISOString(), kind: 'platform.login_reread', platform: id, payload: { ok: true, reason: 'signed in already; nothing was typed' } });
-    return surface.login();
+    return back;
   }
-  ledger.addEvent({ at: now.toISOString(), kind: 'platform.sign_in', platform: id, payload: { ok: r?.signedIn === true, reason: scrub(r?.reason) } });
-  return r?.signedIn === true ? surface.login() : null;
+  if (r?.signedIn !== true) {
+    ledger.addEvent({ at: now.toISOString(), kind: 'platform.sign_in', platform: id, payload: { ok: false, reason: scrub(r?.reason) } });
+    return null;
+  }
+  const back = await surface.login();
+  const ok = back?.loggedIn === true;
+  ledger.addEvent({ at: now.toISOString(), kind: 'platform.sign_in', platform: id, payload: { ok, reason: ok ? scrub(r?.reason) : 'the sign-in finished but the login check reads ' + String(back?.loggedIn ?? null) } });
+  return ok ? back : null;
 }
 
 // fsw run exits with this code when newer code should take over; the scheduled task's launcher starts it

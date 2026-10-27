@@ -389,7 +389,8 @@ function googleSetup(identity) {
   const tick = async (surface, min) => (await runTick({ instance, ledger, now: new Date(Date.parse('2026-10-28T01:00:00Z') + min * 60_000), state, only: ['poll'], openSurface: async () => surface, persist: false })).jobs[0].platforms[0];
   const signIns = () => ledger.db.prepare("SELECT payload FROM events WHERE kind = 'platform.sign_in' ORDER BY id").all().map((e) => JSON.parse(e.payload));
   const requests = () => (readFileSync(join(instance.paths.operator, 'requests.md'), 'utf8').match(/^- dedupe: sign-in:freelancer:google$/gm) ?? []).length;
-  return { tick, signIns, requests };
+  const rereads = () => ledger.db.prepare("SELECT COUNT(*) AS n FROM events WHERE kind = 'platform.login_reread'").get().n;
+  return { tick, signIns, requests, rereads };
 }
 const IDENTITY = { person: { google_login_email: 'operator@example.invalid', date_of_birth: '1990-01-01', phone: '+82 10-0000-0000' }, business: { address_en: { street: '1 Example Road', city: 'Seoul', postal_code: '00000', country: 'South Korea' } } };
 
@@ -418,6 +419,37 @@ test('a google sign-in whose login check cannot read the account is a failure th
   assert.deepEqual(g.signIns().map((e) => e.ok), [false, false]);
   assert.match(g.signIns()[0].reason, /login check reads null/);
   assert.equal(g.requests(), 1);
+});
+
+test('a login page that redirects to an error page is no sign-in: nothing is pressed, the failure is recorded and asks once', async () => {
+  const g = googleSetup(IDENTITY);
+  const { openFreelancerSurface } = await import('../src/surface/freelancer.mjs');
+  let pressed = 0;
+  const session = { navigate: async (url) => (url.endsWith('/login') ? 'https://www.freelancer.com/maintenance' : url), evaluate: async () => ({ title: 'Service unavailable', text: 'Try again later' }), stop: async () => {} };
+  const surface = await openFreelancerSurface({ session, targets: [], google: async () => (pressed += 1) });
+  await g.tick(surface, 0);
+  assert.equal(pressed, 0);
+  assert.deepEqual(g.signIns().map((e) => e.ok), [false]);
+  assert.match(g.signIns()[0].reason, /went to \/maintenance/);
+  assert.equal(g.requests(), 1);
+  assert.equal(g.rereads(), 0);
+});
+
+test('an email sign-in that found the account signed in but whose login check still reads signed out counts against the hour', async () => {
+  const instance = makeInstance({ kmong: { enabled: true, mode: 'auto' } });
+  const file = join(tempDir('fsw-logins-'), 'logins.json');
+  writeFileSync(file, JSON.stringify({ kmong: { method: 'email', email: 'seller@example.invalid', password: 'not-a-real-password' } }));
+  instance.config.logins = file;
+  const ledger = openLedger(':memory:');
+  let calls = 0;
+  const surface = { login: async () => ({ loggedIn: false }), signIn: async () => ((calls += 1), { signedIn: true, alreadySignedIn: true }), sense: async () => [], stop: async () => {} };
+  const state = { lastRuns: {} };
+  const tick = async (min) => (await runTick({ instance, ledger, now: new Date(Date.parse('2026-10-26T14:50:00Z') + min * 60_000), state, only: ['poll'], openSurface: async () => surface, notify: quiet, persist: false })).jobs[0].platforms[0];
+  assert.equal((await tick(0)).status, 'failed');
+  await tick(5);
+  assert.equal(calls, 1);
+  const kinds = ledger.db.prepare("SELECT kind, payload FROM events WHERE kind LIKE 'platform.%' ORDER BY id").all().map((e) => [e.kind, JSON.parse(e.payload).ok]);
+  assert.deepEqual(kinds, [['platform.sign_in', false]]);
 });
 
 test('a google login without an email in the identity file records the failure and presses nothing', async () => {

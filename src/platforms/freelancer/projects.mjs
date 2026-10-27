@@ -104,10 +104,15 @@ export async function readReputation(session) {
 
 // The Google sign-in of the login page, mapped 2026-10-26 by the onboarding wizard
 // (src/platforms/freelancer/onboarding.mjs): Google's own button in a gsi/button iframe beside a Facebook
-// one. A login page that redirects away found the account signed in, so nothing is pressed.
+// one. A login page that redirects away presses nothing, and only the self API's signed-in answer makes
+// that redirect a sign-in already in place; a redirect to anything else (a maintenance or error page) is no
+// evidence and fails.
 export async function signInWithGoogle(session, { email, google = googleSignIn }) {
   const url = await session.navigate(LOGIN_URL);
-  if (!SIGN_IN_PATH.test(pathOf(url))) return { signedIn: true, alreadySignedIn: true };
+  if (!SIGN_IN_PATH.test(pathOf(url))) {
+    const self = await readSelf(session);
+    return self.loggedIn === true ? { signedIn: true, alreadySignedIn: true } : { signedIn: false, reason: 'the login page went to ' + (pathOf(url) || url) + ' and ' + self.detail + '; nothing was pressed' };
+  }
   await google(session, { framed: true, email });
   const after = await readSelf(session);
   return { signedIn: after.loggedIn === true, reason: after.detail };

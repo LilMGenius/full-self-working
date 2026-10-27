@@ -71,11 +71,11 @@ const page = (body, css, { width, height }, fontFace = pretendardFontFace()) => 
 // ---- main card 652x488 ----
 
 const MAIN_CSS = '.card{position:relative;width:652px;height:488px;overflow:hidden;background:var(--color-ink);color:var(--color-on-ink)}' +
-  '.claim{position:absolute;left:40px;right:40px;top:36px;height:200px}' +
+  '.claim{position:absolute;left:40px;right:40px;top:30px;height:178px}' +
   'h1{display:inline-block;white-space:nowrap;font-weight:var(--font-display);line-height:1.04;letter-spacing:-.045em;font-size:var(--type-10)}' +
   // The second line of the claim carries the one accent, so the claim reads in two beats at grid size.
   'h1 em{font-style:normal;color:var(--color-accent-on-ink)}' +
-  '.foot{position:absolute;left:40px;bottom:36px;width:180px}' +
+  '.foot{position:absolute;left:40px;bottom:30px;width:172px}' +
   '.rule{width:56px;height:6px;background:var(--color-accent-on-ink)}' +
   '.sub{margin-top:14px;font-size:var(--type-3);line-height:1.4;font-weight:var(--font-strong);color:var(--color-on-ink-muted);letter-spacing:-.01em}' +
   // The gig's scope, two or three concrete items, as the leading covers name theirs.
@@ -84,14 +84,15 @@ const MAIN_CSS = '.card{position:relative;width:652px;height:488px;overflow:hidd
   '.scope li:before{content:"";flex:none;width:7px;height:7px;background:var(--color-accent-on-ink)}' +
   // The proof sits on a paper stage that bleeds off the card's right and bottom edges, so a dark screen
   // still stands apart from the ink field and the card reads in two tones at grid size.
-  '.stage{position:absolute;left:244px;top:256px;right:0;bottom:0;background:var(--color-paper);border-radius:var(--radius-lg) 0 0 0;overflow:hidden}' +
+  '.stage{position:absolute;left:228px;top:222px;right:0;bottom:0;background:var(--color-paper);border-radius:var(--radius-lg) 0 0 0;overflow:hidden}' +
   // One real screen, cropped by the stage's right and bottom edges, never tilted.
-  '.screen{position:absolute;left:22px;top:22px;width:460px;height:288px;border-radius:var(--radius-md);border-color:var(--color-line)}' +
+  '.screen{position:absolute;left:22px;top:22px;width:480px;height:300px;border-radius:var(--radius-md);border-color:var(--color-line)}' +
   '.screen.with-phone{left:100px}' +
   '.screen.phone{left:20px;top:40px;width:112px;height:184px;border:3px solid var(--color-ink);z-index:1}' +
   // A sample is shown whole, since cropping it would hide what was made.
-  '.sample{position:absolute;left:20px;top:20px;border-radius:var(--radius-md);border-color:var(--color-line)}' +
-  '.sample .tag{position:absolute;left:8px;top:8px}' +
+  // The sample tag sits above the sample, so it covers none of what was made.
+  '.sample{position:absolute;left:20px;top:46px;border-radius:var(--radius-md);border-color:var(--color-line)}' +
+  '.stage > .tag{position:absolute;left:20px;top:14px}' +
   // Without a screen, the deliverables take its place as a file list.
   '.files{padding:26px 30px;color:var(--color-text)}' +
   '.files h2{font-size:var(--type-2);font-weight:var(--font-strong);color:var(--color-muted)}' +
@@ -99,7 +100,7 @@ const MAIN_CSS = '.card{position:relative;width:652px;height:488px;overflow:hidd
   '.files b{font-size:var(--type-2);color:var(--color-accent)}';
 
 // The box a whole sample may take on the stage, and its size at the sample's aspect ratio.
-const SAMPLE_BOX = { width: 368, height: 192 };
+const SAMPLE_BOX = { width: 396, height: 206 };
 const fitBox = ({ width, height }) => {
   const k = Math.min(SAMPLE_BOX.width / width, SAMPLE_BOX.height / height);
   return { width: Math.round(width * k), height: Math.round(height * k) };
@@ -111,7 +112,7 @@ export function mainHtml({ listing, cardShots = [], fontFace }) {
   let visual;
   if (first?.sample) {
     const box = fitBox(first);
-    visual = '<div class="stage"><div class="sample frame whole" style="width:' + box.width + 'px;height:' + box.height + 'px"><img src="' + first.src + '" alt=""><span class="tag">' + esc(LABELS.sample) + '</span></div></div>';
+    visual = '<div class="stage"><div class="sample frame whole" style="width:' + box.width + 'px;height:' + box.height + 'px"><img src="' + first.src + '" alt=""></div><span class="tag">' + esc(LABELS.sample) + '</span></div>';
   } else if (first) {
     const phone = [first, second].find((s) => s && s.width < 600);
     const desk = [first, second].find((s) => s && s.width >= 600);

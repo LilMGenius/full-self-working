@@ -107,6 +107,8 @@ export function digestNumbers({ instance, ledger, now = new Date() }) {
     repliesSent: { total: outbound.length, byPlatform: byPlatform(outbound) },
     quotesSent: { total: quotes.length, amountKRW: quotes.reduce((s, x) => s + (x.amount_krw ?? 0), 0), cashSpentKRW: quotes.reduce((s, x) => s + (x.cost_krw ?? 0), 0) },
     approvalsWaiting: ledger.listOutbox({ statuses: ['awaiting_operator'] }).length,
+    // Deliveries waiting for the operator by review verdict; a delivery without one counts as error, as resolve reads it.
+    deliveriesWaiting: ledger.listOutbox({ statuses: ['awaiting_operator'], kinds: ['delivery'] }).reduce((m, r) => ((m[r.payload.review?.verdict ?? 'error'] += 1), m), { pass: 0, fail: 0, error: 0 }),
     leftForOperator: { total: Object.values(parked).reduce((a, b) => a + b, 0), byPlatform: parked },
     ordersStarted: orders.length,
     payments: { count: payments.length, amountKRW: payments.reduce((s, p) => s + p.amount_krw, 0) },
@@ -135,6 +137,7 @@ export function renderDigest(n) {
     '- replies sent: ' + n.repliesSent.total + (n.repliesSent.total ? ' (' + counts(n.repliesSent.byPlatform) + ')' : ''),
     '- quotes sent: ' + n.quotesSent.total + ', quoted ' + krw(n.quotesSent.amountKRW) + ', cash spent ' + krw(n.quotesSent.cashSpentKRW),
     '- approvals waiting now: ' + n.approvalsWaiting,
+    '- deliveries waiting: review pass ' + n.deliveriesWaiting.pass + ', fail ' + n.deliveriesWaiting.fail + ', error ' + n.deliveriesWaiting.error,
     '- left unread for you (service outside the catalog): ' + n.leftForOperator.total + (n.leftForOperator.total ? ' (' + counts(n.leftForOperator.byPlatform) + ')' : ''),
     '- orders started: ' + n.ordersStarted,
     '- payments recorded: ' + n.payments.count + ', ' + krw(n.payments.amountKRW),

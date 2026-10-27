@@ -11,8 +11,10 @@ import { loadInstance, repoRoot } from '../core/instance.mjs';
 import { openLedger } from '../core/ledger.mjs';
 import { notifyOperator } from '../core/notify.mjs';
 import { openRenderer as defaultOpenRenderer } from '../render/html2png.mjs';
+import { DEFAULT_JWC_MODEL } from '../brain/jwc.mjs';
 import { matchFiles, runAcceptance } from './accept.mjs';
 import { loadRecipe, resolveSkill, serviceCatalog } from './recipe.mjs';
+import { reviewDeliverables, reviewerFor } from './review.mjs';
 
 export const DEFAULT_JOB_MODEL = 'gpt-6.1-sol';
 const DEFAULT_TIMEOUT_MS = 90 * 60_000;
@@ -254,7 +256,8 @@ async function renderAndAccept(paths, recipe, { openRenderer, language }) {
 }
 
 // runJob(jobId, ctx) -> {ok, status, reason?, acceptance?, deliverables, turns, minutes, agentMinutes}.
-// ctx.runCodex, ctx.runJwc and ctx.jwcModel are the executor seam, ctx.startAllowed(job, recipe) the
+// ctx.runCodex, ctx.runJwc and ctx.jwcModel are the executor seam (ctx.reviewDeliverables replaces the review
+// of accepted work in tests), ctx.startAllowed(job, recipe) the
 // deal's payment check and ctx.report(signal) the deal's door; src/loop/job.mjs supplies all four. The
 // run writes no job status: it reports run_started, run_accepted or run_failed (003 Work).
 // recipe.executor picks codex (default) or jwc for the model turns.
@@ -291,6 +294,7 @@ export async function runJob(jobId, ctx = {}) {
     const started = Date.now();
     const turns = [];
     let acceptance = null;
+    let review = null;
     let error = null;
     try {
       const paths = jobPaths(instance, jobId);
@@ -314,10 +318,18 @@ export async function runJob(jobId, ctx = {}) {
           await turn(acceptance.results.filter((r) => !r.ok));
           acceptance = await renderAndAccept(paths, recipe, { openRenderer, language });
         }
+        // wp7: the review of accepted work, run while the slot is held (src/work/review.mjs). A review that cannot
+        // run is recorded as verdict error with its cause, so it never turns an accepted run into a failed one or a pass.
+        const reviewCfg = jobsCfg.review ?? { enabled: true, model: null };
+        if (acceptance.ok && reviewCfg.enabled !== false) {
+          const builderModel = executor === 'jwc' ? jobsCfg.jwc?.model ?? ctx.jwcModel ?? DEFAULT_JWC_MODEL : jobsCfg.model ?? DEFAULT_JOB_MODEL;
+          review = await (ctx.reviewDeliverables ?? reviewDeliverables)({ paths, recipe, language, runCodex, builderModel, model: reviewCfg.model ?? reviewerFor(builderModel, { openaiModel: DEFAULT_JOB_MODEL }) })
+            .catch((err) => ({ verdict: 'error', findings: [{ severity: 'blocker', file: null, detail: (err.code ? err.code + ' ' : '') + err.message }], at: new Date().toISOString() }));
+        }
       } catch (err) {
         error = err;
       }
-      writeFileSync(paths.runLog, JSON.stringify({ jobId, at: new Date().toISOString(), turns, acceptance, error: error ? { code: error.code, message: error.message } : null }, null, 2));
+      writeFileSync(paths.runLog, JSON.stringify({ jobId, at: new Date().toISOString(), turns, acceptance, review, error: error ? { code: error.code, message: error.message } : null }, null, 2));
     } finally {
       release();
     }
@@ -326,7 +338,7 @@ export async function runJob(jobId, ctx = {}) {
     const lastRun = { at: new Date().toISOString(), ok: Boolean(acceptance?.ok) && !error, turns: turns.length, failed: acceptance?.results.filter((r) => !r.ok).map((r) => r.check) ?? [], error: error?.message ?? null };
     const deliverables = lastRun.ok ? deliverablesOf(instance, job, recipe) : { files: [], absolute: [], captures: [] };
     const handoffs = handoffsOf(recipe);
-    await report({ type: lastRun.ok ? 'run_accepted' : 'run_failed', platform: job.platform, jobId: job.id, threadId: job.threadId, at: lastRun.at, evidence: { lastRun, minutes, files: deliverables.absolute, captures: deliverables.captures, handoffs } });
+    await report({ type: lastRun.ok ? 'run_accepted' : 'run_failed', platform: job.platform, jobId: job.id, threadId: job.threadId, at: lastRun.at, evidence: { lastRun, minutes, files: deliverables.absolute, captures: deliverables.captures, handoffs, ...(review ? { review } : {}) } });
     ledger.addEvent({ kind: lastRun.ok ? 'job.accepted' : 'job.failed', platform: job.platform, ref: jobId, payload: { ...lastRun, minutes } });
     const body = lastRun.ok
       ? 'Acceptance passed after ' + turns.length + ' turn(s). Before delivery:\n' + handoffs.map((h) => '- ' + h.id + ': ' + h.ask + (h.produces ? ' Record it with fsw job handoff ' + jobId + ' ' + h.id + ' <file ...> (' + h.produces.join(', ') + ')' + (h.when ? ', or without files when it does not apply (' + h.when + ')' : '') + '.' : ' Confirm it when you approve the delivery.')).join('\n')

@@ -101,7 +101,9 @@ export async function driveLoop({ open }) {
       ticks.push({ ...t, result, surface });
       if (t.n === 3) for (const r of awaiting('pay_request')) resolve(ledger, r.approvalId, { approve: true });
       if (t.n === 5) for (const run of pending.splice(0)) await run();
-      if (t.n === 6) for (const r of [...awaiting('delivery'), ...awaiting('pay_request')]) resolve(ledger, r.approvalId, { approve: true });
+      // The jobs build on the fresh-instance model, so the review records error (same family) and the operator
+      // approves the delivery with a reason (src/outbox/resolve.mjs).
+      if (t.n === 6) for (const r of [...awaiting('delivery'), ...awaiting('pay_request')]) resolve(ledger, r.approvalId, { approve: true, ...(r.kind === 'delivery' ? { reason: 'files read by hand' } : {}) });
     }
     const portfolioBefore = rankPortfolio(loadItems(instance)).map((i) => i.id);
     const now = new Date();

@@ -55,6 +55,8 @@ test('a soomgo request reaches a closed job and a kmong inquiry an observed repl
     assert.deepEqual([rows[2].payload.amountKRW, rows[4].payload.amountKRW], [150000, 150000]);
     assert.match(rows[2].payload.text, /Deposit$/);
     assert.match(rows[4].payload.text, /Balance$/);
+    assert.deepEqual([rows[3].payload.review.verdict, rows[3].operator.resolutionReason], ['error', 'files read by hand']);
+    assert.match(rows[3].payload.review.findings[0].detail, /builder gpt-6\.1-sol \(openai\)/);
     assert.ok(rows.every((r) => r.status === 'observed'));
     // The delivery waited at T7 for the balance with no status change.
     assert.deepEqual(ticks.find((t) => t.n === 7).result.outbox, { held: 1, observed: 1 });

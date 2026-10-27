@@ -383,3 +383,74 @@ test('a jwc turn that exits 0 after a model error is a failure, and a stop turn 
   assert.throws(() => parseJobAnswer('I wrote the scraper.'), { code: 'FSW_JWC_BAD_JSON' });
 });
 
+// U7.7: the review of accepted work runs inside the job slot, before release(), and can neither fail an
+// accepted run nor pass one it could not review.
+function reviewedJob(jobs = {}) {
+  const instance = makeInstance();
+  instance.config.jobs = { ...instance.config.jobs, model: 'cpa/claude-opus-5-5', ...jobs };
+  const ledger = openLedger(':memory:');
+  const job = seedJob(ledger, { platform: 'soomgo' });
+  ledger.addPayment({ jobId: job.id, kind: 'deposit', amountKRW: 150000, channel: 'soomgo', evidence: '숨고페이 결제 완료' });
+  const codex = fakeCodex([{ 'copy/variant-a.md': '# 빵집\n\n매일 아침 굽습니다.\n', 'copy/variant-b.md': '# 빵집\n\n동네 빵입니다.\n' }]);
+  return { instance, ledger, job, codex, lock: join(instance.paths.jobs, '.running', job.id + '.lock'), runLog: join(instance.paths.jobs, job.id, 'qa', 'run.json') };
+}
+
+test('accepted work is reviewed while the job slot is held, and the run log and run_accepted carry the review', async () => {
+  const j = reviewedJob();
+  const seen = [];
+  const verdict = { verdict: 'pass', findings: [], model: 'gpt-6.1-sol', builderModel: 'cpa/claude-opus-5-5', files: 2, hash: 'h', durationMs: 1, at: '2026-10-27T00:00:00.000Z' };
+  const reviewDeliverables = async (o) => (seen.push({ slotHeld: existsSync(j.lock), builderModel: o.builderModel, model: o.model, language: o.language, work: o.paths.work, runCodex: o.runCodex === j.codex, deliverables: o.recipe.deliverables.length }), verdict);
+  const { ctx, signals } = seam(j.ledger, { instance: j.instance, runCodex: j.codex, reviewDeliverables });
+  const r = await runJob(j.job.id, ctx);
+  assert.equal(r.status, 'accepted', JSON.stringify(r.acceptance));
+  assert.deepEqual(seen, [{ slotHeld: true, builderModel: 'cpa/claude-opus-5-5', model: 'gpt-6.1-sol', language: 'ko', work: join(j.instance.paths.jobs, j.job.id, 'work'), runCodex: true, deliverables: 2 }]);
+  assert.equal(existsSync(j.lock), false);
+  assert.deepEqual(JSON.parse(readFileSync(j.runLog, 'utf8')).review, verdict);
+  assert.deepEqual(signals.at(-1).evidence.review, verdict);
+  assert.equal(signals.at(-1).type, 'run_accepted');
+});
+
+test('a review that throws is verdict error and the run stays accepted; jobs.review.model names the reviewer', async () => {
+  const j = reviewedJob({ review: { enabled: true, model: 'anthropic/claude-sonnet-5-5' } });
+  const models = [];
+  const reviewDeliverables = async (o) => {
+    models.push(o.model);
+    throw Object.assign(new Error('proxy refused'), { code: 'FSW_CODEX_EXIT' });
+  };
+  const { ctx, signals } = seam(j.ledger, { instance: j.instance, runCodex: j.codex, reviewDeliverables });
+  const r = await runJob(j.job.id, ctx);
+  assert.equal(r.status, 'accepted');
+  assert.deepEqual(models, ['anthropic/claude-sonnet-5-5']);
+  const review = signals.at(-1).evidence.review;
+  assert.deepEqual([signals.at(-1).type, review.verdict], ['run_accepted', 'error']);
+  assert.match(review.findings[0].detail, /^FSW_CODEX_EXIT proxy refused/);
+});
+
+test('jobs.review.enabled false runs no review, and a run that fails acceptance is never reviewed', async () => {
+  const off = reviewedJob({ review: { enabled: false, model: null } });
+  let called = 0;
+  const reviewDeliverables = async () => (called++, { verdict: 'pass', findings: [] });
+  const a = seam(off.ledger, { instance: off.instance, runCodex: off.codex, reviewDeliverables });
+  assert.equal((await runJob(off.job.id, a.ctx)).status, 'accepted');
+  assert.equal('review' in a.signals.at(-1).evidence, false);
+  const bad = reviewedJob();
+  const broken = fakeCodex([{ 'copy/variant-a.md': '# 빵집\n' }, { 'copy/variant-a.md': '# 빵집\n' }]);
+  const b = seam(bad.ledger, { instance: bad.instance, runCodex: broken, reviewDeliverables });
+  assert.equal((await runJob(bad.job.id, b.ctx)).status, 'failed');
+  assert.equal(called, 0);
+  assert.equal(JSON.parse(readFileSync(bad.runLog, 'utf8')).review, null);
+});
+
+test('without a stub the real review reaches the executor read-only on the other family after the writing turn', async () => {
+  const j = reviewedJob();
+  const calls = [];
+  const runCodex = async (opts) => {
+    calls.push({ sandbox: opts.sandbox, model: opts.model });
+    if (opts.sandbox === 'read-only') return { data: { verdict: 'fail', findings: [{ severity: 'major', file: 'copy/variant-b.md', detail: 'too short' }] }, durationMs: 2 };
+    return j.codex(opts);
+  };
+  const { ctx, signals } = seam(j.ledger, { instance: j.instance, runCodex });
+  assert.equal((await runJob(j.job.id, ctx)).status, 'accepted');
+  assert.deepEqual(calls, [{ sandbox: 'workspace-write', model: 'cpa/claude-opus-5-5' }, { sandbox: 'read-only', model: 'gpt-6.1-sol' }]);
+  assert.deepEqual([signals.at(-1).evidence.review.verdict, signals.at(-1).evidence.review.findings.length], ['fail', 1]);
+});

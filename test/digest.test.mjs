@@ -52,3 +52,21 @@ test('a price line names the learned factor and the cases a price moved on', asy
   const text = await digestText(instance);
   assert.match(text, /- soomgo\/detail_page_design: .* \(learned x0\.928 from 2 priced of 8 decided quotes\)/);
 });
+
+// U7.7: waiting deliveries are counted by review verdict; one without a review counts as error.
+test('the digest counts the deliveries waiting for the operator by review verdict', async () => {
+  const { plan, setStatus } = await import('../src/outbox/index.mjs');
+  const instance = instanceWith(null);
+  const ledger = openLedger(':memory:');
+  const wait = (ref, n, kind, payload) => {
+    const row = plan(ledger, { platform: 'soomgo', threadId: ledger.upsertThread({ platform: 'soomgo', externalId: ref, kind: 'message' }).id, kind, payload: { text: '전달드립니다 ' + n, files: ['C:/j/' + n + '.md'], runAt: '2026-10-25T10:00:00Z', ...payload } });
+    setStatus(ledger, row.id, { from: 'planned', to: 'awaiting_operator', approvalId: '20261025-soomgo-0000ab0' + n, reason: kind });
+  };
+  wait('a', 1, 'delivery', { review: { verdict: 'pass', findings: [] } });
+  wait('b', 2, 'delivery', { review: { verdict: 'fail', findings: [] } });
+  wait('c', 3, 'delivery', {});
+  wait('d', 4, 'message', {});
+  const d = await writeDigest({ instance, ledger, now: new Date('2026-10-26T00:00:00Z'), notify: async () => ({ written: true }) });
+  const text = readFileSync(d.file, 'utf8');
+  assert.match(text, /- approvals waiting now: 4\n- deliveries waiting: review pass 1, fail 1, error 1\n/);
+});

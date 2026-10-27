@@ -440,7 +440,7 @@ test('read-back after an interrupted send ignores an older bubble with the same 
   assert.equal(outMessages(s.ledger, t.id).length, 0);
   const d = setup('soomgo');
   const dt = d.thread('c1');
-  const del = plan(d.ledger, { platform: 'soomgo', threadId: dt.id, kind: 'delivery', payload: { text: '전달드립니다', files: [], runAt: 'r1' } });
+  const del = plan(d.ledger, { platform: 'soomgo', threadId: dt.id, kind: 'delivery', payload: { text: '전달드립니다', files: [], runAt: 'r1', review: { verdict: 'pass', findings: [] } } });
   setStatus(d.ledger, del.id, { from: 'planned', to: 'awaiting_operator', approvalId: '20261020-soomgo-0000dd01' });
   resolve(d.ledger, '20261020-soomgo-0000dd01', { approve: true });
   setStatus(d.ledger, del.id, { from: 'approved', to: 'sending' });
@@ -534,3 +534,26 @@ test('a soomgo quote the platform refused as full goes stale, counts no press an
   assert.deepEqual(s.notes, []);
 });
 
+// U7.7: a delivery is approved only after a passed review, or with the operator's stated reason.
+test('resolve refuses a delivery without a passed review unless a reason is given, and stores nothing when it refuses', () => {
+  const s = setup('soomgo');
+  const waiting = (ref, id, review) => {
+    const row = plan(s.ledger, { platform: 'soomgo', threadId: s.thread(ref).id, kind: 'delivery', payload: { text: '전달드립니다', files: ['C:/jobs/j1/work/copy/a.md'], runAt: '2026-10-20T10:00:00Z', ...(review ? { review } : {}) } });
+    setStatus(s.ledger, row.id, { from: 'planned', to: 'awaiting_operator', approvalId: id, reason: 'delivery' });
+    return row;
+  };
+  const failed = waiting('d1', '20261020-soomgo-0000d001', { verdict: 'fail', findings: [{ severity: 'blocker', file: null, detail: 'x' }] });
+  const none = waiting('d2', '20261020-soomgo-0000d002', null);
+  const passed = waiting('d3', '20261020-soomgo-0000d003', { verdict: 'pass', findings: [] });
+  for (const reason of [undefined, '', '   ']) assert.throws(() => resolve(s.ledger, '20261020-soomgo-0000d001', { approve: true, reason }), { code: 'FSW_REVIEW_NOT_PASSED', message: /has review fail; approving it needs --reason/ });
+  assert.throws(() => resolve(s.ledger, '20261020-soomgo-0000d002', { approve: true }), { code: 'FSW_REVIEW_NOT_PASSED', message: /has review error/ });
+  for (const r of [failed, none]) assert.deepEqual([s.ledger.getOutbox(r.id).status, s.ledger.getOutbox(r.id).operator ?? null], ['awaiting_operator', null]);
+  const over = resolve(s.ledger, '20261020-soomgo-0000d001', { approve: true, reason: 'checked both variants by hand' });
+  assert.deepEqual([over.status, over.operator.resolutionReason], ['approved', 'checked both variants by hand']);
+  assert.equal(resolve(s.ledger, '20261020-soomgo-0000d003', { approve: true }).status, 'approved');
+  assert.equal(resolve(s.ledger, '20261020-soomgo-0000d002', { approve: false }).status, 'rejected');
+  assert.equal(s.ledger.getOutbox(passed.id).status, 'approved');
+  const message = plan(s.ledger, { platform: 'soomgo', threadId: s.thread('m1').id, kind: 'message', payload: msgPayload() });
+  setStatus(s.ledger, message.id, { from: 'planned', to: 'awaiting_operator', approvalId: '20261020-soomgo-0000d004', reason: 'draft mode' });
+  assert.equal(resolve(s.ledger, '20261020-soomgo-0000d004', { approve: true }).status, 'approved');
+});

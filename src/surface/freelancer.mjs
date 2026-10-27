@@ -4,7 +4,7 @@
 // name before anything is typed. Page knowledge stays in src/platforms/freelancer.
 import { targetsFor } from '../economics/catalog.mjs';
 import { AdapterRefusal } from '../platforms/kit.mjs';
-import { fetchApi, listProjects, readProject, readSelf } from '../platforms/freelancer/projects.mjs';
+import { fetchApi, listProjects, readProject, readSelf, signInWithGoogle } from '../platforms/freelancer/projects.mjs';
 import { readKind } from './shared.mjs';
 
 export const FORM_UNMAPPED = 'FSW_FREELANCER_FORM_UNMAPPED';
@@ -29,13 +29,16 @@ export const threadOfProject = (p) => ({
   notices: [],
 });
 
-export async function openFreelancerSurface({ session, fetchJson = fetchApi, targets = targetsFor('freelancer') } = {}) {
+export async function openFreelancerSurface({ session, fetchJson = fetchApi, targets = targetsFor('freelancer'), google } = {}) {
   const names = targets.map((t) => t.category);
   return {
     platform: 'freelancer',
     session,
     publicSense: true,
     login: () => readSelf(session),
+    // The Google sign-in the supervisor uses when the session signed out; email is the operator's Google
+    // account from the identity file, and a password or second-factor prompt stays his.
+    signIn: ({ email }) => signInWithGoogle(session, { email, ...(google ? { google } : {}) }),
     sense: async () => (await listProjects({ targets, fetchJson })).projects.map((p) => inboundOfProject(p, names)),
     // A project has no conversation before a bid, so read takes kind request and refuses a message.
     read: async (ref, { kind } = {}) => (readKind(kind, ['request']), threadOfProject(await readProject(ref, { fetchJson }))),

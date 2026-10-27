@@ -3,11 +3,13 @@
 // one project's full description. These reads need no login, so they go through Node's fetch and never load
 // a page in the operator's Chrome; the sign-in check reads the API's self endpoint in his signed-in session,
 // whose cookies Node's fetch does not carry.
+import { googleSignIn, pathOf, SIGN_IN_PATH } from '../onboarding.mjs';
 import { apiResult, jobsUrl, pageBody } from './market.mjs';
 
 const BASE = 'https://www.freelancer.com';
 const API = BASE + '/api/projects/0.1';
 export const SELF_URL = BASE + '/api/users/0.1/self/';
+export const LOGIN_URL = BASE + '/login';
 
 export const activeUrl = (jobIds, limit) => API + '/projects/active/?' + jobIds.map((id) => 'jobs[]=' + id).join('&') + '&project_types[]=fixed&job_details=true&limit=' + limit + '&sort_field=time_updated';
 export const projectUrl = (id) => API + '/projects/' + id + '/?full_description=true&job_details=true';
@@ -79,4 +81,15 @@ export function selfStatus(body) {
 export async function readSelf(session) {
   await session.navigate(SELF_URL, { settle: 500 });
   return selfStatus(await session.evaluate(pageBody));
+}
+
+// The Google sign-in of the login page, mapped 2026-10-26 by the onboarding wizard
+// (src/platforms/freelancer/onboarding.mjs): Google's own button in a gsi/button iframe beside a Facebook
+// one. A login page that redirects away found the account signed in, so nothing is pressed.
+export async function signInWithGoogle(session, { email, google = googleSignIn }) {
+  const url = await session.navigate(LOGIN_URL);
+  if (!SIGN_IN_PATH.test(pathOf(url))) return { signedIn: true, alreadySignedIn: true };
+  await google(session, { framed: true, email });
+  const after = await readSelf(session);
+  return { signedIn: after.loggedIn !== false, reason: after.detail };
 }

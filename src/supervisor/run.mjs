@@ -15,6 +15,7 @@ import { notifyOperator } from '../core/notify.mjs';
 import { effectiveMode, priceLearningSettings } from '../core/settings.mjs';
 import { importApprovals } from '../core/approvals-import.mjs';
 import { loadDescriptor } from '../platforms/registry.mjs';
+import { readIdentity } from '../platforms/onboarding.mjs';
 import { answeredServices } from '../economics/catalog.mjs';
 import { latestTable, refreshPriceTable } from '../economics/price-table.mjs';
 import { marketPlatforms, sampleMarket } from '../economics/sampling.mjs';
@@ -35,6 +36,10 @@ export { MAX_THREADS_PER_PLATFORM } from '../loop/index.mjs';
 // so a wrong password or a page that asks for a human check cannot lock the account by retrying. The
 // values go only into the platform's form; the event records whether the sign-in worked (36400c4). The
 // loop step calls it through its ctx when a surface reports no login.
+// An entry {method: 'google'} signs in with the operator's Google account, whose email the identity file
+// holds (readIdentity); the surface presses its site's Google button with it. A Google sign-in that fails,
+// or an identity file without the email, asks the operator once per platform while that notice is open,
+// since a board with publicSense sends no login notice of its own.
 // The attempt is recorded whether signIn returns or throws, since a throw after the form was sent (a
 // click or tool timeout) has already submitted the password; any text the page or tool returns has the
 // password cut out before it is stored or thrown on.
@@ -44,14 +49,45 @@ export { MAX_THREADS_PER_PLATFORM } from '../loop/index.mjs';
 // a page asking for a human check shows no form either.
 export const SIGN_IN_GAP_MS = 60 * 60_000;
 
-export async function signInAgain({ id, surface, instance, ledger, now }) {
+export async function signInAgain({ id, surface, instance, ledger, now, notify = notifyOperator }) {
   if (typeof surface.signIn !== 'function') return null;
   const file = instance.config?.logins;
   if (!file || !existsSync(file)) return null;
-  const login = JSON.parse(readFileSync(file, 'utf8'))[id];
-  if (login?.method !== 'email' || !login.email || !login.password) return null;
+  const entry = JSON.parse(readFileSync(file, 'utf8'))[id];
+  const google = entry?.method === 'google';
+  if (!google && (entry?.method !== 'email' || !entry.email || !entry.password)) return null;
   const last = ledger.db.prepare("SELECT at FROM events WHERE kind = 'platform.sign_in' AND platform = ? ORDER BY id DESC LIMIT 1").get(id);
   if (last && now.getTime() - Date.parse(last.at) < SIGN_IN_GAP_MS) return null;
+  const failed = (payload) => {
+    ledger.addEvent({ at: now.toISOString(), kind: 'platform.sign_in', platform: id, payload: { ok: false, method: 'google', ...payload } });
+    return notify(instance, { kind: 'login', title: id + ' could not sign in with Google', body: (payload.code ? payload.code + ' ' : '') + payload.reason + '\nSign in to ' + id + ' in Chrome once; fsw tries the Google sign-in again at most once an hour.', dedupeKey: 'sign-in:' + id + ':google' });
+  };
+  if (google) {
+    const identity = readIdentity({ instance });
+    const email = identity?.googleEmail;
+    if (!email) {
+      await failed({ code: null, reason: identity?.message ?? 'the identity file has no person.google_login_email' });
+      return null;
+    }
+    let r;
+    try {
+      r = await surface.signIn({ email });
+    } catch (err) {
+      await failed({ code: err.code ?? null, reason: err.message });
+      throw err;
+    }
+    if (r?.signedIn === true && r.alreadySignedIn === true) {
+      ledger.addEvent({ at: now.toISOString(), kind: 'platform.login_reread', platform: id, payload: { ok: true, reason: 'signed in already; nothing was pressed' } });
+      return surface.login();
+    }
+    if (r?.signedIn !== true) {
+      await failed({ code: null, reason: r?.reason ?? 'still signed out after the Google sign-in' });
+      return null;
+    }
+    ledger.addEvent({ at: now.toISOString(), kind: 'platform.sign_in', platform: id, payload: { ok: true, method: 'google', reason: r.reason ?? null } });
+    return surface.login();
+  }
+  const login = entry;
   const scrub = (s) => (s == null ? null : String(s).split(login.password).join('[password]'));
   let r;
   try {
@@ -285,7 +321,7 @@ function pollTargets(instance) {
 // One loop step per platform, in parallel, each on its own surface session (architect D13).
 async function runPlatforms(ids, ctx) {
   const priceTable = latestPriceRows(ctx.instance);
-  const results = await Promise.all(ids.map((id) => step(id, { ...ctx, priceTable, signInAgain })));
+  const results = await Promise.all(ids.map((id) => step(id, { ...ctx, priceTable, signInAgain: (a) => signInAgain({ ...a, ...(ctx.notify ? { notify: ctx.notify } : {}) }) })));
   for (const r of results) record(ctx, 'supervisor.platform', r.platform, r);
   const failed = results.filter((r) => r.status === 'failed');
   return { status: failed.length ? (failed.length === results.length ? 'failed' : 'partial') : 'ok', platforms: results };

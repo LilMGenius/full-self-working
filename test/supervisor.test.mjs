@@ -375,6 +375,53 @@ test('a sign-in that throws after the form went out counts against the hour, and
   assert.deepEqual(written.filter((f) => readFileSync(f, 'utf8').includes(password)), []);
 });
 
+// freelancer signs in with the operator's Google account (080 order 6): the logins file names the method,
+// the identity file the email, and a failure asks once.
+function googleSetup(identity) {
+  const instance = makeInstance({ freelancer: { enabled: true, mode: 'auto' } });
+  const dir = tempDir('fsw-google-');
+  writeFileSync(join(dir, 'logins.json'), JSON.stringify({ freelancer: { method: 'google' } }));
+  writeFileSync(join(dir, 'identity.json'), JSON.stringify(identity));
+  instance.config.logins = join(dir, 'logins.json');
+  instance.config.onboarding = { ...instance.config.onboarding, identity: join(dir, 'identity.json') };
+  const ledger = openLedger(':memory:');
+  const state = { lastRuns: {} };
+  const tick = async (surface, min) => (await runTick({ instance, ledger, now: new Date(Date.parse('2026-10-28T01:00:00Z') + min * 60_000), state, only: ['poll'], openSurface: async () => surface, persist: false })).jobs[0].platforms[0];
+  const signIns = () => ledger.db.prepare("SELECT payload FROM events WHERE kind = 'platform.sign_in' ORDER BY id").all().map((e) => JSON.parse(e.payload));
+  const requests = () => (readFileSync(join(instance.paths.operator, 'requests.md'), 'utf8').match(/^- dedupe: sign-in:freelancer:google$/gm) ?? []).length;
+  return { tick, signIns, requests };
+}
+const IDENTITY = { person: { google_login_email: 'operator@example.invalid', date_of_birth: '1990-01-01', phone: '+82 10-0000-0000' }, business: { address_en: { street: '1 Example Road', city: 'Seoul', postal_code: '00000', country: 'South Korea' } } };
+
+test('a signed-out platform with a google login signs in once an hour with the identity file email, and a failure asks once', async () => {
+  const g = googleSetup(IDENTITY);
+  let signedIn = false;
+  const calls = [];
+  const surface = { publicSense: true, login: async () => ({ loggedIn: signedIn }), signIn: async (a) => (calls.push(a), { signedIn: false, reason: 'still on the login page' }), sense: async () => [], stop: async () => {} };
+  assert.deepEqual([(await g.tick(surface, 0)).status, calls], ['ok', [{ email: 'operator@example.invalid' }]]);
+  assert.equal((await g.tick(surface, 5)).status, 'ok');
+  assert.equal(calls.length, 1);
+  await g.tick(surface, 61);
+  assert.equal(calls.length, 2);
+  assert.equal(g.requests(), 1);
+  surface.signIn = async (a) => (calls.push(a), (signedIn = true), { signedIn: true });
+  const back = await g.tick(surface, 122);
+  assert.deepEqual([back.login.loggedIn, calls.length], [true, 3]);
+  assert.deepEqual(g.signIns().map((e) => [e.ok, e.method]), [[false, 'google'], [false, 'google'], [true, 'google']]);
+});
+
+test('a google login without an email in the identity file records the failure and presses nothing', async () => {
+  const g = googleSetup({ ...IDENTITY, person: { ...IDENTITY.person, google_login_email: null } });
+  let called = 0;
+  const surface = { publicSense: true, login: async () => ({ loggedIn: false }), signIn: async () => ((called += 1), { signedIn: true }), sense: async () => [], stop: async () => {} };
+  await g.tick(surface, 0);
+  await g.tick(surface, 61);
+  assert.equal(called, 0);
+  assert.deepEqual(g.signIns().map((e) => e.ok), [false, false]);
+  assert.match(g.signIns()[0].reason, /google_login_email/);
+  assert.equal(g.requests(), 1);
+});
+
 test('a poll over a platform id no descriptor names fails that platform alone and records the others', async () => {
   const instance = makeInstance({ soomg: { enabled: true, mode: 'auto' }, kmong: { enabled: true, mode: 'auto' } });
   const ledger = openLedger(':memory:');

@@ -251,3 +251,26 @@ test('the learned base stays within maxMove of the market base after rounding, r
   const [cost] = learnPriceRows([row({ baseKRW: 100000, costFloorKRW: 95500 })], cases('lost', 1, 5), { settings: SETTINGS, descriptors, asOf: ASOF });
   assert.equal(cost.baseKRW, 96000, 'a cost floor between steps rounds up to the next step, never under it');
 });
+
+// Each quote reads the pricing basis of its own outbox row: a later quote's basis on the same thread is not applied
+// to the quotes before it.
+test('a quote takes the pricing basis of its own row, never of a later quote on the same thread', () => {
+  const ledger = openLedger(':memory:');
+  const thread = ledger.upsertThread({ platform: 'soomgo', externalId: 'r-many', kind: 'request' });
+  for (let i = 1; i <= 5; i++) {
+    const at = plus(T0, i * 60_000);
+    const pricing = i === 5 ? { reference: 600000, complexity: 1 } : null;
+    const row = plan(ledger, { platform: 'soomgo', threadId: thread.id, kind: 'quote', payload: { text: 'q ' + i, amountKRW: 300000, service: 'detail_page_design', costKRW: 990, ...(pricing ? { decision: { quote: { amountKRW: 300000, pricing } } } : {}) } });
+    setStatus(ledger, row.id, { from: 'planned', to: 'sending' });
+    setStatus(ledger, row.id, { from: 'sending', to: 'observed', receipt: { observed: true } });
+    ledger.db.prepare('UPDATE outbox SET updated_at = ? WHERE id = ?').run(at, row.id);
+    ledger.addQuote({ threadId: thread.id, platform: 'soomgo', service: 'detail_page_design', amountKRW: 300000, costKRW: 990, status: 'expired', at });
+  }
+  const results = quoteResults(ledger, { asOf: ASOF, expireAfterDays: 14 });
+  assert.deepEqual(results.map((r) => r.index), [null, null, null, null, 0.5]);
+  const [r] = learnPriceRows([row()], results, { settings: SETTINGS, descriptors, asOf: ASOF });
+  assert.deepEqual([r.learned.priced, r.baseKRW], [1, 300000]);
+  // A quote recorded without a row of its own (an outside quote at a hire) leaves its group ambiguous: no basis.
+  ledger.addQuote({ threadId: thread.id, platform: 'soomgo', service: 'detail_page_design', amountKRW: 300000, costKRW: 0, status: 'accepted', at: plus(T0, 10 * 60_000) });
+  assert.deepEqual(quoteResults(ledger, { asOf: ASOF, expireAfterDays: 14 }).map((q) => q.index), [null, null, null, null, null, null]);
+});

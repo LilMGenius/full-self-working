@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { repoRoot } from '../core/instance.mjs';
 import { operatorDelivered } from '../economics/catalog.mjs';
+import { scopeReaches } from '../learning/scope.mjs';
 
 export const INTENTS = ['inquiry', 'quote_request', 'negotiation', 'order_detail', 'revision', 'delivery', 'smalltalk', 'system', 'spam', 'unsupported'];
 export const LESSONS_IN_PROMPT = 12;
@@ -27,12 +28,13 @@ export function loadPlaybook(instance, platform) {
 }
 
 // The newest lessons for one platform's prompt: a lesson scoped to other platforms (appliesTo) stays out; a
-// lesson without appliesTo, with an empty one, or scoped to all, reaches every platform.
+// lesson without appliesTo, with an empty one, one holding an unknown value, or scoped to all, reaches every
+// platform (src/learning/scope.mjs).
 export function loadLessons(instance, { platform = null, limit = LESSONS_IN_PROMPT } = {}) {
   const file = join(instance.paths.lessons, 'lessons.jsonl');
   if (!existsSync(file)) return [];
   const lines = readFileSync(file, 'utf8').split('\n').filter((l) => l.trim());
-  const applies = (l) => !platform || !Array.isArray(l.appliesTo) || !l.appliesTo.length || l.appliesTo.includes('all') || l.appliesTo.includes(platform);
+  const applies = (l) => !platform || scopeReaches(l.appliesTo, platform);
   return lines.map((l) => JSON.parse(l)).filter(applies).sort((a, b) => String(b.updatedAt ?? '').localeCompare(String(a.updatedAt ?? ''))).slice(0, limit);
 }
 

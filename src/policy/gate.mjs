@@ -1,5 +1,6 @@
 // The deterministic outbound gate. Every message, quote, listing and profile edit passes here
 // before it leaves the machine; docs/DESIGN.md (Policy gate) is the contract.
+import { scopeReaches } from '../learning/scope.mjs';
 import { lintText } from './slop.mjs';
 
 const SEP = '[\\s.\\-()]*';
@@ -215,9 +216,9 @@ export function gateOutbound(item, ctx = {}) {
     if ((item.thread?.recentOutbound ?? []).some((t) => norm(t) === norm(text)) && text.trim()) add(violations, 'shape.duplicate', 'same text was already sent in this thread');
   }
 
-  // learned: a rule fires only on the platforms its lesson came from (appliesTo); a rule written before
-  // appliesTo existed, or with an empty one, fires everywhere.
-  for (const rule of (lessonsRules ?? []).filter((r) => !Array.isArray(r.appliesTo) || !r.appliesTo.length || r.appliesTo.includes('all') || r.appliesTo.includes(item.platform))) {
+  // learned: a rule fires only on the platforms its lesson came from (appliesTo, normalized by
+  // src/learning/scope.mjs); a rule without a scope, an empty one or one holding an unknown value fires everywhere.
+  for (const rule of (lessonsRules ?? []).filter((r) => scopeReaches(r.appliesTo, item.platform))) {
     let re;
     try {
       re = new RegExp(rule.pattern, rule.flags ?? 'iu');

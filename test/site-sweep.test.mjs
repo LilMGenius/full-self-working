@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -47,6 +47,23 @@ test('the static host serves the folder, answers 404 for a missing file and 403 
   } finally {
     await host.close();
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the static host refuses a file reached through a link inside the folder that points outside it', async () => {
+  const dir = site('<p>안녕하세요</p>');
+  const outside = tempDir('fsw-sweep-outside-');
+  writeFileSync(join(outside, 'secret.txt'), 'outside the site');
+  symlinkSync(outside, join(dir, 'link'), 'junction');
+  const host = await serveDir(dir);
+  try {
+    assert.equal(await get(host.origin, '/link/secret.txt'), 403);
+    assert.equal(await get(host.origin, '/assets/sans.woff2'), 200);
+  } finally {
+    await host.close();
+    rmSync(join(dir, 'link'), { force: true });
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
   }
 });
 

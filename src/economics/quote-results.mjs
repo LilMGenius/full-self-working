@@ -4,6 +4,8 @@
 // Nothing here writes; the same ledger state and the same day give the same list, which the price table
 // (price-learning.mjs) and the allocation (yield.mjs) both read, so neither counts a quote its own way.
 export const QUOTE_RESULTS = ['won', 'lost', 'expired', 'refused', 'superseded', 'open'];
+// The events src/loop/funnel.mjs writes from the soomgo chat list.
+export const FUNNEL_EVENTS = ['quote.opened', 'quote.hired_us', 'quote.hired_other', 'quote.hired_other_cancelled', 'quote.other_status'];
 const DAY_MS = 86_400_000;
 
 // Threads whose deal already moved past its quotes: one holding an accepted quote, and the thread of a job
@@ -104,7 +106,8 @@ export function quoteResults(ledger, { asOf, expireAfterDays }) {
 export function quoteFunnel(ledger, { platform, now, days }) {
   const since = now.getTime() - days * DAY_MS;
   const rows = quoteResults(ledger, { asOf: now, expireAfterDays: Infinity }).filter((r) => r.source === 'quote' && r.platform === platform && Date.parse(r.at) >= since);
-  const unlinked = new Set(ledger.db.prepare("SELECT ref, payload, at FROM events WHERE platform = ? AND kind LIKE 'quote.%'").all(platform).filter((e) => Date.parse(e.at) >= since && Date.parse(e.at) <= now.getTime() && JSON.parse(e.payload ?? '{}').quoteId == null && JSON.parse(e.payload ?? '{}').unlinked).map((e) => e.ref));
+  // Only the funnel's own kinds: quote.sent, quote.budget_refused and quote.cost_observed share the prefix.
+  const unlinked = new Set(ledger.db.prepare('SELECT ref, payload, at FROM events WHERE platform = ? AND kind IN (' + FUNNEL_EVENTS.map(() => '?').join(', ') + ')').all(platform, ...FUNNEL_EVENTS).filter((e) => Date.parse(e.at) >= since && Date.parse(e.at) <= now.getTime() && JSON.parse(e.payload ?? '{}').quoteId == null && JSON.parse(e.payload ?? '{}').unlinked).map((e) => e.ref));
   return {
     days, sent: rows.length, opened: rows.filter((r) => r.opened).length, hiredUs: rows.filter((r) => r.result === 'won').length,
     hiredOther: rows.filter((r) => r.cause === 'hired_other').length, noAnswer: rows.filter((r) => r.result === 'open').length,

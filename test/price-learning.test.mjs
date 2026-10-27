@@ -226,3 +226,15 @@ test('quoteFunnel counts what customers did with the quotes of the window', () =
   ledger.upsertThread({ platform: 'soomgo', externalId: 'c-o', kind: 'message', meta: { funnel: { opened: true } } });
   assert.equal(quoteFunnel(ledger, { platform: 'soomgo', now, days: 7 }).opensKnown, true);
 });
+
+// The unlinked count reads the funnel's own events: the quote.* events other writers keep (quote.sent,
+// quote.budget_refused, quote.cost_observed) are never a chat the funnel could not link.
+test('quoteFunnel counts unlinked chats from the funnel events only', () => {
+  const ledger = openLedger(':memory:');
+  const now = new Date('2026-10-27T03:00:00.000Z');
+  const at = '2026-10-27T01:00:00.000Z';
+  ledger.addEvent({ kind: 'quote.opened', platform: 'soomgo', ref: 'c1', at, payload: { quoteId: null, unlinked: 'no fsw quote on request r1' } });
+  ledger.addEvent({ kind: 'quote.sent', platform: 'soomgo', ref: 'c2', at, payload: { quoteId: null, unlinked: 'written by another path' } });
+  ledger.addEvent({ kind: 'quote.budget_refused', platform: 'soomgo', ref: 'c3', at, payload: { unlinked: true } });
+  assert.equal(quoteFunnel(ledger, { platform: 'soomgo', now, days: 7 }).unlinked, 1);
+});

@@ -289,3 +289,12 @@ test('a bare repository value on another host is no GitHub repository', async ()
   assert.deepEqual([reach.p.authored, reach.p.why, reach.p.downloads], [true, null, 7]);
   assert.equal(fetch.calls.some((u) => u.includes('api.github.com/repos/gitlab.com')), false);
 });
+
+// npm keeps an unpublished version's time but drops its record, so nobody can be shown to have published the
+// first version: the package is not counted, whoever published the first version still listed.
+test('a package whose first version was unpublished is not counted as the operator\'s', async () => {
+  const rec = { maintainers: [{ name: 'maker-npm' }], versions: { '1.0.0': { _npmUser: { name: 'maker-npm' } } }, time: { created: '2024-01-01T00:00:00.000Z', '0.1.0': '2024-01-01T00:00:00.000Z', '1.0.0': '2024-03-01T00:00:00.000Z' } };
+  const fetch = withRegistry(stubFetch({ npm: { 'gone-first': 40 } }), { 'gone-first': rec });
+  const reach = await readReach([{ id: 'p', source: 'background', url: null, package: 'gone-first', media: [], contribution: false }], { fetch, login: LOGIN, npmUser: 'maker-npm' });
+  assert.deepEqual([reach.p.authored, reach.p.why, reach.p.downloads], [false, 'npm package gone-first: first version 0.1.0 was unpublished, so its publisher is unknown', null]);
+});

@@ -102,7 +102,8 @@ test('a quote refused only by the daily caps is held for a later day with nobody
   const spent = authorize(quote(), sctx(i, { usage: { quotes: 1, cashKRW: 4500 } }));
   assert.equal(spent.verdict, 'send');
   assert.ok(isHeld(spent));
-  assert.deepEqual(rules(spent), ['budget.cash']);
+  // 4,500 at 12:00 also runs ahead of the 2,500 the day's pace allows, a second hold.
+  assert.deepEqual(rules(spent), ['budget.cash', 'budget.pace']);
   assert.equal(authorize(quote(), sctx(i, { usage: { quotes: 5, cashKRW: 0 } })).verdict, 'send');
   const tooDear = authorize(quote({ costKRW: 6000 }), sctx(i));
   assert.equal(tooDear.verdict, 'operator');
@@ -130,6 +131,18 @@ test('an unapproved paid request quote without the value gate send verdict is re
   assert.equal(authorize(quote({ gate: undefined }), sctx(i, { approved: true })).verdict, 'send');
   assert.equal(authorize(quote(), sctx(i)).verdict, 'send');
   assert.equal(authorize(quote({ gate: undefined, thread: { kind: 'message', stage: 'pre_order', lastInboundText: '웹 개발 견적 부탁드립니다', recentOutbound: [] } }), sctx(i)).verdict, 'send');
+});
+
+// At 12:00 a cap of 5,000 allows 2,500 of the day's quote cash (quoteGate.pace even, paceSpent): with 3,000 spent an
+// unapproved quote is held at send, unasked and uncharged, while 2,000 spent, pace off and an approved row send.
+test('an unapproved paid quote is held at send while the day\'s cash runs ahead of the Seoul day', () => {
+  const i = makeInstance();
+  const ahead = authorize(quote(), sctx(i, { usage: { quotes: 1, cashKRW: 3000 } }));
+  assert.deepEqual([ahead.verdict, isHeld(ahead), rules(ahead)], ['send', true, ['budget.pace']]);
+  assert.deepEqual(rules(authorize(quote(), sctx(i, { usage: { quotes: 1, cashKRW: 2000 } }))), []);
+  assert.deepEqual(rules(authorize(quote(), sctx(i, { approved: true, usage: { quotes: 1, cashKRW: 3000 } }))), []);
+  const off = makeInstance((c) => ({ ...c, platforms: { ...c.platforms, soomgo: { ...c.platforms.soomgo, quoteGate: { pace: 'off' } } } }));
+  assert.deepEqual(rules(authorize(quote(), sctx(off, { usage: { quotes: 1, cashKRW: 3000 } }))), []);
 });
 
 test('a stated budget under the cost floor asks the operator; at the floor or approved it does not', () => {

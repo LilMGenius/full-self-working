@@ -2,9 +2,12 @@
 // node scripts/probe.mjs <platform> <op> [ref] [--kind message|request] [--out <dir>] [--record] [--now]
 // One read operation of a surface on the operator's signed-in Chrome, printed as counts and field
 // presence, never customer text. ops: login, sense, read (refuses a ref the list shows unread, since
-// opening it would mark it read under the live supervisor), orders, supply, reviews, and frontier (kmong
-// only: the top cards of each published gig's category and their cover images, saved under
-// <instance>/qa/frontier/<day>/ as the reference set our listing images are judged against). It starts inside the probe
+// opening it would mark it read under the live supervisor), orders, supply, reviews (a surface that reports
+// its seller state has it written to <instance>/platforms/<id>-state.json for the price table), frontier
+// (kmong only: the top cards of each published gig's category and their cover images, saved under
+// <instance>/qa/frontier/<day>/ as the reference set our listing images are judged against), and bidform
+// (freelancer only: the bid gate of one project read in the session, and the refusal code that would stop a
+// bid there; it types and presses nothing). It starts inside the probe
 // window: after the live supervisor recorded its tick for the current 5-minute mark, and at least a
 // minute before the next one, so it never shares the BrowserSkill extension with a poll; --now skips the
 // wait. --record writes every call to <instance>/qa/surfaces/<platform>/<day>/. Exit 0 when the operation
@@ -15,14 +18,15 @@ import { parseArgs } from 'node:util';
 import { dayKey, nextMark } from '../src/core/clock.mjs';
 import { instanceDir } from '../src/core/instance.mjs';
 import { catalog, targetsFor } from '../src/economics/catalog.mjs';
+import { writeSellerState } from '../src/economics/price-table.mjs';
 import { CATEGORY_FIELD } from '../src/economics/pricing.mjs';
 import { readPublished } from '../src/listings/gig.mjs';
 import { recordingPath } from '../src/surface/recorder.mjs';
 import { hasSurface, openSurface } from '../src/surface/index.mjs';
 
-export const READ_OPS = ['login', 'sense', 'read', 'orders', 'supply', 'reviews', 'frontier'];
+export const READ_OPS = ['login', 'sense', 'read', 'orders', 'supply', 'reviews', 'frontier', 'bidform'];
 // Ops that exist on one platform only.
-const ONLY_ON = { frontier: 'kmong' };
+const ONLY_ON = { frontier: 'kmong', bidform: 'freelancer' };
 export const FRONTIER_PER_CATEGORY = 3;
 const MARK_MS = 5 * 60_000;
 export const CLOSE_MS = 60_000;
@@ -157,8 +161,8 @@ export async function probe(argv, { now = () => new Date(), sleep = (ms) => new 
   }
   const [platform, op, ref] = args.positionals;
   const { kind, out, record } = args.values;
-  if (!hasSurface(platform) || !READ_OPS.includes(op) || (op === 'read' && !ref) || (ONLY_ON[op] && ONLY_ON[op] !== platform)) {
-    console.error('usage: probe <kmong|soomgo> <' + READ_OPS.join('|') + '> [ref] [--kind message|request] [--out dir] [--record] [--now]');
+  if (!hasSurface(platform) || !READ_OPS.includes(op) || ((op === 'read' || op === 'bidform') && !ref) || (ONLY_ON[op] && ONLY_ON[op] !== platform)) {
+    console.error('usage: probe <kmong|soomgo|freelancer> <' + READ_OPS.join('|') + '> [ref] [--kind message|request] [--out dir] [--record] [--now]');
     return 2;
   }
   const dir = instanceDir();
@@ -170,6 +174,8 @@ export async function probe(argv, { now = () => new Date(), sleep = (ms) => new 
   const surface = await open(platform, record ? { record: recordingPath(dir, platform, op, started) } : {});
   let summary;
   let code = 0;
+  let refused = null;
+  let stateFile = null;
   try {
     let result;
     if (op === 'read') {
@@ -180,8 +186,12 @@ export async function probe(argv, { now = () => new Date(), sleep = (ms) => new 
     } else if (op === 'frontier') {
       const inWindow = () => args.values.now || probeWindow(now(), lastTick(dir)).wait === 0;
       result = await captureFrontier(surface, { dir, day: dayKey(started), open: inWindow, fetchImage });
+    } else if (op === 'bidform') {
+      result = await surface.dryRun(String(ref));
+      refused = result.refused;
     } else result = await surface[op]();
-    summary = { platform, op, ref: ref ?? null, ok: true, seconds: Math.round((now() - started) / 1000), loads: surface.session.loads ?? null, result: summarize(result) };
+    if (op === 'reviews' && result?.state) stateFile = writeSellerState(join(dir, 'platforms'), platform, result.state, now()).file;
+    summary = { platform, op, ref: ref ?? null, ok: true, seconds: Math.round((now() - started) / 1000), loads: surface.session.loads ?? null, ...(refused ? { refused } : {}), ...(stateFile ? { stateFile } : {}), result: summarize(result) };
   } catch (err) {
     summary = { platform, op, ref: ref ?? null, ok: false, code: err.code ?? null, error: err.message, loads: surface.session.loads ?? null };
     code = 1;

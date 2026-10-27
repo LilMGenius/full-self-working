@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { loadInstance } from '../src/core/instance.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
 import { plan, setStatus } from '../src/outbox/index.mjs';
-import { latestTable, refreshPriceTable, sellerStatsFrom } from '../src/economics/price-table.mjs';
+import { latestTable, refreshPriceTable, sellerStatsFrom, writeSellerState } from '../src/economics/price-table.mjs';
 import { tempDir } from './tmp.mjs';
 
 function fixture() {
@@ -152,4 +152,21 @@ test('without priceLearning in config the rows equal the market-only table', asy
   const off = await refreshPriceTable(instance, { adapterFor: surfaces, ledger: quoteLedger(logo(market).baseKRW, ['declined', 'declined', 'declined', 'declined', 'declined']), day: '20260201' });
   assert.deepEqual(off.rows, market.map(({ learned, ...r }) => r));
   assert.equal(logo(off.rows).learned, undefined);
+});
+
+
+// 080 re-audit item 1: enabling freelancer without its seller state failed the daily price job for every
+// platform; the state its caller writes from the surface's reviews() lets it price.
+test('an enabled freelancer without its seller state fails the table, and with the state its caller wrote it prices', async () => {
+  const instance = fixture();
+  instance.config.platforms.freelancer = { ...instance.config.platforms.freelancer, enabled: true };
+  writeFileSync(join(instance.dir, 'market', 'summary-20260101.json'), JSON.stringify([
+    { platform: 'kmong', category: '로고 디자인', n: 30, p25: 30000, median: 59000, p75: 85000 },
+    { platform: 'freelancer', category: 'Web Scraping', n: 30, p25: 150000, median: 300000, p75: 600000 },
+  ]));
+  await assert.rejects(refreshPriceTable(instance, { adapterFor: surfaces, day: '20260101' }), { code: 'FSW_SELLER_STATS_MISSING' });
+  assert.equal(writeSellerState(instance.paths.platforms, 'freelancer', { reviews: { count: 0 }, account: { totalJobs: 0 } }).written, true);
+  await refreshPriceTable(instance, { adapterFor: surfaces, day: '20260101' });
+  const rows = latestTable(instance.paths.pricing).table.rows.filter((r) => r.platform === 'freelancer');
+  assert.ok(rows.length > 0, 'freelancer rows are priced');
 });

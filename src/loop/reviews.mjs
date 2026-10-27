@@ -5,6 +5,7 @@ import { dayKey } from '../core/clock.mjs';
 import { notifyOperator } from '../core/notify.mjs';
 import { MONEY_LOOKBACK_DAYS, advance, fresh, jobsOfThread, minuteKey } from '../deal/index.mjs';
 import { loadDescriptor } from '../platforms/registry.mjs';
+import { writeSellerState } from '../economics/price-table.mjs';
 import { hasSurface, openSurface as defaultOpenSurface } from '../surface/index.mjs';
 import { applyEffects } from './effects.mjs';
 
@@ -132,6 +133,8 @@ export async function recordReviews({ instance, ledger, now = new Date(), openSu
         continue;
       }
       const counted = await recordReviewCounts({ ledger, instance, platform, reviews, notify });
+      // A surface that reports its seller state (freelancer) has it written for the price table each pass.
+      if (reviews.state) writeSellerState(instance.paths.platforms, platform, reviews.state, now);
       let signals = 0;
       if (Array.isArray(reviews.rows)) {
         const r = reviewSignals(reviews.rows, { jobs: ledger.listJobs({ platform }), threadOf: (id) => ledger.getThread(id), at: now.toISOString() });

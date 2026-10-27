@@ -8,6 +8,13 @@ import { step } from '../src/loop/index.mjs';
 import { hasSurface, openSurface } from '../src/surface/index.mjs';
 import { FORM_UNMAPPED, openFreelancerSurface } from '../src/surface/freelancer.mjs';
 import { scriptedSurface } from './helpers/surface.mjs';
+import { readRecording, replaySession } from '../src/surface/recorder.mjs';
+import { loadDescriptor } from '../src/platforms/registry.mjs';
+import { outboundItem } from '../src/brain/respond.mjs';
+import { authorize } from '../src/policy/authorize.mjs';
+import { recordReviews } from '../src/loop/reviews.mjs';
+import { writeSellerState } from '../src/economics/price-table.mjs';
+import { probe } from '../scripts/probe.mjs';
 import { tempDir } from './tmp.mjs';
 
 // Synthetic answers of the public projects API, in its shape (status success, result).
@@ -58,11 +65,11 @@ test('freelancer read gives one inbound message from the full description and re
   await assert.rejects(s.read('7', { kind: 'message' }), { code: 'FSW_READ_KIND' });
 });
 
-test('every freelancer write refuses by name before anything reaches the session', async () => {
+test('freelancer send and quote refuse by name before anything reaches the session', async () => {
   const session = fakeSession(null);
   const s = await openFreelancerSurface({ session, fetchJson: fakeApi([]).fetchJson, targets: TARGETS });
   const authorized = { verdict: 'send' };
-  for (const write of ['send', 'quote', 'propose']) await assert.rejects(s[write]('7', { text: 'x', amountKRW: 1000, authorized }), { code: FORM_UNMAPPED });
+  for (const write of ['send', 'quote']) await assert.rejects(s[write]('7', { text: 'x', amountKRW: 1000, authorized }), { code: FORM_UNMAPPED });
   assert.deepEqual(session.calls, []);
 });
 
@@ -143,4 +150,98 @@ test('the step keeps a signed-out publicSense surface sensing in observe mode, w
   assert.deepEqual(open.calls.filter((c) => c.name !== 'read'), []);
   const closed = await run(scriptedSurface({ login: { loggedIn: false }, sense: [row] }));
   assert.deepEqual([closed.r.status, closed.r.inbound, closed.notes.length], ['failed', 0, 1]);
+});
+
+// Order 5: the bid gate of a signed-in session, replayed from a synthetic recording of the gated details
+// page mapped 2026-10-27 (test/fixtures/surfaces/freelancer/bidform.jsonl): the balance banner, two open
+// steps and 6 free bids.
+const GATED = readRecording('test/fixtures/surfaces/freelancer/bidform.jsonl');
+const gate = (edit = (g) => g, bids = 6) => GATED.map((e) => (e.name === 'pageBidGate' ? { ...e, answer: edit(e.answer) } : e.name === 'pageBody' ? { ...e, answer: { json: { ...e.answer.json, result: { ...e.answer.json.result, account_balances: { ...e.answer.json.result.account_balances, bids_remaining: bids } } } } } : e));
+const replayed = async (entries) => {
+  const session = replaySession(entries);
+  return { session, surface: await openFreelancerSurface({ session, fetchJson: fakeApi([project(7)]).fetchJson, targets: TARGETS }) };
+};
+const SEND = { verdict: 'send' };
+
+test('a freelancer bid is refused by name before anything is typed: balance, then steps, then free bids, then the unmapped form', async () => {
+  const cases = [
+    [gate(), 'FSW_FREELANCER_BALANCE', /minimum balance of \$20 USD/],
+    [gate((g) => ({ ...g, unlock: null })), 'FSW_FREELANCER_STEPS', /Update your skills, Verify your email; nothing was typed/],
+    [gate((g) => ({ ...g, unlock: null, steps: g.steps.map((s) => ({ ...s, done: true })) }), 0), 'FSW_FREELANCER_NO_BIDS', /no free bids are left this month \(6 a month\)/],
+    [gate((g) => ({ ...g, unlock: null, steps: [] })), 'FSW_FREELANCER_FORM_UNMAPPED', /not mapped/],
+  ];
+  for (const [entries, code, reason] of cases) {
+    const { session, surface } = await replayed(entries);
+    await assert.rejects(surface.propose('7', { text: 'x', amountKRW: 100000, amount: 80, currency: 'USD', periodDays: 5, authorized: SEND }), (err) => err.code === code && reason.test(err.message));
+    assert.equal(session.remaining(), 0, code + ': the gate was read and nothing else was called');
+  }
+  const { session, surface } = await replayed(gate());
+  assert.equal((await surface.propose('7', { text: 'x', authorized: { verdict: 'refuse' } })).observed, false);
+  assert.equal(session.remaining(), GATED.length, 'an unauthorized bid loads nothing');
+});
+
+test('a freelancer dryRun reads the gate and names its refusal without typing or pressing', async () => {
+  const { session, surface } = await replayed(gate());
+  const r = await surface.dryRun('7');
+  assert.deepEqual([r.dryRun, r.typed, r.refused, r.bidsLeft, r.unlock, r.form, r.quoteCostKRW], [true, false, 'FSW_FREELANCER_BALANCE', 6, true, false, 0]);
+  assert.deepEqual(r.steps.filter((s) => !s.done).map((s) => s.name), ['Update your skills', 'Verify your email']);
+  assert.equal(session.remaining(), 0);
+});
+
+test('a read to reply costs a free bid 0 KRW, which the default bid budget passes, and an unknown count is refused budget.bid', async () => {
+  const instance = makeInstance();
+  // The real descriptor keeps the bid form unmapped, which refuses first; a copy with it mapped isolates the bid budget.
+  const real = loadDescriptor('freelancer');
+  const descriptor = { ...real, forms: { ...real.forms, proposal: { mapped: true, mappedAt: '2026-10-27T00:00:00Z', recording: 'test/fixtures/surfaces/freelancer/bidform.jsonl', readBack: true } } };
+  const verdictOf = async (entries, d = descriptor) => {
+    const { surface } = await replayed(entries);
+    const thread = { ...(await surface.read('7', { kind: 'request', willReply: true })), serviceLabel: 'Web Scraping' };
+    const decision = { intent: 'quote_request', service: 'data_crawling', language: 'en', reply: 'I can build this scraper.', quote: { amountKRW: 300000, priceType: 'fixed', scope: 'one scraper', deliveryDays: 5, complexity: 'standard' }, needsOperator: false, operatorReason: null, confidence: 0.9, claimsUsed: [], statedBudgetKRW: null };
+    const item = outboundItem(thread, decision, decision.reply, { descriptor: d, fx: { date: '2026-10-20', source: 'synthetic', rates: { KRW: 1400, USD: 1 } } });
+    return { thread, item, rules: authorize(item, { descriptor: d, instance, mode: 'auto', now: new Date('2026-10-20T12:00:00+09:00'), usage: { quotes: 0, cashKRW: 0, bidMonthKRW: 0, bidUnanswered: 0 } }).reasons.map((x) => x.rule) };
+  };
+  const free = await verdictOf(gate());
+  assert.deepEqual([free.thread.quoteCostKRW, free.thread.currency, free.thread.bid.refused, free.item.kind, free.item.costKRW], [0, 'USD', 'FSW_FREELANCER_BALANCE', 'proposal', 0]);
+  assert.equal(free.rules.includes('budget.bid'), false, free.rules.join(','));
+  const none = await verdictOf(gate((g) => g, null));
+  assert.equal(none.thread.quoteCostKRW, null);
+  assert.equal(none.rules.includes('budget.bid'), true, none.rules.join(','));
+  assert.deepEqual((await verdictOf(gate(), real)).rules, ['form.unmapped']);
+  const observed = await (await openFreelancerSurface({ session: fakeSession(null), fetchJson: fakeApi([project(7)]).fetchJson, targets: TARGETS })).read('7', { kind: 'request' });
+  assert.deepEqual([observed.quoteCostKRW, observed.bid], [null, null], 'an observe read loads nothing in the session');
+});
+
+test('freelancer reviews come from the self API reputation, and the hourly pass writes the seller state the price table reads', async () => {
+  const rep = { json: { status: 'success', result: { id: 1, reputation: { entire_history: { reviews: 0, overall: 0, complete: 0 } } } } };
+  const surface = await openFreelancerSurface({ session: fakeSession(rep), targets: TARGETS });
+  const reviews = await surface.reviews();
+  assert.deepEqual([reviews.counts, reviews.state], [{ reviews: 0, rating: 0 }, { reviews: { count: 0 }, account: { totalJobs: 0 } }]);
+  const instance = makeInstance();
+  const ledger = openLedger(':memory:');
+  const out = await recordReviews({ instance, ledger, now: new Date('2026-10-28T01:00:00Z'), openSurface: async () => surface, notify: async () => ({ written: false }) });
+  assert.deepEqual(out.filter((e) => e.platform === 'freelancer').map((e) => e.status), ['ok']);
+  const file = join(instance.paths.platforms, 'freelancer-state.json');
+  const first = readFileSync(file, 'utf8');
+  assert.deepEqual(JSON.parse(first).reviews, { count: 0 });
+  assert.equal(writeSellerState(instance.paths.platforms, 'freelancer', reviews.state, new Date('2026-10-29T00:00:00Z')).written, false);
+  assert.equal(readFileSync(file, 'utf8'), first, 'an unchanged state is not rewritten');
+});
+
+test('the probe bidform op prints the refusal code of the gated page and the reviews op writes the seller state', async () => {
+  const dir = makeInstance().dir;
+  const prev = process.env.FSW_INSTANCE;
+  process.env.FSW_INSTANCE = dir;
+  try {
+    const lines = [];
+    const { surface } = await replayed(gate());
+    assert.equal(await probe(['freelancer', 'bidform', '7', '--now'], { open: async () => surface, log: (l) => lines.push(l) }), 0);
+    assert.equal(JSON.parse(lines.at(-1)).refused, 'FSW_FREELANCER_BALANCE');
+    assert.equal(await probe(['kmong', 'bidform', '7', '--now'], { open: async () => surface, log: () => {} }), 2);
+    const rep = await openFreelancerSurface({ session: fakeSession({ json: { status: 'success', result: { id: 1, reputation: { entire_history: { reviews: 2, overall: 4.5, complete: 3 } } } } }), targets: TARGETS });
+    assert.equal(await probe(['freelancer', 'reviews', '--now'], { open: async () => Object.assign(rep, { session: { loads: 1 } }), log: () => {} }), 0);
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, 'platforms', 'freelancer-state.json'), 'utf8')).reviews, { count: 2 });
+  } finally {
+    if (prev === undefined) delete process.env.FSW_INSTANCE;
+    else process.env.FSW_INSTANCE = prev;
+  }
 });

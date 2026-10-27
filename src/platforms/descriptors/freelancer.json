@@ -19,7 +19,7 @@
   },
   "bidCost": {
     "unit": "bids",
-    "notes": "Free with a monthly limit: Free 6, Basic 50, Plus 100, Professional 300, Premier 1500 (official FAQ). Placing any bid needs an available account balance of at least 20 USD (official fees page)."
+    "notes": "Free with a monthly limit: Free 6, Basic 50, Plus 100, Professional 300, Premier 1500 (official FAQ). Placing any bid needs an available account balance of at least 20 USD (official fees page). Observed 2026-10-27 on the free plan: the self API counts 6 bids left of 6 (account_balances.bids_remaining), and every project page withholds the bid form behind a banner asking for the 20 USD balance (Add Funds) and three steps (Update your skills, Verify your email, Update your profile)."
   },
   "escrow": true,
   "milestones": "native",
@@ -30,7 +30,7 @@
     "allowedHosts": [
       "freelancer.com"
     ],
-    "notes": "unknown; kept closed until a source is read"
+    "notes": "Members communicate only through the website's own features (Code of Conduct), and posting contact information or links to contact information in a project description, a bid or on the message boards is the most common reason Freelancer gives for project removal and account suspension (FAQ, Why is my account suspended?, read 2026-10-28). No contact class is released before or after an order."
   },
   "offPlatformPayment": false,
   "automation": {
@@ -99,6 +99,8 @@
   "sources": [
     "https://www.freelancer.com/feesandcharges",
     "https://www.freelancer.com/faq/question.php?code=bid-limit",
-    "https://www.hireinsouth.com/post/freelancer-pricing"
+    "https://www.hireinsouth.com/post/freelancer-pricing",
+    "https://www.freelancer.com/faq/view.php",
+    "https://www.freelancer.com/info/codeofconduct"
   ]
 }

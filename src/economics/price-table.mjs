@@ -30,6 +30,21 @@ export function sellerStatsFrom(state, platform) {
   throw new EconomicsError('FSW_SELLER_STATS_MISSING', 'no review count in the ' + platform + ' state', { platform });
 }
 
+// The caller of a surface whose reviews() returns state (the shape sellerStatsFrom reads) writes it here:
+// <platforms>/<id>-state.json, merged over what the file holds and rewritten only when a value changed, so
+// the file follows the account instead of freezing on the day it was first written.
+export function writeSellerState(dir, platform, state, now = new Date()) {
+  sellerStatsFrom(state, platform);
+  const file = join(ensureDir(dir), platform + '-state.json');
+  const prev = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {};
+  const { capturedAt: _, ...before } = prev;
+  const next = { ...before, reviews: { ...before.reviews, ...state.reviews }, account: { ...before.account, ...state.account } };
+  if (JSON.stringify(next) === JSON.stringify(before)) return { file, written: false };
+  writeFileSync(file + '.tmp', JSON.stringify({ capturedAt: now.toISOString(), ...next }, null, 1) + '\n');
+  renameSync(file + '.tmp', file);
+  return { file, written: true };
+}
+
 // Reviews the ledger ties to each service on a platform: every review row joined to its job's service. A review
 // with no job names no service; without a ledger nothing is tied.
 export function serviceReviews(ledger, platform) {

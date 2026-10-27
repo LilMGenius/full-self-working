@@ -3,13 +3,15 @@
 // lessons of its platform. A rule written before appliesTo existed fires everywhere.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
-import { loadDescriptor } from '../src/platforms/registry.mjs';
+import { listDescriptors, loadDescriptor } from '../src/platforms/registry.mjs';
 import { authorize } from '../src/policy/authorize.mjs';
 import { checkListing } from '../src/listings/kmong.mjs';
 import { compileGateRules } from '../src/learning/playbook.mjs';
+import { readLessons, writeLessons } from '../src/learning/lessons.mjs';
+import { recordOutcome } from '../src/learning/outcomes.mjs';
 import { loadLessons } from '../src/brain/prompts.mjs';
 import { tempDir } from './tmp.mjs';
 
@@ -81,4 +83,40 @@ test('every compiled rule carries its lesson scope and evidence, and still match
   assert.deepEqual(rules.map((r) => [r.id, r.appliesTo, r.evidence]), [['chat_link_lure', ['soomgo'], ['c1']], ['price_guarantee', ['all'], ['c2']]]);
   const byId = new Map(cases.map((c) => [c.id, c]));
   for (const r of rules) assert.ok(r.evidence.some((id) => new RegExp(r.pattern, r.flags).test(byId.get(id).before ?? byId.get(id).text)), r.id);
+});
+
+// A model writes appliesTo as free text: a mistyped, Korean, padded or empty scope must never switch a lesson
+// off on every platform.
+const lesson = (cls, appliesTo) => ({ class: cls, rule: 'Do not promise same-day work.', evidence: ['c1'], gate: 'regex', pattern: '당일\\s*완성', appliesTo });
+const CASE = [{ id: 'c1', kind: 'approval_rejected', text: TEXT }];
+
+test('a mistyped or Korean scope names its platform, and an unknown or empty one applies everywhere', () => {
+  const { rules, scopeDropped } = compileGateRules([lesson('a', ['Kmong']), lesson('b', ['kmong ']), lesson('c', ['크몽']), lesson('d', ['Kmongg']), lesson('e', []), lesson('f', ['위시켓', 'nowhere'])], CASE);
+  assert.deepEqual(rules.map((r) => [r.id, r.appliesTo]), [['a', ['kmong']], ['b', ['kmong']], ['c', ['kmong']], ['d', ['all']], ['e', ['all']], ['f', ['wishket']]]);
+  assert.deepEqual(scopeDropped, [{ class: 'd', values: ['Kmongg'] }, { class: 'f', values: ['nowhere'] }]);
+  for (const id of ['a', 'b', 'c']) assert.deepEqual(learned(verdict('kmong', rules.filter((r) => r.id === id))), ['learned.' + id]);
+  for (const id of ['d', 'e']) for (const p of ['kmong', 'soomgo', 'wishket']) assert.deepEqual(learned(verdict(p, rules.filter((r) => r.id === id))), ['learned.' + id], id + ' on ' + p);
+});
+
+test('an empty scope already on disk applies everywhere, in the gate and in the prompt', () => {
+  assert.deepEqual(learned(verdict('soomgo', [rule({ appliesTo: [] })])), ['learned.no_rush']);
+  const instance = makeInstance([{ class: 'empty', rule: 'r', appliesTo: [], updatedAt: '2026-10-20T00:00:00.000Z' }]);
+  assert.deepEqual(loadLessons(instance, { platform: 'kmong' }).map((l) => l.class), ['empty']);
+});
+
+test('writeLessons stores a scope the prompts can match, records what it dropped, and its schema allows only known ids', async () => {
+  const instance = makeInstance();
+  const c = recordOutcome(instance, null, { kind: 'lead_lost', platform: 'soomgo', text: '다른 분과 진행하기로 했어요' });
+  const answer = { lessons: [
+    { class: 'slow_reply', rule: 'Answer within the hour.', evidence: [c.id], gate: 'judgment', pattern: null, appliesTo: ['Soomgo'] },
+    { class: 'odd_scope', rule: 'Ask for the deadline.', evidence: [c.id], gate: 'judgment', pattern: null, appliesTo: ['huh'] },
+  ] };
+  let schema;
+  await writeLessons(instance, { runCodex: async (o) => ((schema = o.schema), { data: answer }) });
+  assert.deepEqual(readLessons(instance).map((l) => [l.class, l.appliesTo]), [['slow_reply', ['soomgo']], ['odd_scope', ['all']]]);
+  assert.deepEqual(loadLessons(instance, { platform: 'soomgo' }).map((l) => l.class).sort(), ['odd_scope', 'slow_reply']);
+  const logs = readdirSync(instance.paths.logs).flatMap((f) => readFileSync(join(instance.paths.logs, f), 'utf8').trim().split('\n')).map((l) => JSON.parse(l)).filter((e) => e.kind === 'learning.scope_dropped');
+  assert.deepEqual(logs.map((e) => e.dropped), [[{ class: 'odd_scope', values: ['huh'] }]]);
+  const allowed = schema.properties.lessons.items.properties.appliesTo.items.enum;
+  assert.deepEqual([...allowed].sort(), [...listDescriptors(), 'all'].sort());
 });

@@ -12,6 +12,7 @@ import { floorFindings } from '../policy/slop.mjs';
 import { runCodex as defaultRunCodex } from '../brain/codex.mjs';
 import { readCases } from './outcomes.mjs';
 import { readLessons, writeAtomic } from './lessons.mjs';
+import { normalizeAppliesTo } from './scope.mjs';
 
 export const MAX_PATTERN_LENGTH = 200;
 const ALLOWED_FLAGS = /^[imsu]*$/;
@@ -54,6 +55,7 @@ export function compileGateRules(lessons, cases) {
   const byId = new Map(cases.map((c) => [c.id, c]));
   const rules = [];
   const rejected = [];
+  const scopeDropped = [];
   for (const l of lessons) {
     if (l.gate !== 'regex') continue;
     const evidence = (l.evidence ?? []).map((id) => byId.get(id)).filter(Boolean);
@@ -62,11 +64,13 @@ export function compileGateRules(lessons, cases) {
       rejected.push({ class: l.class, pattern: l.pattern, reason: v.reason });
       continue;
     }
-    // appliesTo keeps the rule on the platforms its lesson was learned on (src/policy/gate.mjs); evidence names
-    // the cases it was checked against.
-    rules.push({ id: ruleId(l.class), pattern: l.pattern, flags: 'iu', reason: l.rule, tier: 'floor', appliesTo: l.appliesTo?.length ? l.appliesTo : ['all'], evidence: l.evidence ?? [] });
+    // appliesTo keeps the rule on the platforms its lesson was learned on (src/policy/gate.mjs), normalized so a
+    // mistyped scope never switches it off everywhere; evidence names the cases it was checked against.
+    const scope = normalizeAppliesTo(l.appliesTo);
+    if (scope.dropped.length) scopeDropped.push({ class: l.class, values: scope.dropped });
+    rules.push({ id: ruleId(l.class), pattern: l.pattern, flags: 'iu', reason: l.rule, tier: 'floor', appliesTo: scope.appliesTo, evidence: l.evidence ?? [] });
   }
-  return { rules, rejected };
+  return { rules, rejected, scopeDropped };
 }
 
 export const PLAYBOOK_SCHEMA = {
@@ -100,7 +104,8 @@ const readIf = (p) => (existsSync(p) ? readFileSync(p, 'utf8') : '');
 export async function refreshPlaybook(instance, { runCodex = defaultRunCodex, model, effort, timeoutMs } = {}) {
   const dir = ensureDir(instance.paths.lessons);
   const lessons = readLessons(instance);
-  const { rules, rejected } = compileGateRules(lessons, readCases(instance));
+  const { rules, rejected, scopeDropped } = compileGateRules(lessons, readCases(instance));
+  if (scopeDropped.length) logEvent(instance, 'learning.scope_dropped', { dropped: scopeDropped });
   const gatedClasses = new Set(rules.map((r) => r.id));
   // A regex lesson whose pattern was refused stays a prose rule, so the lesson is not lost.
   const prose = lessons.filter((l) => !(l.gate === 'regex' && gatedClasses.has(ruleId(l.class))));

@@ -1,12 +1,18 @@
 // Listing images for 크몽 gigs, rendered from HTML with the owned headless Chrome (src/render/html2png.mjs).
-// One visual series for every gig so the storefront reads as one studio: warm paper, espresso ink, one
-// burnt-orange accent, Pretendard inlined from assets/fonts (no network font), and real screenshots
-// of the operator's own public work as the only imagery. All words come from the gated listing copy and
-// the fixed labels below; no URL, domain, contact detail, badge or invented number is drawn.
+// One series for every gig, on the design tokens site/DESIGN.md records (src/render/tokens.mjs): an ink
+// main card that carries one oversized Korean claim and a real screen of shipped work, and detail images in
+// alternating paper and ink sections. Pretendard is inlined (src/render/fonts.mjs) and every render proves
+// it drew the text. All words come from the gated listing copy and the fixed labels below; no URL, domain,
+// contact detail, badge or invented number is drawn.
 import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { repoRoot } from '../core/instance.mjs';
+import { platformFontProblems, pretendardFontFace } from '../render/fonts.mjs';
 import { openRenderer } from '../render/html2png.mjs';
+import { tokensCss } from '../render/tokens.mjs';
+
+// The design the images are rendered with. A spec rendered with an older version is re-rendered by the
+// daily refresh (src/listings/watch.mjs); version 1 is the warm paper series of 2c77326.
+export const IMAGES_VERSION = 2;
 
 export const MAIN_SIZE = { width: 652, height: 488 };
 export const DETAIL_WIDTH = 860;
@@ -33,123 +39,157 @@ export const LABELS = {
   mixedNote: '작업 예시 표시가 있는 이미지는 예시 의뢰로 만든 샘플입니다.',
 };
 
-const FONT = join(repoRoot, 'assets', 'fonts', 'PretendardVariable.woff2');
-let fontCss = null;
-function fontFace() {
-  fontCss ??= '@font-face{font-family:"Pretendard";font-weight:100 900;font-display:block;src:url(data:font/woff2;base64,' + readFileSync(FONT).toString('base64') + ') format("woff2");}';
-  return fontCss;
-}
-
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const won = (n) => Number(n).toLocaleString('ko-KR') + '원';
 const two = (i) => String(i + 1).padStart(2, '0');
 const dataUrl = (file) => 'data:image/' + (file.endsWith('.png') ? 'png' : 'jpeg') + ';base64,' + readFileSync(file).toString('base64');
 
-const BASE_CSS = ':root{--paper:#F4F1EB;--paper-2:#ECE7DE;--ink:#1B1915;--ink-2:#2A2722;--muted:#6B665D;--line:rgba(27,25,21,.12);--accent:#D4572A;--on-ink:#F4F1EB;--on-ink-muted:#A9A397}' +
-  '*{box-sizing:border-box;margin:0;padding:0}' +
-  'html,body{background:var(--paper)}' +
-  'body{font-family:"Pretendard",sans-serif;color:var(--ink);word-break:keep-all;overflow-wrap:break-word;-webkit-font-smoothing:antialiased;font-feature-settings:"tnum" 1}' +
-  // Paper grain: a fixed SVG turbulence at very low opacity, drawn locally.
-  '.grain{position:absolute;inset:0;pointer-events:none;opacity:.05;background-image:url("data:image/svg+xml;utf8,<svg xmlns=%27http://www.w3.org/2000/svg%27 width=%27160%27 height=%27160%27><filter id=%27n%27><feTurbulence type=%27fractalNoise%27 baseFrequency=%27.9%27 numOctaves=%272%27 stitchTiles=%27stitch%27/></filter><rect width=%27100%25%27 height=%27100%25%27 filter=%27url(%23n)%27/></svg>")}' +
-  '.mark{display:flex;align-items:center;gap:10px;font-weight:650;letter-spacing:-.01em}' +
-  '.mark i{display:block;width:10px;height:10px;background:var(--accent);border-radius:2px}' +
-  '.badge{font-weight:550;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:5px 12px;white-space:nowrap}' +
-  '.shot{border-radius:12px;overflow:hidden;background:#111;box-shadow:0 1px 0 rgba(255,255,255,.06) inset,0 24px 60px -24px rgba(27,25,21,.45),0 2px 6px rgba(27,25,21,.12)}' +
-  '.shot img{display:block;width:100%;height:100%;object-fit:cover;object-position:top center}';
+const BASE_CSS = '*{box-sizing:border-box;margin:0;padding:0}' +
+  'html,body{background:var(--color-paper)}' +
+  'body{font-family:var(--font-family);font-weight:var(--font-body);color:var(--color-text);word-break:keep-all;overflow-wrap:break-word;-webkit-font-smoothing:antialiased;font-feature-settings:"tnum" 1}' +
+  '.frame{overflow:hidden;background:var(--color-ink-raised);border:1px solid var(--color-line-on-ink)}' +
+  '.frame img{display:block;width:100%;height:100%;object-fit:cover;object-position:top left}' +
+  '.frame.whole img{object-fit:contain}' +
+  '.tag{display:inline-block;font-size:var(--type-1);font-weight:var(--font-strong);line-height:1;color:var(--color-on-accent);background:var(--color-accent);border-radius:var(--radius-sm);padding:6px 9px}';
 
-const page = (body, css, { width, height }) => '<!doctype html><html lang="ko"><head><meta charset="utf-8"><style>' + fontFace() + BASE_CSS + css + '</style></head><body style="width:' + width + 'px' + (height ? ';height:' + height + 'px;overflow:hidden' : '') + '">' + body + '</body></html>';
+// Sets each [data-fit] block to the largest size up to data-max at which it fits its box, wide and (when the
+// box has a height) tall, once the inlined face has loaded, so a short claim is set huge and a long one
+// still fits on its lines.
+const FIT = '<script>document.fonts.ready.then(() => { for (const el of document.querySelectorAll("[data-fit]")) {' +
+  ' const box = el.parentElement; let size = Number(el.dataset.max); el.style.fontSize = size + "px";' +
+  ' const over = () => el.scrollWidth > box.clientWidth || (box.clientHeight > 0 && el.offsetHeight > box.clientHeight);' +
+  ' while (over() && size > 28) { size -= 2; el.style.fontSize = size + "px"; } } });</script>';
+
+// fontFace is the inlined @font-face rule; an empty one (a face that failed to inline) makes every text node
+// fall back, which the font proof in renderListingImages reports.
+const page = (body, css, { width, height }, fontFace = pretendardFontFace()) => '<!doctype html><html lang="ko"><head><meta charset="utf-8"><style>' + fontFace + tokensCss() + BASE_CSS + css + '</style></head><body style="width:' + width + 'px' + (height ? ';height:' + height + 'px;overflow:hidden' : '') + '">' + body + FIT + '</body></html>';
 
 // ---- main card 652x488 ----
 
-export function mainHtml({ listing, studio, cardShots = [] }) {
+const MAIN_CSS = '.card{position:relative;width:652px;height:488px;overflow:hidden;background:var(--color-ink);color:var(--color-on-ink)}' +
+  '.claim{position:absolute;left:40px;right:40px;top:36px;height:200px}' +
+  'h1{display:inline-block;white-space:nowrap;font-weight:var(--font-display);line-height:1.04;letter-spacing:-.045em;font-size:var(--type-10)}' +
+  // The second line of the claim carries the one accent, so the claim reads in two beats at grid size.
+  'h1 em{font-style:normal;color:var(--color-accent-on-ink)}' +
+  '.foot{position:absolute;left:40px;bottom:36px;width:180px}' +
+  '.rule{width:56px;height:6px;background:var(--color-accent-on-ink)}' +
+  '.sub{margin-top:16px;font-size:var(--type-4);line-height:1.4;font-weight:var(--font-strong);color:var(--color-on-ink);letter-spacing:-.01em}' +
+  // The proof sits on a paper stage that bleeds off the card's right and bottom edges, so a dark screen
+  // still stands apart from the ink field and the card reads in two tones at grid size.
+  '.stage{position:absolute;left:244px;top:256px;right:0;bottom:0;background:var(--color-paper);border-radius:var(--radius-lg) 0 0 0;overflow:hidden}' +
+  // One real screen, cropped by the stage's right and bottom edges, never tilted.
+  '.screen{position:absolute;left:22px;top:22px;width:460px;height:288px;border-radius:var(--radius-md);border-color:var(--color-line)}' +
+  '.screen.with-phone{left:100px}' +
+  '.screen.phone{left:20px;top:40px;width:112px;height:184px;border:3px solid var(--color-ink);z-index:1}' +
+  // A sample is shown whole, since cropping it would hide what was made.
+  '.sample{position:absolute;left:20px;top:20px;border-radius:var(--radius-md);border-color:var(--color-line)}' +
+  '.sample .tag{position:absolute;left:8px;top:8px}' +
+  // Without a screen, the deliverables take its place as a file list.
+  '.files{padding:26px 30px;color:var(--color-text)}' +
+  '.files h2{font-size:var(--type-2);font-weight:var(--font-strong);color:var(--color-muted)}' +
+  '.files div{display:flex;gap:14px;align-items:baseline;margin-top:12px;font-size:var(--type-4);font-weight:var(--font-strong);letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+  '.files b{font-size:var(--type-2);color:var(--color-accent)}';
+
+// The box a whole sample may take on the stage, and its size at the sample's aspect ratio.
+const SAMPLE_BOX = { width: 368, height: 192 };
+const fitBox = ({ width, height }) => {
+  const k = Math.min(SAMPLE_BOX.width / width, SAMPLE_BOX.height / height);
+  return { width: Math.round(width * k), height: Math.round(height * k) };
+};
+
+export function mainHtml({ listing, cardShots = [], fontFace }) {
   const c = listing.imageCopy.card;
-  const panel = cardShots.length
-    ? cardShots[0].sample
-      // A work sample is shown whole, inside the card, since cropping it would hide what was made.
-      ? '<div class="sample-shot shot" style="aspect-ratio:' + cardShots[0].width + '/' + cardShots[0].height + '"><img src="' + cardShots[0].src + '" alt=""></div>'
-      : '<div class="stage">' + cardShots.slice(0, 2).map((s, i) => '<div class="shot ' + (s.width < 600 ? 'phone' : 'desk') + ' s' + i + '"><img src="' + s.src + '" alt=""></div>').join('') + '</div>'
-    : '<div class="spec"><div class="spec-h">' + esc(LABELS.included) + '</div>' + listing.imageCopy.included.slice(0, 3).map((t, i) => '<div class="spec-r"><span>' + two(i) + '</span>' + esc(t) + '</div>').join('') + '</div>';
-  const css = '.card{position:relative;width:652px;height:488px;overflow:hidden;background:var(--paper);padding:34px 40px}' +
-    '.top{display:flex;justify-content:space-between;align-items:center;font-size:15px}.top .badge{font-size:13px}' +
-    'h1{margin-top:44px;font-size:60px;line-height:1.16;font-weight:720;letter-spacing:-.035em}' +
-    '.sub{margin-top:16px;font-size:20px;line-height:1.4;color:var(--muted);font-weight:500;letter-spacing:-.01em}' +
-    '.tags{position:absolute;left:40px;bottom:34px;display:flex;flex-direction:column;gap:9px}' +
-    '.tags div{display:flex;align-items:center;gap:10px;font-size:17px;font-weight:600;letter-spacing:-.01em}.tags div:before{content:"";width:6px;height:6px;background:var(--accent);border-radius:1px}' +
-    '.stage{position:absolute;right:-30px;bottom:-26px;width:330px;height:196px}' +
-    '.stage .desk{position:absolute;right:0;bottom:0;width:330px;height:206px}' +
-    '.stage .phone{position:absolute;left:-40px;bottom:-14px;width:112px;aspect-ratio:390/600;border-radius:14px;border:3px solid var(--ink)}' +
-    '.sample-shot{position:absolute;right:40px;bottom:34px;width:300px;max-height:250px;border-radius:12px}.sample-shot img{object-fit:contain;background:#fff}' +
-    '.spec{position:absolute;right:-12px;bottom:-12px;width:318px;padding:18px 24px 26px;background:var(--ink);color:var(--on-ink);border-radius:14px 0 0 0}' +
-    '.spec-h{font-size:12px;color:var(--on-ink-muted);font-weight:600;margin-bottom:8px;letter-spacing:.02em}' +
-    '.spec-r{display:flex;gap:12px;font-size:15px;line-height:1.35;font-weight:560;padding:6px 0;border-top:1px solid rgba(244,241,235,.12)}.spec-r span{color:var(--accent);font-weight:700}';
-  const body = '<div class="card"><div class="grain"></div><div class="top"><div class="mark"><i></i>' + esc(studio) + '</div><div class="badge">' + esc(LABELS.aiBadge) + '</div></div>' +
-    '<h1>' + c.headline.map(esc).join('<br>') + '</h1><p class="sub">' + esc(c.subline) + '</p>' +
-    '<div class="tags">' + c.tags.map((t) => '<div>' + esc(t) + '</div>').join('') + '</div>' + panel + '</div>';
-  return page(body, css, MAIN_SIZE);
+  const [first, second] = cardShots;
+  let visual;
+  if (first?.sample) {
+    const box = fitBox(first);
+    visual = '<div class="stage"><div class="sample frame whole" style="width:' + box.width + 'px;height:' + box.height + 'px"><img src="' + first.src + '" alt=""><span class="tag">' + esc(LABELS.sample) + '</span></div></div>';
+  } else if (first) {
+    const phone = [first, second].find((s) => s && s.width < 600);
+    const desk = [first, second].find((s) => s && s.width >= 600);
+    visual = '<div class="stage">' + (desk ? '<div class="screen frame' + (phone ? ' with-phone' : '') + '"><img src="' + desk.src + '" alt=""></div>' : '') +
+      (phone ? '<div class="screen phone frame"><img src="' + phone.src + '" alt=""></div>' : '') + '</div>';
+  } else {
+    visual = '<div class="stage files"><h2>' + esc(LABELS.included) + '</h2>' + listing.imageCopy.included.slice(0, 3).map((t, i) => '<div><b>' + two(i) + '</b>' + esc(t) + '</div>').join('') + '</div>';
+  }
+  const claim = c.headline.map((line, i) => (i === c.headline.length - 1 && i > 0 ? '<em>' + esc(line) + '</em>' : esc(line))).join('<br>');
+  const body = '<div class="card"><div class="claim"><h1 data-fit data-max="112">' + claim + '</h1></div>' +
+    '<div class="foot"><div class="rule"></div><p class="sub">' + esc(c.subline) + '</p></div>' + visual + '</div>';
+  return page(body, MAIN_CSS, MAIN_SIZE, fontFace);
 }
 
 // ---- detail images, 860 css px wide at 2x ----
 
-const DETAIL_CSS = '.d{position:relative;width:' + DETAIL_WIDTH + 'px;padding:72px 64px 80px;background:var(--paper);overflow:hidden}' +
-  '.d.ink{background:var(--ink);color:var(--on-ink)}' +
-  '.head{display:flex;justify-content:space-between;align-items:center;font-size:16px}.head .badge{font-size:14px}.ink .badge{color:var(--on-ink-muted);border-color:rgba(244,241,235,.18)}' +
-  '.eyebrow{margin-top:64px;font-size:16px;font-weight:650;color:var(--accent);letter-spacing:.02em}' +
-  'h2{margin-top:14px;font-size:46px;line-height:1.24;font-weight:700;letter-spacing:-.03em}' +
-  '.lead{margin-top:22px;font-size:20px;line-height:1.7;color:var(--muted);font-weight:450}.ink .lead{color:var(--on-ink-muted)}' +
-  '.rows{margin-top:36px;border-top:1px solid var(--line)}.ink .rows{border-color:rgba(244,241,235,.14)}' +
-  '.row{display:grid;grid-template-columns:64px 1fr;gap:8px;padding:22px 0;border-bottom:1px solid var(--line);font-size:21px;line-height:1.5;font-weight:560;letter-spacing:-.01em}.ink .row{border-color:rgba(244,241,235,.14)}' +
-  '.row b{font-weight:700;color:var(--accent);font-size:17px;padding-top:3px}' +
-  '.step{display:grid;grid-template-columns:64px 1fr;gap:8px;padding:24px 0;border-bottom:1px solid var(--line)}' +
-  '.step b{font-size:17px;color:var(--accent);font-weight:700;padding-top:4px}.step h3{font-size:22px;font-weight:680;letter-spacing:-.015em}.step p{margin-top:6px;font-size:18px;line-height:1.6;color:var(--muted)}' +
-  '.note{margin-top:44px;padding:30px 32px;background:var(--ink);color:var(--on-ink);border-radius:16px}.note h4{font-size:15px;color:var(--accent);font-weight:700;letter-spacing:.02em}.note p{margin-top:10px;font-size:19px;line-height:1.65;font-weight:500}' +
-  '.figure{margin-top:44px}.figure .shot{width:100%}.cap{margin-top:14px;display:flex;gap:10px;font-size:16px;color:var(--muted);line-height:1.5}.cap:before{content:"";flex:none;margin-top:8px;width:6px;height:6px;background:var(--accent);border-radius:1px}' +
-  '.tag{flex:none;font-size:13px;font-weight:650;color:var(--accent);border:1px solid var(--accent);border-radius:999px;padding:1px 9px;margin-right:2px;line-height:1.5}' +
-  '.pair{display:grid;grid-template-columns:1fr 240px;gap:32px;align-items:center}' +
-  '.tiers{margin-top:40px;display:grid;grid-template-columns:repeat(3,1fr);gap:14px}' +
-  '.tier{border:1px solid var(--line);border-radius:16px;padding:26px 22px 24px;background:rgba(255,255,255,.35);display:flex;flex-direction:column}' +
-  '.tier.mid{background:var(--ink);color:var(--on-ink);border-color:var(--ink)}' +
-  '.tier .t{font-size:13px;font-weight:700;letter-spacing:.08em;color:var(--accent)}.tier h3{margin-top:12px;font-size:21px;line-height:1.35;font-weight:680;letter-spacing:-.015em;min-height:56px}' +
-  '.tier p{margin-top:10px;font-size:16px;line-height:1.6;color:var(--muted);min-height:102px}.tier.mid p{color:var(--on-ink-muted)}' +
-  '.tier .price{margin-top:18px;font-size:27px;font-weight:720;letter-spacing:-.02em}' +
-  '.tier dl{margin-top:16px;border-top:1px solid var(--line);padding-top:12px;display:grid;grid-template-columns:1fr auto;row-gap:6px;font-size:15px}.tier.mid dl{border-color:rgba(244,241,235,.16)}.tier dt{color:var(--muted)}.tier.mid dt{color:var(--on-ink-muted)}.tier dd{font-weight:650}' +
-  '.small{margin-top:22px;font-size:15px;color:var(--muted)}';
+const DETAIL_CSS = '.d{position:relative;width:' + DETAIL_WIDTH + 'px;padding:64px 64px 80px;background:var(--color-paper);overflow:hidden}' +
+  '.d.ink{background:var(--color-ink);color:var(--color-on-ink)}' +
+  '.head{display:flex;justify-content:space-between;align-items:center;font-size:var(--type-2);font-weight:var(--font-strong)}' +
+  '.mark{display:flex;align-items:center;gap:10px}.mark i{display:block;width:10px;height:10px;background:var(--color-accent)}.ink .mark i{background:var(--color-accent-on-ink)}' +
+  '.badge{font-size:var(--type-1);color:var(--color-muted);border:1px solid var(--color-line);border-radius:var(--radius-pill);padding:5px 12px;white-space:nowrap}' +
+  '.ink .badge{color:var(--color-on-ink-muted);border-color:var(--color-line-on-ink)}' +
+  '.h{margin-top:56px;width:100%}' +
+  'h2{display:inline-block;white-space:nowrap;font-weight:var(--font-display);line-height:1.12;letter-spacing:-.04em;font-size:var(--type-8)}' +
+  'h3.sec{margin-top:64px;font-size:var(--type-7);font-weight:var(--font-display);line-height:1.2;letter-spacing:-.035em}' +
+  '.rule{margin-top:24px;width:56px;height:6px;background:var(--color-accent)}.ink .rule{background:var(--color-accent-on-ink)}' +
+  '.lead{margin-top:24px;font-size:var(--type-4);line-height:1.7;color:var(--color-muted)}.ink .lead{color:var(--color-on-ink-muted)}' +
+  '.rows{margin-top:28px;border-top:1px solid var(--color-line)}.ink .rows{border-color:var(--color-line-on-ink)}' +
+  '.row{display:grid;grid-template-columns:56px 1fr;gap:8px;padding:20px 0;border-bottom:1px solid var(--color-line);font-size:21px;line-height:1.5;font-weight:var(--font-strong);letter-spacing:-.01em}' +
+  '.ink .row{border-color:var(--color-line-on-ink)}' +
+  '.row b,.step b{font-size:var(--type-3);font-weight:var(--font-display);color:var(--color-accent);padding-top:3px}.ink .row b,.ink .step b{color:var(--color-accent-on-ink)}' +
+  '.step{display:grid;grid-template-columns:56px 1fr;gap:8px;padding:22px 0;border-bottom:1px solid var(--color-line-on-ink)}' +
+  '.step h4{font-size:22px;font-weight:var(--font-strong);letter-spacing:-.015em}.step p{margin-top:6px;font-size:18px;line-height:1.6;color:var(--color-on-ink-muted)}' +
+  '.note{margin-top:40px;padding:28px 32px;background:var(--color-ink-raised);border:1px solid var(--color-line-on-ink);border-radius:var(--radius-lg)}' +
+  '.note h4{font-size:var(--type-3);font-weight:var(--font-display);color:var(--color-accent-on-ink)}.note p{margin-top:10px;font-size:19px;line-height:1.65}' +
+  '.figure{margin-top:40px}.figure .frame{width:100%;border-radius:var(--radius-lg)}.d:not(.ink) .figure .frame{border-color:var(--color-line)}' +
+  '.cap{margin-top:14px;display:flex;align-items:center;gap:10px;font-size:var(--type-3);line-height:1.5;color:var(--color-muted)}.ink .cap{color:var(--color-on-ink-muted)}' +
+  '.pair{display:grid;grid-template-columns:1fr 220px;gap:32px;align-items:center}.pair .frame{border-radius:22px;border:4px solid var(--color-ink-raised)}' +
+  '.tiers{margin-top:36px;display:grid;grid-template-columns:repeat(3,1fr);gap:14px}' +
+  '.tier{border:1px solid var(--color-line);border-radius:var(--radius-lg);padding:26px 22px 24px;background:var(--color-sheet);display:flex;flex-direction:column}' +
+  '.tier.mid{background:var(--color-ink);color:var(--color-on-ink);border-color:var(--color-ink)}' +
+  '.tier .t{font-size:var(--type-1);font-weight:var(--font-display);letter-spacing:.08em;color:var(--color-accent)}.tier.mid .t{color:var(--color-accent-on-ink)}' +
+  '.tier h4{margin-top:12px;font-size:21px;line-height:1.35;font-weight:var(--font-strong);letter-spacing:-.015em;min-height:56px}' +
+  '.tier p{margin-top:10px;font-size:16px;line-height:1.6;color:var(--color-muted);min-height:102px}.tier.mid p{color:var(--color-on-ink-muted)}' +
+  '.tier .price{margin-top:18px;font-size:28px;font-weight:var(--font-display);letter-spacing:-.02em}' +
+  '.tier dl{margin-top:16px;border-top:1px solid var(--color-line);padding-top:12px;display:grid;grid-template-columns:1fr auto;row-gap:6px;font-size:15px}' +
+  '.tier.mid dl{border-color:var(--color-line-on-ink)}.tier dt{color:var(--color-muted)}.tier.mid dt{color:var(--color-on-ink-muted)}.tier dd{font-weight:var(--font-strong)}' +
+  '.small{margin-top:22px;font-size:15px;color:var(--color-muted)}';
 
-const head = (studio, dark = false) => '<div class="grain"' + (dark ? ' style="opacity:.08"' : '') + '></div><div class="head"><div class="mark"><i></i>' + esc(studio) + '</div><div class="badge">' + esc(LABELS.aiBadge) + '</div></div>';
+const head = (studio) => '<div class="head"><div class="mark"><i></i>' + esc(studio) + '</div><div class="badge">' + esc(LABELS.aiBadge) + '</div></div>';
+// A section heading set as large as its longest line allows (FIT), with the accent rule under it.
+const heading = (lines, max = 60) => '<div class="h"><h2 data-fit data-max="' + max + '">' + lines.map(esc).join('<br>') + '</h2></div><div class="rule"></div>';
 // A sample (work the agent made for an imagined brief) carries a 작업 예시 tag so it never reads as client work.
 const tag = (shot) => (shot.sample ? '<span class="tag">' + esc(LABELS.sample) + '</span>' : '');
-const figure = (shot, caption) => '<div class="figure"><div class="shot" style="aspect-ratio:' + shot.width + '/' + shot.height + '"><img src="' + shot.src + '" alt=""></div>' + (caption || shot.sample ? '<p class="cap">' + tag(shot) + esc(caption ?? '') + '</p>' : '') + '</div>';
-const detail = (studio, inner, dark = false) => page('<div class="d' + (dark ? ' ink' : '') + '">' + head(studio, dark) + inner + '</div>', DETAIL_CSS, { width: DETAIL_WIDTH });
+const figure = (shot, caption) => '<div class="figure"><div class="frame" style="aspect-ratio:' + shot.width + '/' + shot.height + '"><img src="' + shot.src + '" alt=""></div>' + (caption || shot.sample ? '<p class="cap">' + tag(shot) + esc(caption ?? '') + '</p>' : '') + '</div>';
+const detailPage = (studio, inner, dark = false, fontFace) => page('<div class="d' + (dark ? ' ink' : '') + '">' + head(studio) + inner + '</div>', DETAIL_CSS, { width: DETAIL_WIDTH }, fontFace);
 
-export function detailHtmls({ listing, studio, gallery = [] }) {
+export function detailHtmls({ listing, studio, gallery = [], fontFace }) {
   const c = listing.imageCopy;
   const captions = c.proofCaptions ?? [];
   const out = [];
+  const detail = (name, inner, dark = false) => detailPage(name, inner, dark, fontFace);
   const rows = (list) => '<div class="rows">' + list.map((t, i) => '<div class="row"><b>' + two(i) + '</b><span>' + esc(t) + '</span></div>').join('') + '</div>';
   // 1. what this is and the first proof
-  out.push(detail(studio,
-    '<p class="eyebrow">' + esc(listing.title) + '</p><h2>' + c.intro.headline.map(esc).join('<br>') + '</h2><p class="lead">' + esc(c.intro.body) + '</p>' +
-    (gallery[0] ? figure(gallery[0], captions[0]) : '')));
+  out.push(detail(studio, heading(c.intro.headline) + '<p class="lead">' + esc(c.intro.body) + '</p>' + (gallery[0] ? figure(gallery[0], captions[0]) : '')));
   // 2. who it suits and what is delivered
-  out.push(detail(studio, '<p class="eyebrow">' + esc(LABELS.audience) + '</p>' + rows(c.audience) + '<p class="eyebrow">' + esc(LABELS.included) + '</p>' + rows(c.included)));
-  // 3. process and the AI note
+  out.push(detail(studio, heading([LABELS.audience], 52) + rows(c.audience) + '<h3 class="sec">' + esc(LABELS.included) + '</h3>' + rows(c.included)));
+  // 3. process and the AI note, on ink
   out.push(detail(studio,
-    '<p class="eyebrow">' + esc(LABELS.process) + '</p><div class="rows">' + c.steps.map((s, i) => '<div class="step"><b>' + two(i) + '</b><div><h3>' + esc(s.title) + '</h3><p>' + esc(s.detail) + '</p></div></div>').join('') + '</div>' +
-    '<div class="note"><h4>' + esc(LABELS.ai) + '</h4><p>' + esc(c.aiNote) + '</p></div>'));
+    heading([LABELS.process], 52) + '<div class="rows">' + c.steps.map((s, i) => '<div class="step"><b>' + two(i) + '</b><div><h4>' + esc(s.title) + '</h4><p>' + esc(s.detail) + '</p></div></div>').join('') + '</div>' +
+    '<div class="note"><h4>' + esc(LABELS.ai) + '</h4><p>' + esc(c.aiNote) + '</p></div>', true));
   // 4. packages from the price table
   out.push(detail(studio,
-    '<p class="eyebrow">' + esc(LABELS.packages) + '</p><h2>' + c.card.headline.map(esc).join(' ') + '</h2>' +
-    '<div class="tiers">' + listing.packages.map((p, i) => '<div class="tier' + (i === 1 ? ' mid' : '') + '"><div class="t">' + esc(p.tier) + '</div><h3>' + esc(p.title) + '</h3><p>' + esc(p.description) + '</p><div class="price">' + won(p.priceKRW) + '</div><dl><dt>' + esc(LABELS.days) + '</dt><dd>' + p.days + '일</dd><dt>' + esc(LABELS.revisions) + '</dt><dd>' + p.revisions + '회</dd></dl></div>').join('') + '</div>' +
+    heading([LABELS.packages], 52) +
+    '<div class="tiers">' + listing.packages.map((p, i) => '<div class="tier' + (i === 1 ? ' mid' : '') + '"><div class="t">' + esc(p.tier) + '</div><h4>' + esc(p.title) + '</h4><p>' + esc(p.description) + '</p><div class="price">' + won(p.priceKRW) + '</div><dl><dt>' + esc(LABELS.days) + '</dt><dd>' + p.days + '일</dd><dt>' + esc(LABELS.revisions) + '</dt><dd>' + p.revisions + '회</dd></dl></div>').join('') + '</div>' +
     '<p class="small">' + esc(LABELS.packagesNote) + '</p>'));
-  // 5. the rest of the proof gallery, when there is more than the first shot
+  // 5. the rest of the proof gallery, when there is more than the first shot, on ink
   const rest = gallery.slice(1);
   if (rest.length) {
     const phones = rest.filter((s) => s.width < 600);
     const desks = rest.filter((s) => s.width >= 600);
     const samples = rest.filter((s) => s.sample).length;
-    const [eyebrow, note] = samples === rest.length ? [LABELS.sample, LABELS.sampleNote] : samples ? [LABELS.proof, LABELS.mixedNote] : [LABELS.proof, LABELS.proofNote];
-    let inner = '<p class="eyebrow">' + esc(eyebrow) + '</p><h2>' + esc(note) + '</h2>';
+    const [title, note] = samples === rest.length ? [LABELS.sample, LABELS.sampleNote] : samples ? [LABELS.proof, LABELS.mixedNote] : [LABELS.proof, LABELS.proofNote];
+    let inner = heading([title], 52) + '<p class="lead">' + esc(note) + '</p>';
     desks.forEach((s) => (inner += figure(s, captions[gallery.indexOf(s)])));
-    phones.forEach((s) => (inner += '<div class="figure pair"><p class="cap">' + tag(s) + esc(captions[gallery.indexOf(s)]) + '</p><div class="shot" style="aspect-ratio:' + s.width + '/' + s.height + ';border-radius:22px;border:4px solid #3a362f"><img src="' + s.src + '" alt=""></div></div>'));
+    phones.forEach((s) => (inner += '<div class="figure pair"><p class="cap">' + tag(s) + esc(captions[gallery.indexOf(s)]) + '</p><div class="frame" style="aspect-ratio:' + s.width + '/' + s.height + '"><img src="' + s.src + '" alt=""></div></div>'));
     out.push(detail(studio, inner, true));
   }
   return out;
@@ -205,9 +245,10 @@ export async function captureProofs(proofs, dir, { renderer, refresh = false } =
   return files;
 }
 
-// Renders main.png and detail-N.jpg into outDir and returns their paths plus a 190 px preview of the
-// main card, the width a search grid shows it at.
-export async function renderListingImages({ listing, studio, outDir, proofs = [], plan = { card: [], gallery: [] }, proofDir, refreshProofs = false }) {
+// Renders main.png and detail-N.jpg into outDir and returns their paths, a 190 px preview of the main card
+// (the width a search grid shows it at), the images version, and the slot and font violations. Every render
+// asks the renderer which face drew each text node, so a fallback face fails the images.
+export async function renderListingImages({ listing, studio, outDir, proofs = [], plan = { card: [], gallery: [] }, proofDir, refreshProofs = false, fontFace }) {
   mkdirSync(outDir, { recursive: true });
   const renderer = await openRenderer();
   try {
@@ -217,21 +258,25 @@ export async function renderListingImages({ listing, studio, outDir, proofs = []
     const files = proofDir ? await captureProofs(need, proofDir, { renderer, refresh: refreshProofs }) : {};
     const shot = (r) => (r.kind === 'capture' ? (files[r.id] ? shotOf(files[r.id], byId[r.id]) : null) : { src: dataUrl(r.file), ...imageSize(readFileSync(r.file)), sample: r.kind === 'sample' });
     const shots = (list) => list.map(refOf).map(shot).filter(Boolean);
+    const fonts = [];
+    const proved = (name, r) => {
+      for (const detail of platformFontProblems(r.platformFonts, 'Pretendard')) fonts.push({ field: 'images.' + name, rule: 'image.font', detail });
+      return r;
+    };
+    const mainPage = mainHtml({ listing, studio, cardShots: shots(plan.card), fontFace });
     const main = join(outDir, 'main.png');
-    await renderer.render({ html: mainHtml({ listing, studio, cardShots: shots(plan.card) }), ...MAIN_SIZE, out: main, format: 'png' });
+    proved('main', await renderer.render({ html: mainPage, ...MAIN_SIZE, out: main, format: 'png', fontReport: true }));
     const preview = join(outDir, 'main-190.png');
-    await renderer.render({ html: mainHtml({ listing, studio, cardShots: shots(plan.card) }), ...MAIN_SIZE, out: preview, format: 'png', maxSide: 190 });
+    await renderer.render({ html: mainPage, ...MAIN_SIZE, out: preview, format: 'png', maxSide: 190 });
     const detail = [];
-    const htmls = detailHtmls({ listing, studio, gallery: shots(plan.gallery) });
-    for (const [i, html] of htmls.entries()) {
+    for (const [i, html] of detailHtmls({ listing, studio, gallery: shots(plan.gallery), fontFace }).entries()) {
       const out = join(outDir, 'detail-' + (i + 1) + '.jpg');
       // A short viewport lets the full-page capture end where the content ends.
-      await renderer.render({ html, width: DETAIL_WIDTH, height: 200, fullPage: true, out, format: 'jpeg', quality: 90, scale: DETAIL_SCALE });
+      proved('detail.' + i, await renderer.render({ html, width: DETAIL_WIDTH, height: 200, fullPage: true, out, format: 'jpeg', quality: 90, scale: DETAIL_SCALE, fontReport: true }));
       detail.push(out);
     }
-    return { main, detail, preview, violations: checkImages({ main, detail }) };
+    return { main, detail, preview, version: IMAGES_VERSION, violations: [...checkImages({ main, detail }), ...fonts] };
   } finally {
     await renderer.close();
   }
 }
-

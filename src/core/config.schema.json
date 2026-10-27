@@ -655,7 +655,9 @@
       "type": "object",
       "description": "kmong gig listings",
       "default": {
-        "studio": null
+        "studio": null,
+        "refreshPerDay": 1,
+        "changeWindowDays": 28
       },
       "properties": {
         "studio": {
@@ -665,6 +667,18 @@
           ],
           "description": "the studio name drawn on listing images; null uses the company name",
           "default": null
+        },
+        "refreshPerDay": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "kmong gigs the daily refresh may send to kmong review in one Seoul day; 0 refreshes none. One a day lets a rejected redesign stop the rest after one gig, since kmong reviews an edit in up to 7 business days",
+          "default": 1
+        },
+        "changeWindowDays": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "days of buyer chats compared before and after a gig redesign, recorded as a learning case; four whole weeks put each weekday into the before and the after once",
+          "default": 28
         }
       }
     },

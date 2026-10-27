@@ -11,7 +11,7 @@ import { logEvent } from '../core/log.mjs';
 import { dayKey } from '../core/clock.mjs';
 import { latestTable } from '../economics/price-table.mjs';
 import { buildListing, checkListing, ListingError } from './kmong.mjs';
-import { checkImages, renderListingImages } from './images.mjs';
+import { checkImages, IMAGES_VERSION, renderListingImages } from './images.mjs';
 import { proofPlan } from './proofs.mjs';
 import { itemsFromProfile, loadItems } from '../portfolio/store.mjs';
 import { loadGateRules } from '../brain/respond.mjs';
@@ -105,7 +105,7 @@ export async function render(service, { instance, log = console.log, refreshProo
   const plan = spec.proofPlan ?? loadProofs(instance).services?.[service] ?? { card: [], gallery: [] };
   log('listings: rendering ' + service + ' images from its spec');
   const images = await renderFor(instance, service, spec, plan, { refreshProofs });
-  writeJson(file, { ...spec, images, renderedAt: new Date().toISOString() });
+  writeJson(file, { ...spec, images, imagesVersion: IMAGES_VERSION, renderedAt: new Date().toISOString() });
   return { spec: { ...spec, images }, file };
 }
 
@@ -120,7 +120,7 @@ export async function build(service, { instance, runCodex, log = console.log, re
   log('listings: rendering images');
   const proofPlanRefs = { card: plan.card, gallery: plan.gallery };
   const images = await renderFor(instance, service, listing, proofPlanRefs, { refreshProofs });
-  const spec = { ...listing, images, proofPlan: proofPlanRefs, portfolioBasis: plan.basis, builtAt: new Date().toISOString(), priceTable: table.file, modelCalls, retried };
+  const spec = { ...listing, images, imagesVersion: IMAGES_VERSION, proofPlan: proofPlanRefs, portfolioBasis: plan.basis, builtAt: new Date().toISOString(), priceTable: table.file, modelCalls, retried };
   writeJson(specFile(instance, service), spec);
   return { spec, file: specFile(instance, service) };
 }

@@ -420,8 +420,10 @@ test('a gig is rebuilt only when its top items changed, it is on sale and it was
 
 test('the daily refresh opens kmong only when a gig shows changed top items', async () => {
   const { listingsRefresh } = await import('../src/listings/watch.mjs');
+  const { IMAGES_VERSION } = await import('../src/listings/images.mjs');
   const instance = publishedInstance();
-  const spec = { ...listingOf(), portfolioBasis: [] };
+  // Rendered with the current images version, so only a moved basis could make it a candidate.
+  const spec = { ...listingOf(), portfolioBasis: [], imagesVersion: IMAGES_VERSION };
   writeFileSync(join(instance.dir, 'listings', 'landing_page_web', 'spec.json'), JSON.stringify(spec));
   const r = await listingsRefresh({ instance, openKmong: async () => assert.fail('no change, no browser') });
   assert.equal(r.status, 'ok');
@@ -459,4 +461,160 @@ test('a /my-gigs row never reads the approval notice of the row below, and edit 
   assert.deepEqual(editIds('https://kmong.com/my-gigs/edit/700001?rootCategoryId=7&subCategoryId=769&thirdCategoryId=76901'), { gigId: 700001, categoryIds: { root: 7, sub: 769, third: 76901 } });
   assert.deepEqual(editIds('https://kmong.com/my-gigs/edit/5'), { gigId: 5, categoryIds: { root: null, sub: null, third: null } });
   assert.equal(editIds('https://kmong.com/my-gigs'), null);
+});
+
+// ---- U7.5: images on the tokens with font proof, the images version, the refresh cap and the change case ----
+
+test('the images prove their font: text drawn without the inlined face is an image.font violation', async () => {
+  const { IMAGES_VERSION } = await import('../src/listings/images.mjs');
+  const dir = tempDir('fsw-img-');
+  const clean = await renderListingImages({ listing: listingOf(), studio: '스튜디오', outDir: dir });
+  assert.equal(clean.version, IMAGES_VERSION);
+  assert.deepEqual(clean.violations, []);
+  // A font face that failed to inline: every text node falls back to an OS face, and each image says so.
+  const fallback = await renderListingImages({ listing: listingOf(), studio: '스튜디오', outDir: tempDir('fsw-img-'), fontFace: '' });
+  const fonts = fallback.violations.filter((v) => v.rule === 'image.font');
+  assert.deepEqual([...new Set(fonts.map((v) => v.field))], ['images.main', 'images.detail.0', 'images.detail.1', 'images.detail.2', 'images.detail.3'], JSON.stringify(fallback.violations));
+  assert.ok(fonts.every((v) => /^images\.(main|detail\.\d)$/.test(v.field) && /^fallback font /.test(v.detail)));
+});
+
+test('render and build write the images version into spec.json', async () => {
+  const { IMAGES_VERSION } = await import('../src/listings/images.mjs');
+  const { render } = await import('../src/listings/gig.mjs');
+  const instance = publishedInstance();
+  await render('landing_page_web', { instance, log: () => {} });
+  const spec = JSON.parse(readFileSync(join(instance.dir, 'listings', 'landing_page_web', 'spec.json'), 'utf8'));
+  assert.equal(typeof IMAGES_VERSION, 'number');
+  assert.equal(spec.imagesVersion, IMAGES_VERSION);
+});
+
+// A price table whose kmong row for each service carries packages (the test listing's prices by default).
+const ROW_TABLE = (instance, packages = { standard: 200000, deluxe: 440000, premium: 800000 }, services = ['landing_page_web']) => {
+  mkdirSync(instance.paths.pricing, { recursive: true });
+  writeFileSync(join(instance.paths.pricing, 'price-table-20261027.json'), JSON.stringify({ rows: services.map((service) => ({ ...ROW, service, packages })) }));
+};
+
+// A published, on-sale gig whose spec was rendered with images version 1, and a refresh ctx that records
+// which writer ran and which images it replaced.
+function refreshScene({ services = { landing_page_web: 7 }, status = '판매중', perDay = 1, spec = {} } = {}) {
+  const instance = publishedInstance(services);
+  instance.config.listings = { ...instance.config.listings, refreshPerDay: perDay };
+  ROW_TABLE(instance, undefined, Object.keys(services));
+  for (const s of Object.keys(services)) writeFileSync(join(instance.dir, 'listings', s, 'spec.json'), JSON.stringify({ ...listingOf(), portfolioBasis: [], ...spec }));
+  const calls = [];
+  const gigs = Object.values(services).map((gigId) => ({ gigId, status }));
+  return {
+    instance, calls,
+    ctx: {
+      instance,
+      openKmong: async () => ({ listings: async () => ({ gigs }), stop: async () => {} }),
+      build: async (service) => calls.push(['build', service]),
+      render: async (service) => calls.push(['render', service]),
+      publish: async (service, opts) => (calls.push(['publish', service, opts.replaceImages]), { observed: true, submitted: true, status: '승인 전' }),
+      notify: async () => {},
+    },
+  };
+}
+
+test('a spec rendered with an older images version re-renders without the brain and replaces main and detail', async () => {
+  const { listingsRefresh } = await import('../src/listings/watch.mjs');
+  const s = refreshScene();
+  const r = await listingsRefresh(s.ctx);
+  assert.deepEqual(s.calls, [['render', 'landing_page_web'], ['publish', 'landing_page_web', ['main', 'detail']]], JSON.stringify(r.rows));
+  const state = JSON.parse(readFileSync(join(s.instance.dir, 'listings', 'landing_page_web', 'review.json'), 'utf8'));
+  assert.ok(state.redesignedAt && state.refreshedAt === state.redesignedAt);
+});
+
+test('a version-only refresh of a spec priced from an older table is drafted again', async () => {
+  const { listingsRefresh, samePrices } = await import('../src/listings/watch.mjs');
+  const s = refreshScene();
+  ROW_TABLE(s.instance, { standard: 245000, deluxe: 539000, premium: 980000 });
+  await listingsRefresh(s.ctx);
+  assert.deepEqual(s.calls.map((c) => c[0]), ['build', 'publish']);
+  assert.equal(samePrices(listingOf(), { packages: { standard: 200000, deluxe: 440000, premium: 800000 } }), true);
+  assert.equal(samePrices(listingOf(), null), false);
+});
+
+test('a moved basis drafts again, and a current version with an unchanged basis is no candidate', async () => {
+  const { IMAGES_VERSION } = await import('../src/listings/images.mjs');
+  const { listingsRefresh } = await import('../src/listings/watch.mjs');
+  const current = refreshScene({ spec: { imagesVersion: IMAGES_VERSION } });
+  const r = await listingsRefresh({ ...current.ctx, openKmong: async () => assert.fail('nothing to refresh, no browser') });
+  assert.deepEqual(r.rows, []);
+  const moved = refreshScene({ spec: { imagesVersion: IMAGES_VERSION, portfolioBasis: ['gone-item'] } });
+  await listingsRefresh(moved.ctx);
+  assert.deepEqual(moved.calls, [['build', 'landing_page_web'], ['publish', 'landing_page_web', ['detail']]]);
+});
+
+test('at most listings.refreshPerDay gigs go to kmong review a Seoul day, and an absent setting sends none', async () => {
+  const { listingsRefresh } = await import('../src/listings/watch.mjs');
+  const services = { landing_page_web: 7, data_crawling: 8, excel_macro: 9 };
+  const s = refreshScene({ services, perDay: 2 });
+  const r = await listingsRefresh(s.ctx);
+  assert.equal(s.calls.filter((c) => c[0] === 'publish').length, 2);
+  assert.match(r.rows.find((x) => !x.refresh).reason, /refreshPerDay/);
+  // The same day again: the two already sent fill the day.
+  const again = await listingsRefresh(s.ctx);
+  assert.equal(s.calls.filter((c) => c[0] === 'publish').length, 2, JSON.stringify(again.rows));
+  const none = refreshScene({ perDay: undefined });
+  delete none.instance.config.listings.refreshPerDay;
+  await listingsRefresh(none.ctx);
+  assert.deepEqual(none.calls, []);
+});
+
+test('a rejection recorded after a redesign landed stops the rest of the redesign', async () => {
+  const { IMAGES_VERSION } = await import('../src/listings/images.mjs');
+  const { refreshDecision, listingsRefresh } = await import('../src/listings/watch.mjs');
+  assert.equal(refreshDecision({ status: '판매중', before: [], now: [], imagesVersion: 1, room: 1, redesignRejected: true }).refresh, false);
+  assert.equal(refreshDecision({ status: '판매중', before: ['a'], now: ['b'], imagesVersion: 1, room: 1, redesignRejected: true }).refresh, true, 'a moved basis is not a redesign');
+  assert.equal(refreshDecision({ status: '승인 전', before: [], now: [], imagesVersion: 1, room: 1 }).refresh, false);
+  assert.equal(refreshDecision({ status: '판매중', before: [], now: [], imagesVersion: 1, room: 1, last: new Date(Date.now() - 86_400_000).toISOString() }).refresh, false);
+  const s = refreshScene({ services: { landing_page_web: 7, data_crawling: 8 } });
+  const dir = join(s.instance.dir, 'listings');
+  writeFileSync(join(dir, 'landing_page_web', 'spec.json'), JSON.stringify({ ...listingOf(), portfolioBasis: [], imagesVersion: IMAGES_VERSION }));
+  const old = '2026-10-01T00:00:00.000Z';
+  writeFileSync(join(dir, 'landing_page_web', 'review.json'), JSON.stringify({ refreshedAt: old, redesignedAt: old, rejections: [{ at: '2026-10-02T00:00:00.000Z', key: 'rejected:x' }] }));
+  await listingsRefresh(s.ctx);
+  assert.deepEqual(s.calls, []);
+  // A rejection from before the redesign does not stop it.
+  writeFileSync(join(dir, 'landing_page_web', 'review.json'), JSON.stringify({ refreshedAt: old, redesignedAt: old, rejections: [{ at: '2026-09-30T00:00:00.000Z', key: 'rejected:y' }] }));
+  await listingsRefresh(s.ctx);
+  assert.deepEqual(s.calls.map((c) => c[0]), ['render', 'publish']);
+});
+
+test('the watch keeps each rejection with its time', async () => {
+  const { listingsWatch } = await import('../src/listings/watch.mjs');
+  const instance = publishedInstance();
+  const w = watchCtx(instance, [{ gigId: 7, status: '비승인', approvedAt: '2026.10.27', modifiedAt: '2026.10.25' }]);
+  await listingsWatch(w.ctx);
+  const state = JSON.parse(readFileSync(join(instance.dir, 'listings', 'landing_page_web', 'review.json'), 'utf8'));
+  assert.equal(state.rejections.length, 1);
+  assert.ok(Date.parse(state.rejections[0].at) > 0);
+  assert.equal(state.rejections[0].key, state.recordedRejection);
+});
+
+test('buyer chats before and after a redesign become one listing_change case, once', async () => {
+  const { changeCases } = await import('../src/listings/watch.mjs');
+  const { openLedger } = await import('../src/core/ledger.mjs');
+  const { readCases } = await import('../src/learning/outcomes.mjs');
+  const instance = publishedInstance();
+  instance.config.listings = { ...instance.config.listings, changeWindowDays: 28 };
+  const ledger = openLedger(':memory:');
+  const at = '2026-10-01T00:00:00.000Z';
+  writeFileSync(join(instance.dir, 'listings', 'landing_page_web', 'review.json'), JSON.stringify({ redesignedAt: at, redesignVersion: 2 }));
+  const thread = (ref, createdAt, service = 'landing_page_web') => ledger.db.prepare("INSERT INTO threads (platform, external_id, kind, service, created_at) VALUES ('kmong', ?, 'message', ?, ?)").run(ref, service, createdAt);
+  thread('b1', '2026-09-10T00:00:00.000Z');
+  thread('a1', '2026-10-05T00:00:00.000Z');
+  thread('a2', '2026-10-20T00:00:00.000Z');
+  thread('x1', '2026-10-06T00:00:00.000Z', 'data_crawling');
+  const early = changeCases({ instance, ledger, now: new Date('2026-10-20T00:00:00Z') });
+  assert.equal(early.recorded, 0, 'the after window is not over yet');
+  const r = changeCases({ instance, ledger, now: new Date('2026-11-02T00:00:00Z') });
+  assert.equal(r.recorded, 1);
+  const cases = readCases(instance).filter((c) => c.kind === 'listing_change');
+  assert.equal(cases.length, 1);
+  assert.match(cases[0].text, /before images version 2: 1; in the 28 days after: 2/);
+  assert.equal(changeCases({ instance, ledger, now: new Date('2026-11-03T00:00:00Z') }).recorded, 0);
+  delete instance.config.listings.changeWindowDays;
+  assert.equal(changeCases({ instance, ledger }).recorded, 0);
 });

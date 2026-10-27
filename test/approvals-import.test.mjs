@@ -151,7 +151,7 @@ test('a second import adds nothing and a missing directory reads nothing', () =>
 }, ({ ledger, approvals, dir }) => {
   const first = importApprovals(ledger, approvals);
   assert.equal(first.imported, 1);
-  assert.equal(ledger.outboxByApproval('20261020-kmong-12345678').status, 'approved');
+  assert.equal(ledger.outboxByApproval('20261020-kmong-12345678').status, 'awaiting_operator');
   const second = importApprovals(ledger, approvals);
   assert.deepEqual([second.read, second.imported, second.already, second.reconciled], [1, 0, 1, 0]);
   assert.equal(ledger.counts().outbox, 1);
@@ -191,3 +191,16 @@ test('imported project proposals carry the payload the projects job reads, and o
     ledger.close();
   }
 });
+
+// A 2c77326 delivery file carries no review, so an approved one is asked again rather than sent unreviewed.
+test('an approved delivery from an old approval file lands awaiting the operator with review error', () => withApprovals({
+  '20261020-kmong-12340001.json': approval('20261020-kmong-12340001', { platform: 'kmong', kind: 'delivery', threadRef: 'O2', status: 'approved', draft: '납품합니다', files: ['result.zip'], resolvedAt: '2026-10-20T02:00:00.000Z' }),
+  '20261020-kmong-12340002.json': approval('20261020-kmong-12340002', { platform: 'kmong', kind: 'delivery', threadRef: 'O3', status: 'sent', draft: '납품합니다', files: ['other.zip'], closedAt: '2026-10-20T03:00:00.000Z' }),
+}, ({ ledger, approvals }) => {
+  importApprovals(ledger, approvals);
+  const asked = ledger.outboxByApproval('20261020-kmong-12340001');
+  assert.deepEqual([asked.status, asked.operator, asked.payload.review.verdict], ['awaiting_operator', null, 'error']);
+  assert.match(asked.payload.review.findings[0].detail, /imported from a d605c5d approval file without a review/);
+  const sent = ledger.outboxByApproval('20261020-kmong-12340002');
+  assert.deepEqual([sent.status, sent.payload.review.verdict], ['observed', 'error']);
+}));

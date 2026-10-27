@@ -69,6 +69,42 @@ test('the report counts the Seoul day\'s quote verdicts by reason and the pace h
   assert.doesNotMatch(supplyLines({ reports: [none] })[0], /quote gate/);
 });
 
+// 088 unit 4: requests a board only observed, by catalog service and for an unmapped form, from thread.observed.
+test('the report counts observed requests by catalog service and those waiting for an unmapped form, and the digest prints one line', async () => {
+  const ledger = openLedger(':memory:');
+  const seen = (ref, service, reason = 'form unmapped', at = hoursAgo(1)) => ledger.addEvent({ kind: 'thread.observed', platform: 'wishket', ref, payload: { unread: false, reason, service }, at });
+  seen('1', '랜딩ㆍ소개 페이지');
+  seen('1', '랜딩ㆍ소개 페이지', 'form unmapped', hoursAgo(2));
+  seen('2', '랜딩ㆍ소개 페이지');
+  seen('3', '스크래핑ㆍAPI', 'observe mode reads without replying');
+  seen('4', 'IoTㆍ블루투스');
+  seen('5', null);
+  seen('old', '랜딩ㆍ소개 페이지', 'form unmapped', hoursAgo(24 * 8));
+  ledger.addEvent({ kind: 'thread.observed', platform: 'soomgo', ref: 's1', payload: { reason: 'form unmapped', service: '웹 개발' }, at: hoursAgo(1) });
+  const instance = makeInstance((c) => ({ ...c, platforms: { ...c.platforms, wishket: { enabled: true, mode: 'observe' } } }));
+  const report = await supplyReport('wishket', { instance, ledger, now: NOW, openSurface: async () => ({ login: async () => ({ loggedIn: false }), stop: async () => {} }) });
+  assert.deepEqual([report.observedCounts, report.observedUnmapped], [{ landing_page_web: 2, data_crawling: 1, 'IoTㆍ블루투스 (no service)': 1, 'no label': 1 }, 4]);
+  assert.match(supplyLines({ reports: [report] })[0], /; observed in 7 days: landing_page_web 2, data_crawling 1, IoTㆍ블루투스 \(no service\) 1, no label 1, 4 of them wait for an unmapped form(;|$)/);
+  const none = await supplyReport('soomgo', { instance: makeInstance(), ledger: openLedger(':memory:'), now: NOW, openSurface: surfaceWith([]) });
+  assert.deepEqual([none.observedCounts, none.observedUnmapped], [{}, 0]);
+  assert.doesNotMatch(supplyLines({ reports: [none] })[0], /observed in/);
+});
+
+test('a wishket request the step observes for its unmapped form carries the reason and service the report counts', async () => {
+  const { step } = await import('../src/loop/index.mjs');
+  const { openWishketSurface } = await import('../src/surface/wishket.mjs');
+  const instance = makeInstance((c) => ({ ...c, platforms: { ...c.platforms, wishket: { enabled: true, mode: 'auto' } } }));
+  const ledger = openLedger(':memory:');
+  const project = { id: 700001, title: '예약 웹', description: '예약 웹을 만들고 싶습니다', amountKRW: 12000000, projectType: 'task_based', private: false, field: '랜딩ㆍ소개 페이지', postedOn: '2026-10-24' };
+  const reader = { listProjects: async () => ({ projects: [project], total: 1, skipped: 0 }), readProject: async () => project, close: async () => {} };
+  const r = await step('wishket', { instance, ledger, now: NOW, notify: quiet, openSurface: async () => openWishketSurface({ reader }) });
+  assert.deepEqual([r.status, r.mode, r.threads.observed], ['ok', 'observe', 1]);
+  const observed = ledger.db.prepare("SELECT payload FROM events WHERE kind = 'thread.observed'").all().map((e) => JSON.parse(e.payload));
+  assert.deepEqual(observed.map((p) => [p.reason, p.service]), [['form unmapped', '랜딩ㆍ소개 페이지']]);
+  const report = await supplyReport('wishket', { instance, ledger, now: NOW, openSurface: async () => ({ login: async () => ({ loggedIn: false }), stop: async () => {} }) });
+  assert.deepEqual([report.observedCounts, report.observedUnmapped], [{ landing_page_web: 1 }, 1]);
+});
+
 test('the labels behind the out-of-catalog count are listed as expansion candidates, top five by threads', async () => {
   const ledger = openLedger(':memory:');
   const park = (ref, service, at = hoursAgo(1), reason = 'catalog: service ' + service + ' is not in the catalog') => ledger.addEvent({ kind: 'thread.operator', platform: 'soomgo', ref, payload: { reason, service }, at });

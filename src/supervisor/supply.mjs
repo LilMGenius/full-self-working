@@ -73,6 +73,25 @@ export function judgedCounts(ledger, platform, now) {
   return { day, byReason, paceHeld };
 }
 
+// Requests only observed over the window (thread.observed), distinct by thread: by the catalog services their
+// platform label maps to (the label itself when no service covers it), and how many of them wait for a form the
+// descriptor lists unmapped (triage reason "form unmapped"), the demand a board fsw cannot answer yet shows.
+export function observedCounts(ledger, descriptor, now) {
+  const since = now.getTime() - SUPPLY_DAYS * DAY_MS;
+  const byRef = new Map();
+  const rows = ledger.db.prepare("SELECT ref, payload, at FROM events WHERE platform = ? AND kind = 'thread.observed' ORDER BY id").all(descriptor.id);
+  for (const e of rows.filter((r) => Date.parse(r.at) >= since && Date.parse(r.at) <= now.getTime())) byRef.set(e.ref, JSON.parse(e.payload ?? '{}') ?? {});
+  const byService = {};
+  let unmapped = 0;
+  for (const { reason, service: label } of byRef.values()) {
+    const ids = catalogServicesFor(descriptor, label);
+    const key = ids?.length ? ids.join(' or ') : label ? label + ' (no service)' : 'no label';
+    byService[key] = (byService[key] ?? 0) + 1;
+    if (reason === 'form unmapped') unmapped += 1;
+  }
+  return { observedCounts: byService, observedUnmapped: unmapped };
+}
+
 // Published kmong gigs by the review state the listings job last saw (src/listings/review.mjs codes).
 // Requests that waited for the hourly read share (thread.paced) over the window, and those of them parked
 // stale or expired without ever being read (a park event marked paced).
@@ -112,6 +131,7 @@ export async function supplyReport(platform, { instance, ledger, now = new Date(
     parked: parkedCounts(ledger, platform, now),
     paced: pacedCounts(ledger, platform, now),
     judged: judgedCounts(ledger, platform, now),
+    ...observedCounts(ledger, descriptor, now),
     candidates: expansionCandidates(ledger, descriptor, now),
     funnel: quoteFunnel(ledger, { platform, now, days: SUPPLY_DAYS }),
     awaitingReply: settings ? ledger.listThreads({ platform }).filter((t) => t.kind !== 'project' && awaitingReply(t, ledger.threadMessages(t.id), { now, settings })).length : null,
@@ -193,6 +213,8 @@ export function supplyLines(supply) {
     const f = r.funnel;
     if (f && (f.sent || f.unlinked)) parts.push('quotes in ' + f.days + ' days: ' + f.sent + ' sent, ' + (f.opensKnown ? f.opened + ' opened' : 'opens not recorded yet') + ', ' + f.hiredUs + ' hired us, ' + f.hiredOther + ' hired another pro, ' + f.noAnswer + ' no answer yet' + (f.unlinked ? ', ' + f.unlinked + ' chats not linked to an fsw quote' : ''));
     if (r.candidates?.length) parts.push('labels no service covers yet: ' + r.candidates.map((c) => c.label + ' ' + c.threads).join(', '));
+    const observed = Object.entries(r.observedCounts ?? {}).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    if (observed.length) parts.push('observed in ' + SUPPLY_DAYS + ' days: ' + observed.map(([k, n]) => k + ' ' + n).join(', ') + (r.observedUnmapped ? ', ' + r.observedUnmapped + ' of them wait for an unmapped form' : ''));
     if (r.paced?.waited) parts.push(r.paced.waited + ' requests waited for the hourly read share' + (r.paced.parkedUnread ? ', ' + r.paced.parkedUnread + ' of them parked unread' : ''));
     if (r.listings) parts.push('gigs: ' + counts(r.listings.byStatus) + ' of ' + r.listings.published);
     // The value gate's day (src/economics/quote-gate.mjs): verdicts by reason, then requests the pace held back.

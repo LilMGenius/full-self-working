@@ -197,7 +197,8 @@ export async function step(platform, ctx) {
         continue;
       }
       if (t.action === 'observe' && ib.unread !== false) {
-        event('thread.observed', ref, { unread: true, preview: ib.preview ?? null });
+        // reason and service let the supply report count what was only observed, by service and for an unmapped form.
+        event('thread.observed', ref, { unread: true, preview: ib.preview ?? null, reason: t.reason, service: ib.service ?? null });
         bump('threads', 'observed');
         continue;
       }
@@ -247,7 +248,7 @@ export async function step(platform, ctx) {
         const settled = (by) => ({ at: ib.at ?? null, by, key });
         const readMeta = (extra) => ({ ...(ledger.getThread(row.id).meta ?? {}), ...extra });
         if (t.action === 'observe') {
-          event('thread.observed', ref, { unread: false, messages: (thread.messages ?? []).length });
+          event('thread.observed', ref, { unread: false, messages: (thread.messages ?? []).length, reason: t.reason, service: ib.service ?? null });
           ledger.upsertThread({ platform, externalId: ref, kind: ib.kind ?? 'message', meta: readMeta({ settled: settled('observe') }) });
           bump('threads', 'observed');
           continue;

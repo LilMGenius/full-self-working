@@ -26,10 +26,11 @@ export function learnedFactor(cases, { step, maxMove }) {
 // listing gate pins them to the table).
 // The base a row prints: base x factor rounded to 1,000 KRW, kept inside the bounds the amount itself must hold (within
 // maxMove of the market base, at or above the cost floor, at or under the market ceiling). Rounding that would cross a
-// bound goes to the step on the base's side of it; when no 1,000 KRW step fits inside the bounds the base stays.
+// bound goes to the step on the base's side of it; when no 1,000 KRW step fits inside the bounds the base stays. The
+// bounds are whole KRW, since base x (1 + maxMove) in floating point can fall a hair under a step that is the bound.
 function boundedBase(row, factor, maxMove) {
-  const lo = Math.max(row.costFloorKRW, row.baseKRW * (1 - maxMove));
-  const hi = Math.min(row.marketCeilingKRW, row.baseKRW * (1 + maxMove));
+  const lo = Math.max(row.costFloorKRW, Math.round(row.baseKRW * (1 - maxMove)));
+  const hi = Math.min(row.marketCeilingKRW, Math.round(row.baseKRW * (1 + maxMove)));
   const first = Math.ceil(lo / 1000) * 1000;
   const last = Math.floor(hi / 1000) * 1000;
   if (first > last) return row.baseKRW;

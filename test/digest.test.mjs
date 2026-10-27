@@ -42,3 +42,13 @@ test('the digest lists each service\'s market on every sampled platform, saying 
 test('the digest prints none for the market until a summary exists', async () => {
   assert.match(await digestText(instanceWith(null)), /## Market medians\n\n- none\n/);
 });
+
+test('a price line names the learned factor and the cases a price moved on', async () => {
+  const instance = instanceWith(null);
+  mkdirSync(instance.paths.pricing, { recursive: true });
+  const r = (baseKRW, learned) => ({ platform: 'soomgo', service: 'detail_page_design', baseKRW, viable: true, ...(learned ? { learned } : {}) });
+  writeFileSync(join(instance.paths.pricing, 'price-table-20261110.json'), JSON.stringify({ rows: [r(300000)] }));
+  writeFileSync(join(instance.paths.pricing, 'price-table-20261111.json'), JSON.stringify({ rows: [r(278000, { factor: 0.928, cases: 8, priced: 2, capped: false, winRate: 0.1 })] }));
+  const text = await digestText(instance);
+  assert.match(text, /- soomgo\/detail_page_design: .* \(learned x0\.928 from 2 priced of 8 decided quotes\)/);
+});

@@ -10,11 +10,14 @@ import { existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from
 import { basename, join } from 'node:path';
 import { dayKey } from '../core/clock.mjs';
 import { ensureDir } from '../core/instance.mjs';
+import { priceLearningSettings } from '../core/settings.mjs';
 import { listDescriptors, loadDescriptor } from '../platforms/registry.mjs';
 import { catalog } from './catalog.mjs';
 import { EconomicsError } from './errors.mjs';
 import { latestSummary } from './market.mjs';
+import { learnPriceRows } from './price-learning.mjs';
 import { buildPriceTable } from './pricing.mjs';
+import { dayStart, quoteResults } from './quote-results.mjs';
 
 const TABLE_RE = /^price-table-(\d{8})\.json$/;
 
@@ -34,10 +37,16 @@ export function latestTable(dir) {
   return file ? { file: join(dir, file), table: JSON.parse(readFileSync(join(dir, file), 'utf8')) } : null;
 }
 
-// adapterFor(platform) resolves truthy when this build can work that platform.
-export async function refreshPriceTable(instance, { adapterFor, day, log = () => {} } = {}) {
+// adapterFor(platform) resolves truthy when this build can work that platform. ledger is the replay source
+// of price learning; without one (a test of the market part alone) rows stay on the market, as before. The
+// table is computed as of 00:00 Seoul of its day, so a rerun the same day writes the same rows.
+export async function refreshPriceTable(instance, { adapterFor, ledger = null, day, log = () => {} } = {}) {
   if (typeof adapterFor !== 'function') throw new TypeError('refreshPriceTable needs adapterFor');
   const summary = latestSummary(instance);
+  const tableDay = day ?? dayKey(new Date());
+  const asOf = dayStart(tableDay);
+  const learning = priceLearningSettings(instance.config);
+  const results = ledger && learning.enabled ? quoteResults(ledger, { asOf, expireAfterDays: learning.expireAfterDays }) : null;
   const enabled = Object.entries(instance.config.platforms ?? {}).filter(([, p]) => p.enabled).map(([id]) => id);
   const known = new Set(listDescriptors());
   const ids = [...new Set([...enabled, ...summary.entries.map((e) => e.platform)])].filter((id) => known.has(id));
@@ -49,15 +58,18 @@ export async function refreshPriceTable(instance, { adapterFor, day, log = () =>
       const statePath = join(instance.paths.platforms, id + '-state.json');
       if (existsSync(statePath)) sellerStats[id] = sellerStatsFrom(JSON.parse(readFileSync(statePath, 'utf8')), id);
       else if (!enabled.includes(id)) sellerStats[id] = { reviews: 0, basis: 'no account state: priced as a new seller' };
-      const built = buildPriceTable({ summary, services: catalog, profile: instance.profile, sellerStats, config: instance.config, descriptors: { [id]: loadDescriptor(id) } });
+      const descriptor = loadDescriptor(id);
+      const built = buildPriceTable({ summary, services: catalog, profile: instance.profile, sellerStats, config: instance.config, descriptors: { [id]: descriptor } });
+      const priced = results ? learnPriceRows(built, results, { settings: learning, descriptors: { [id]: descriptor }, asOf }) : built;
       const adapter = Boolean(await adapterFor(id));
-      rows.push(...built.map((r) => ({ ...r, adapter })));
+      rows.push(...priced.map((r) => ({ ...r, adapter })));
     } catch (err) {
       if (enabled.includes(id)) throw err;
       skipped.push({ platform: id, code: err.code ?? null, message: err.message });
     }
   }
   for (const s of skipped) log('price ' + s.platform + ' skipped: ' + s.message);
+  for (const r of rows) if (r.learned && r.learned.factor !== 1) log('price learned ' + r.platform + '/' + r.service + ': x' + r.learned.factor + ' from ' + r.learned.priced + ' priced of ' + r.learned.cases + ' decided quotes' + (r.learned.capped ? ', capped' : ''));
   const dir = instance.paths.pricing;
   const previous = latestTable(dir);
   if (previous && JSON.stringify(previous.table.rows) === JSON.stringify(rows)) {
@@ -65,7 +77,7 @@ export async function refreshPriceTable(instance, { adapterFor, day, log = () =>
     return { written: false, file: previous.file, rows };
   }
   ensureDir(dir);
-  const file = join(dir, 'price-table-' + (day ?? dayKey(new Date())) + '.json');
+  const file = join(dir, 'price-table-' + tableDay + '.json');
   const tmp = file + '.' + process.pid + '.tmp';
   writeFileSync(tmp, JSON.stringify({ summaryFile: basename(summary.file), observedAt: summary.observedAt, sellerStats, skipped, rows }, null, 2) + '\n');
   renameSync(tmp, file);

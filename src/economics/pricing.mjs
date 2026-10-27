@@ -106,6 +106,7 @@ export function buildPriceTable({ summary, services, profile, sellerStats, confi
         floorKRW: Math.max(costFloorKRW, roundTo1000(market.low)),
         ceilingKRW: Math.max(marketCeilingKRW, packages.premium),
         costFloorKRW,
+        marketCeilingKRW,
         basis: { n: market.n, p25: market.p25, median: market.median, p75: market.p75, high: market.high, source: market.source, observedAt: summary.observedAt ?? null, reviews },
         fitStrength,
         fitListed: Boolean(listed),
@@ -144,7 +145,11 @@ export function quoteForRequest({ guide, complexity, row, descriptor, config, qu
   const paid = descriptor?.bidCost?.unit && descriptor.bidCost.unit !== 'none';
   const quoteCost = paid ? requireNumber(quoteCostKRW, 'quoteCostKRW', 'FSW_QUOTE_COST_MISSING') : 0;
   const costFloorKRW = requireNumber(row?.costFloorKRW, 'row.costFloorKRW', 'FSW_PRICE_ROW_MISSING');
-  const raw = avg * complexity;
+  // The row's learned factor (src/economics/price-learning.mjs) moves the guide average the way this
+  // service's own quotes ended; the guide clamp below keeps the amount inside the market's minimum and
+  // maximum, and the floor keeps it above the cost floor plus the quote cost.
+  const factor = row?.learned?.factor ?? 1;
+  const raw = avg * factor * complexity;
   let clamped = Math.min(max, Math.max(min, raw));
   if (budget?.minKRW) clamped = Math.max(clamped, Math.min(budget.minKRW, max));
   if (budget?.maxKRW) clamped = Math.min(clamped, Math.max(budget.maxKRW, min));
@@ -158,7 +163,7 @@ export function quoteForRequest({ guide, complexity, row, descriptor, config, qu
     floorApplied: amountKRW === minimum && roundTo1000(clamped) < minimum,
     aboveGuide: amountKRW > max,
     aboveCeiling: row.ceilingKRW != null && amountKRW > row.ceilingKRW,
-    basis: { guideAvg: avg, guideMin: min, guideMax: max, complexity, raw, budget, clamped, costFloorKRW },
+    basis: { guideAvg: avg, guideMin: min, guideMax: max, reference: avg, learnedFactor: factor, complexity, raw, budget, clamped, costFloorKRW },
   };
 }
 

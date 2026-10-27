@@ -9,7 +9,7 @@ import { openLedger, outboxKey } from '../src/core/ledger.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { authorize } from '../src/policy/authorize.mjs';
 import { drain, plan, resolve, setStatus, settleSent, signalOf } from '../src/outbox/index.mjs';
-import { NOT_SENT, handles } from '../src/outbox/drain.mjs';
+import { NOT_SENT, handles, keepCost } from '../src/outbox/drain.mjs';
 import { TRANSITIONS } from '../src/outbox/plan.mjs';
 import { bidUsage, quotaUsage } from '../src/outbox/usage.mjs';
 import { scriptedSurface } from './helpers/surface.mjs';
@@ -848,4 +848,20 @@ test('fsw approve --sent without --cost keeps the recorded bid cost, so the next
   assert.equal(settleSent(s.ledger, pressed.approvalId, { now: NOON }).receipt.cashSpentKRW, 1800);
   const told = earlierBid(s, 'told', 1000, { observed: false, cashSpentKRW: 2500 }, '20261020-freelancer-0000aaa4');
   assert.equal(settleSent(s.ledger, told.approvalId, { costKRW: 700, now: NOON }).receipt.cashSpentKRW, 700);
+});
+// The C re-review of wp8, finding 2: a read-back without a cost keeps the cost the earlier receipt recorded.
+test('a read-back that observes no cost keeps the recorded bid cost, so the next bid past the month limit is blocked', async () => {
+  const s = bidSetup({ monthlyKRW: 3000, stopAfterUnanswered: 20 });
+  const old = s.ledger.addOutbox({ key: 'old', platform: 'freelancer', threadId: s.thread('old', 'request').id, kind: 'proposal', status: 'sending', payload: { ...bidPayload(1000, 'old'), threadRef: 'old' }, receipt: { observed: false, costKRW: 2500 }, updatedAt: NOON.toISOString() });
+  const row = plan(s.ledger, { platform: 'freelancer', threadId: s.thread('p1', 'request').id, kind: 'proposal', payload: bidPayload(2000, 1) });
+  const surface = scriptedSurface({ methods: ['propose'] });
+  surface.proposalSent = async () => ({ observed: false, reason: 'not visible yet' });
+  const out = await s.run(surface);
+  assert.deepEqual(out.map((x) => [x.id, x.action]), [[old.id, 'unobserved'], [row.id, 'blocked']]);
+  assert.deepEqual([s.ledger.getOutbox(old.id).receipt.costKRW, s.ledger.getOutbox(old.id).receipt.reason], [2500, 'not visible yet']);
+  assert.equal(surface.count('propose'), 0);
+  // A read-back that observes the send without a cost keeps it too, and one that observes a cost sets it.
+  assert.deepEqual(keepCost({ costKRW: 2500, pressed: true }, { observed: true, externalId: 'b1' }), { observed: true, externalId: 'b1', costKRW: 2500, pressed: true });
+  assert.deepEqual(keepCost({ costKRW: 2500 }, { observed: true, cashSpentKRW: 1900 }), { observed: true, cashSpentKRW: 1900 });
+  assert.deepEqual(keepCost(null, { observed: false }), { observed: false });
 });

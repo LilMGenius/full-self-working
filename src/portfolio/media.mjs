@@ -3,6 +3,8 @@
 // media nor a repository is returned in missing, for the operator, and so is a repository GitHub would not show
 // (404, private, a dropped network), with what GitHub answered in reasons, since it may be the operator's own; another
 // maintainer's repository gets nothing.
+// Gap: only the retired portfolio site showed these captures, and the gig images take image media alone, so they
+// feed no surface until one reads them or the portfolio job stops taking them (docs/DESIGN.md, Decisions).
 import { join } from 'node:path';
 import { repoOf } from './signals.mjs';
 

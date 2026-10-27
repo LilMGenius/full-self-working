@@ -39,6 +39,8 @@ function payloadOf(result, view) {
   return {
     text: item.text, amountKRW: q?.amountKRW ?? null, priceType: q?.priceType ?? null, split: q?.split ?? null, scope: q?.scope ?? null, deliveryDays: q?.deliveryDays ?? null,
     costKRW: item.costKRW ?? null, serviceLabel: item.serviceLabel ?? null, service: d.service ?? null, thread: item.thread, decision: d, priceRow: priceRow ?? null, requestId: view.requestId ?? null, customer: view.customer ?? null,
+    // A proposal on a board priced outside KRW: its price in the board's currency and the rate it used (wp8).
+    ...(item.currency ? { currency: item.currency, amount: item.amount, fx: item.fx } : {}),
   };
 }
 

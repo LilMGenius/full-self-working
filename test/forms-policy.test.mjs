@@ -131,3 +131,26 @@ test('an unknown bid cost or uncounted bid usage refuses the bid, and a platform
   const k = authorize(itemOf(kmongProposal()), ctx(makeInstance(), loadDescriptor('kmong'), { approved: true }));
   assert.deepEqual([k.verdict, rules(k)], ['send', []]);
 });
+
+// U8.11 of wp8: a proposal answering a buyer request is priced by code, so it meets the price rules a quote meets.
+const pricedProposal = (over = {}) => itemOf(proposalRow('freelancer', { costKRW: 0, amount: 343, currency: 'USD', decision: decision({ language: 'en', reply: EN, quote: { amountKRW: 480000, scope: ['landing page'], deliveryDays: 7, priceType: 'fixed', complexity: 1.2 }, ...over }) }));
+const FREE_BIDS = { bidMonthKRW: 0, bidUnanswered: 0 };
+
+test('a code-priced freelancer proposal meets price.row and budget.below_floor, and kmong enterprise proposals keep send', () => {
+  const i = withBidBudget();
+  const noRow = authorize(pricedProposal(), ctx(i, mappedFreelancer(), { usage: FREE_BIDS, priceRow: null }));
+  assert.equal(noRow.verdict, 'operator');
+  assert.deepEqual(noRow.reasons.find((r) => r.rule === 'price.row').detail, 'proposal without a viable price row for landing_page_web');
+  assert.ok(rules(authorize(pricedProposal(), ctx(i, mappedFreelancer(), { usage: FREE_BIDS, priceRow: { ...ROW, viable: false } }))).includes('price.row'));
+  const low = authorize(pricedProposal({ statedBudgetKRW: 30000 }), ctx(i, mappedFreelancer(), { usage: FREE_BIDS, priceRow: { ...ROW, costFloorKRW: 300000 } }));
+  assert.equal(low.verdict, 'operator');
+  assert.ok(rules(low).includes('budget.below_floor'), rules(low).join(', '));
+  const clean = authorize(pricedProposal(), ctx(i, mappedFreelancer(), { usage: FREE_BIDS, priceRow: ROW }));
+  assert.deepEqual([clean.verdict, rules(clean)], ['send', []]);
+  // A request proposal the model left without a quote has no code-set amount and goes to the operator.
+  const unpriced = authorize(itemOf(proposalRow('freelancer', { costKRW: 0, amountKRW: null })), ctx(i, mappedFreelancer(), { usage: FREE_BIDS, priceRow: ROW }));
+  assert.ok(unpriced.reasons.some((r) => r.rule === 'price.row' && r.detail === 'proposal without a code-set amount'));
+  // kmong's planner sets decision.quote null on a project thread: no price row is asked of it, in auto mode.
+  const k = authorize(itemOf(kmongProposal()), ctx(makeInstance(), loadDescriptor('kmong'), { priceRow: null }));
+  assert.deepEqual([k.verdict, rules(k)], ['send', []]);
+});

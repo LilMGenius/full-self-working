@@ -18,6 +18,7 @@ import { notifyOperator } from '../core/notify.mjs';
 import { copiesHash } from '../core/reviewed.mjs';
 import { transaction } from '../core/tx.mjs';
 import { HOLD_RULES, spendsBids, spendsCash } from '../policy/authorize.mjs';
+import { loadFx as defaultLoadFx } from '../economics/fx.mjs';
 import { baseName, setStatus } from './plan.mjs';
 import { bidUsage, quotaUsage } from './usage.mjs';
 
@@ -28,10 +29,11 @@ export const handles = (surface, kind) => typeof surface?.[METHOD[kind]] === 'fu
 
 // Refusals a surface raises before it touches the page (the 020 contract for the pacing guard): the row
 // goes back as it was. Pacing stops this platform's drain for the tick, as the pipeline did
-// (src/supervisor/run.mjs:239). kmong's proposal refusals (its NOT_TYPED), a spent day quota and a
-// missing enterprise profile, stop only the proposal rows of this drain, so a customer reply planned
-// after an older proposal still goes out.
-export const PROPOSAL_NOT_SENT = ['FSW_KMONG_QUOTA_SPENT', 'FSW_KMONG_ENTERPRISE_PROFILE'];
+// (src/supervisor/run.mjs:239). The proposal refusals, kmong's (its NOT_TYPED: a spent day quota, a missing
+// enterprise profile) and the bidding boards' (freelancer with no bids left or under its balance, upwork short
+// of Connects; wp8), stop only the proposal rows of this drain, so a customer reply planned after an older
+// proposal still goes out.
+export const PROPOSAL_NOT_SENT = ['FSW_KMONG_QUOTA_SPENT', 'FSW_KMONG_ENTERPRISE_PROFILE', 'FSW_FREELANCER_NO_BIDS', 'FSW_FREELANCER_BALANCE', 'FSW_UPWORK_CONNECTS_SHORT'];
 export const NOT_SENT = ['FSW_PACING_LIMIT', ...PROPOSAL_NOT_SENT];
 // Refusals that make the item itself moot with nothing sent or charged (kmong's PROJECT_CLOSED, a soomgo
 // request that already has its quota of quotes): the row goes back from sending and on to stale with the
@@ -53,10 +55,15 @@ export function itemOf(row) {
 
 // What the page shows after an interrupted send: the outbound bubble for a message or a delivery, the
 // platform's request notice for a payment request. A quote has no outbound bubble on a request page, so
-// an interrupted quote always goes to the operator; a proposal is listed on a page read cannot open, so
-// it goes the same way and the projects job reads its status from the proposal list (040).
+// an interrupted quote always goes to the operator. A proposal is read back from the platform's own proposal
+// list when the surface has proposalSent(ref, {since}) (wp8, the bidding boards); without it the proposal goes
+// the same way as a quote and kmong's projects job reads its status from the proposal list (040).
 async function readBack(surface, row) {
-  if (row.kind === 'proposal') return { observed: false, reason: 'an interrupted proposal is not read back here; the projects job reads the proposal list for it', reconciled: true };
+  if (row.kind === 'proposal') {
+    if (typeof surface.proposalSent !== 'function') return { observed: false, reason: 'an interrupted proposal is not read back here; the projects job reads the proposal list for it', reconciled: true };
+    const seen = await surface.proposalSent(row.payload.threadRef, { since: row.updatedAt });
+    return seen?.observed === true ? { ...seen, reconciled: true } : { observed: false, reason: seen?.reason ?? 'the interrupted proposal is not in the proposal list', reconciled: true };
+  }
   if (row.kind === 'quote') return { observed: false, reason: 'the interrupted quote is not on the page', reconciled: true };
   const thread = await surface.read(row.payload.threadRef, { willReply: true });
   // Only lines at or after the claim (updatedAt of the sending row), less a minute of clock drift, can be
@@ -88,7 +95,9 @@ function callSurface(surface, row, verdict, approved, descriptor, files) {
   // customer: soomgo observes the quote from its charge for this customer (e8ea6a6, 7b9524e; 003 Surface).
   if (row.kind === 'quote') return surface.quote(p.threadRef, { amountKRW: p.amountKRW, priceType: p.priceType ?? 'fixed', text, authorized: verdict, allowSpendCash: spendsCash(descriptor, p.thread?.kind), customer: p.customer ?? null });
   if (row.kind === 'pay_request') return surface.payRequest(p.threadRef, { amountKRW: p.amountKRW, approved, authorized: verdict });
-  if (row.kind === 'proposal') return surface.propose(p.threadRef, { text, amountKRW: p.amountKRW, phases: p.proposal?.phases ?? [], files: p.files ?? [], authorized: verdict });
+  // amount is in currency, the board's own (a converted proposal, wp8) or KRW; periodDays is the delivery the
+  // decision quoted.
+  if (row.kind === 'proposal') return surface.propose(p.threadRef, { text, amountKRW: p.amountKRW, amount: p.amount ?? p.amountKRW ?? null, currency: p.currency ?? 'KRW', periodDays: p.periodDays ?? p.deliveryDays ?? null, phases: p.proposal?.phases ?? [], files: p.files ?? [], authorized: verdict });
   return surface.send(p.threadRef, { text, files: row.kind === 'delivery' ? files : [], authorized: verdict });
 }
 
@@ -227,8 +236,27 @@ export async function drain(ledger, { platform, surface, authorize, ctx }) {
     return { quotes: u.quotes + spentHere.quotes, cashKRW: u.cashKRW + spentHere.cashKRW, ...(spendsBids(ctx.descriptor, row.kind) ? bidUsage(ledger, platform, now) : {}) };
   };
   let proposalsStopped = false;
+  // The day's exchange rate, read once and only for a proposal priced outside KRW. A proposal whose rate is
+  // older than it goes stale before anything is judged or sent: its amount no longer states its KRW price.
+  let dayFx;
+  const fxOfDay = async () => (dayFx ??= await (ctx.loadFx ?? defaultLoadFx)(ctx.instance, { now: () => now }));
   for (const row of ledger.listOutbox({ platform, statuses: ['planned', 'approved'] }).filter((r) => handles(surface, r.kind))) {
     if (proposalsStopped && row.kind === 'proposal') continue;
+    if (row.kind === 'proposal' && row.payload.fx) {
+      let today;
+      try {
+        today = await fxOfDay();
+      } catch (err) {
+        out.push({ id: row.id, kind: row.kind, action: 'held', reason: "the day's exchange rate could not be read: " + (err.code ? err.code + ' ' : '') + err.message });
+        continue;
+      }
+      if (String(row.payload.fx.date) < String(today.date)) {
+        const reason = 'the proposal states ' + row.payload.amount + ' ' + row.payload.currency + ' at the rate of ' + row.payload.fx.date + ', older than the rate of ' + today.date;
+        if (setStatus(ledger, row.id, { from: row.status, to: 'stale', reason })) out.push({ id: row.id, kind: row.kind, action: 'stale', reason });
+        else moved(row);
+        continue;
+      }
+    }
     const ready = ctx.hold ? await ctx.hold(row) : null;
     if (ready?.stale || ready?.block) {
       const to = ready.stale ? 'stale' : 'blocked';

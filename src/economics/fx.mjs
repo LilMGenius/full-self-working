@@ -51,3 +51,12 @@ export const toKRW = (amount, currency, fx) => Math.round(amount * krwPerUnit(cu
 
 // What a converted sample keeps beside its priceKRW: the currency, the rate used and where it came from.
 export const fxNote = (currency, fx) => ({ currency, krwPerUnit: krwPerUnit(currency, fx), date: fx.date, source: fx.source });
+
+// A code-set KRW price stated in a board's own currency, for a proposal priced outside KRW: rounded up to the
+// step the form takes, so the converted bid never falls under the KRW price it came from.
+export function foreignAmount(amountKRW, currency, fx, step = 1) {
+  if (!isPositive(amountKRW)) throw new EconomicsError('FSW_FX_AMOUNT', 'no positive KRW amount to convert, got ' + amountKRW, { currency });
+  if (!isPositive(step)) throw new EconomicsError('FSW_FX_AMOUNT', 'the rounding step must be positive, got ' + step, { currency });
+  const units = amountKRW / krwPerUnit(currency, fx);
+  return Number((Math.ceil(units / step - 1e-9) * step).toFixed(2));
+}

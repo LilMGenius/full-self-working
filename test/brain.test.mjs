@@ -223,3 +223,27 @@ test('runCodex throws with the exit code when the process fails', async () => {
     (err) => err instanceof CodexError && err.code === 'FSW_CODEX_EXIT' && err.exitCode !== 0 && err.stderrTail.length > 0,
   );
 });
+
+// U8.11 of wp8: a buyer request on a bidding board is answered with a proposal, priced by code in KRW and
+// stated in the board's currency at the day's rate; a request elsewhere still gets a quote.
+const FX = { day: '20261020', source: 'https://api.frankfurter.dev/v1/latest?base=USD', date: '2026-10-19', base: 'USD', rates: { USD: 1, KRW: 1400 } };
+test('a freelancer request yields a proposal in USD with its rate, and a soomgo request still yields a quote', async () => {
+  const row = { platform: 'freelancer', service: 'landing_page_web', baseKRW: 400000, floorKRW: 200000, ceilingKRW: 1200000, costFloorKRW: 60000, viable: true };
+  const quote = { amountKRW: 1, scope: ['landing page'], deliveryDays: 7, priceType: 'fixed', complexity: 1.2 };
+  const reply = 'I can build this landing page with the three sections you listed and deliver it within a week.';
+  const codex = fakeCodex([decision({ intent: 'quote_request', language: 'en', quote, reply })]);
+  const reads = [];
+  const t = thread([{ direction: 'in', text: 'Need a landing page with three sections' }], { platform: 'freelancer', kind: 'request', quoteCostKRW: 0, serviceLabel: 'Website Design' });
+  const r = await decide(t, ctx(makeInstance(), 'freelancer', codex, { priceTable: [row], loadFx: async () => (reads.push(1), FX) }));
+  assert.equal(r.decision.quote.amountKRW, 480000);
+  // 480,000 KRW at 1,400 KRW a dollar is 342.86 USD, rounded up to the whole dollar so the bid never undercuts it.
+  assert.deepEqual([r.item.kind, r.item.amountKRW, r.item.currency, r.item.amount, r.item.costKRW], ['proposal', 480000, 'USD', 343, 0]);
+  assert.deepEqual(r.item.fx, { currency: 'USD', krwPerUnit: 1400, date: '2026-10-19', source: FX.source });
+  assert.equal(reads.length, 1);
+  // The same reply on soomgo, a request-quote platform in KRW, is a quote with no conversion and no rate read.
+  const soomgoRow = { ...row, platform: 'soomgo' };
+  const ko = fakeCodex([decision({ intent: 'quote_request', quote, reply: '요청하신 세 섹션으로 일주일 안에 진행 가능합니다.' })]);
+  const k = thread([{ direction: 'in', text: '세 섹션짜리 랜딩 페이지가 필요합니다' }], { platform: 'soomgo', kind: 'request', quoteCostKRW: 1990, serviceLabel: '웹 디자인' });
+  const s = await decide(k, ctx(makeInstance(), 'soomgo', ko, { priceTable: [soomgoRow], loadFx: async () => assert.fail('soomgo reads no rate') }));
+  assert.deepEqual([s.item.kind, s.item.currency, s.item.amount, s.item.fx], ['quote', undefined, undefined, undefined]);
+});

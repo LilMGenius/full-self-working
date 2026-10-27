@@ -692,7 +692,8 @@ const mappedFreelancer = () => {
   return d;
 };
 const EN = 'I can build this with the layout you described. Let me know the schedule you have in mind.';
-const bidPayload = (costKRW, i) => ({ text: EN + ' ' + i, amountKRW: 400000, costKRW, thread: { kind: 'request', stage: 'pre_order', lastInboundText: 'Need a landing page', recentOutbound: [] }, decision: decision({ intent: 'quote_request', language: 'en', reply: EN }) });
+// A bid as the loop plans it: priced by code from a viable price row (U8.11), so only the bid budget decides it.
+const bidPayload = (costKRW, i) => ({ text: EN + ' ' + i, amountKRW: 400000, costKRW, priceRow: { ...ROW, platform: 'freelancer' }, thread: { kind: 'request', stage: 'pre_order', lastInboundText: 'Need a landing page', recentOutbound: [] }, decision: decision({ intent: 'quote_request', language: 'en', reply: EN, quote: { amountKRW: 400000, scope: ['landing page'], deliveryDays: 7, priceType: 'fixed', complexity: 1 } }) });
 const bidSetup = (bidBudget) => setup('freelancer', (c) => ({ ...c, platforms: { ...c.platforms, freelancer: { ...c.platforms.freelancer, enabled: true, mode: 'auto', bidBudget } } }));
 
 test('two priced proposals with room for one: the first goes out and the second is blocked by budget.bid', async () => {
@@ -717,4 +718,55 @@ test('one more unanswered proposal than the limit allows stops the next bid, and
   const sentAt = Date.parse(s.ledger.getOutbox(rows[0].id).updatedAt);
   s.ledger.addMessage({ threadId: threads[0].id, direction: 'in', body: 'Thanks, can we talk?', externalId: 'r1', at: new Date(sentAt + 60_000).toISOString() });
   assert.deepEqual(bidUsage(s.ledger, 'freelancer', NOON), { bidMonthKRW: 0, bidUnanswered: 0 });
+});
+// U8.11 of wp8: a converted proposal carries its rate; the drain sends its amount and currency, sends nothing on
+// a rate older than the day's, and reads an interrupted one back from the board's own proposal list.
+const RATE = (date) => ({ currency: 'USD', krwPerUnit: 1400, date, source: 'https://api.frankfurter.dev/v1/latest?base=USD' });
+const dayRate = async () => ({ day: '20261020', source: 'https://api.frankfurter.dev/v1/latest?base=USD', date: '2026-10-19', base: 'USD', rates: { USD: 1, KRW: 1400 } });
+const usdPayload = (fxDate, i = 0) => ({ ...bidPayload(0, i), amountKRW: 480000, amount: 343, currency: 'USD', deliveryDays: 7, fx: RATE(fxDate) });
+
+test('a proposal priced at an older rate than the day goes stale with no surface call; one at the day rate sends amount, currency and period', async () => {
+  const s = bidSetup({ monthlyKRW: 0, stopAfterUnanswered: 20 });
+  const old = plan(s.ledger, { platform: 'freelancer', threadId: s.thread('p1', 'request').id, kind: 'proposal', payload: usdPayload('2026-10-16', 0) });
+  const current = plan(s.ledger, { platform: 'freelancer', threadId: s.thread('p2', 'request').id, kind: 'proposal', payload: usdPayload('2026-10-19', 1) });
+  const surface = scriptedSurface({ methods: ['propose'] });
+  const out = await s.run(surface, { descriptor: mappedFreelancer(), loadFx: dayRate });
+  assert.deepEqual(out.map((x) => [x.id, x.action]), [[old.id, 'stale'], [current.id, 'observed']]);
+  assert.match(s.ledger.getOutbox(old.id).reason, /343 USD at the rate of 2026-10-16, older than the rate of 2026-10-19/);
+  const calls = surface.calls.filter((c) => c.name === 'propose');
+  assert.equal(calls.length, 1);
+  assert.deepEqual([calls[0].ref, calls[0].args.amount, calls[0].args.currency, calls[0].args.amountKRW, calls[0].args.periodDays, calls[0].args.authorized.verdict], ['p2', 343, 'USD', 480000, 7, 'send']);
+});
+
+test('a rate the day cannot read holds the converted proposal, and a KRW proposal gets amount in KRW', async () => {
+  const s = bidSetup({ monthlyKRW: 0, stopAfterUnanswered: 20 });
+  const row = plan(s.ledger, { platform: 'freelancer', threadId: s.thread('p1', 'request').id, kind: 'proposal', payload: usdPayload('2026-10-19') });
+  const down = async () => Promise.reject(Object.assign(new Error('HTTP 503'), { code: 'FSW_FX_UNAVAILABLE' }));
+  const surface = scriptedSurface({ methods: ['propose'] });
+  const out = await s.run(surface, { descriptor: mappedFreelancer(), loadFx: down });
+  assert.deepEqual([out[0].action, s.ledger.getOutbox(row.id).status, surface.count('propose')], ['held', 'planned', 0]);
+  const k = setup();
+  const prop = plan(k.ledger, { platform: 'kmong', threadId: k.thread('p1').id, kind: 'proposal', payload: { text: '요청하신 범위로 제안드립니다. 일정은 협의 가능합니다.', amountKRW: 1000000 } });
+  setStatus(k.ledger, prop.id, { from: 'planned', to: 'awaiting_operator', approvalId: '20261020-kmong-0000beef' });
+  resolve(k.ledger, '20261020-kmong-0000beef', { approve: true });
+  const spy = scriptedSurface({ methods: ['propose'] });
+  await k.run(spy, { loadFx: async () => assert.fail('a KRW proposal reads no rate') });
+  const call = spy.calls.find((c) => c.name === 'propose');
+  assert.deepEqual([call.args.amount, call.args.currency, call.args.periodDays], [1000000, 'KRW', null]);
+});
+
+test('an interrupted proposal is observed through the surface proposal list, and one it does not list goes to unobserved', async () => {
+  const s = bidSetup({ monthlyKRW: 0, stopAfterUnanswered: 20 });
+  const seen = plan(s.ledger, { platform: 'freelancer', threadId: s.thread('p1', 'request').id, kind: 'proposal', payload: usdPayload('2026-10-19', 0) });
+  const missing = plan(s.ledger, { platform: 'freelancer', threadId: s.thread('p2', 'request').id, kind: 'proposal', payload: usdPayload('2026-10-19', 1) });
+  for (const row of [seen, missing]) setStatus(s.ledger, row.id, { from: 'planned', to: 'sending' });
+  const surface = scriptedSurface({ methods: ['propose'] });
+  const asked = [];
+  surface.proposalSent = async (ref, opts) => (asked.push([ref, typeof opts.since]), ref === 'p1' ? { observed: true, externalId: 'bid-77' } : { observed: false, reason: 'no bid on project p2 in the bid list' });
+  const out = await s.run(surface, { descriptor: mappedFreelancer(), loadFx: dayRate });
+  assert.deepEqual(asked, [['p1', 'string'], ['p2', 'string']]);
+  assert.deepEqual(out.map((x) => [x.id, x.action, x.reconciled ?? null]), [[seen.id, 'observed', true], [missing.id, 'unobserved', null]]);
+  assert.equal(s.ledger.getOutbox(seen.id).receipt.externalId, 'bid-77');
+  assert.equal(s.ledger.getOutbox(missing.id).reason, 'no bid on project p2 in the bid list');
+  assert.deepEqual([surface.count('propose'), surface.count('read')], [0, 0]);
 });

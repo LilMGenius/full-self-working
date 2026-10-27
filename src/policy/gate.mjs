@@ -165,9 +165,10 @@ export function gateOutbound(item, ctx = {}) {
     }
   }
 
-  // price
-  if (item.kind === 'quote') {
-    if (typeof item.amountKRW !== 'number') add(violations, 'price.missing', 'a quote goes out through a form that needs an amount, and this one has none');
+  // price: a quote, and a proposal answering a buyer request on a bidding board, which code prices like a quote
+  // (U8.11 of wp8). kmong's enterprise proposals answer a project and are priced by their own planner.
+  if (item.kind === 'quote' || (item.kind === 'proposal' && item.thread?.kind === 'request')) {
+    if (typeof item.amountKRW !== 'number') add(violations, 'price.missing', 'a ' + item.kind + ' goes out through a form that needs an amount, and this one has none');
     else if (priceRow) {
       const { floorKRW, ceilingKRW } = priceRow;
       if ((floorKRW != null && item.amountKRW < floorKRW) || (ceilingKRW != null && item.amountKRW > ceilingKRW)) {

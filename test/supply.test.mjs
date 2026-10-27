@@ -184,3 +184,20 @@ test('the supply report prints spend by source and each campaign budget, and a b
   const unlimited = await supplyReport('soomgo', { instance: makeInstance(), ledger, now: NOW, openSurface });
   assert.deepEqual([unlimited.spend.limitKRW, unlimited.spend.over], [null, []]);
 });
+
+test('the supply line prints the quote funnel, and says when opens are not recorded yet', () => {
+  const report = (funnel) => ({ platform: 'soomgo', awaitingReply: 0, parked: { outOfCatalog: 0, stale: 0, expired: 0, notice: 0 }, waiting: {}, status: 'ok', notes: [], funnel });
+  const f = { days: 7, sent: 3, opened: 1, hiredUs: 0, hiredOther: 1, noAnswer: 2, unlinked: 0, opensKnown: true };
+  assert.match(supplyLines({ reports: [report(f)] })[0], /; quotes in 7 days: 3 sent, 1 opened, 0 hired us, 1 hired another pro, 2 no answer yet$/);
+  assert.match(supplyLines({ reports: [report({ ...f, opened: 0, opensKnown: false, unlinked: 2 })] })[0], /quotes in 7 days: 3 sent, opens not recorded yet, 0 hired us, 1 hired another pro, 2 no answer yet, 2 chats not linked to an fsw quote$/);
+  assert.doesNotMatch(supplyLines({ reports: [report({ ...f, sent: 0, unlinked: 0 })] })[0], /quotes in/);
+});
+
+test('the supply report carries the quote funnel of its platform', async () => {
+  const instance = makeInstance();
+  const ledger = openLedger(':memory:');
+  const t = ledger.upsertThread({ platform: 'soomgo', externalId: 'r1', kind: 'request' });
+  ledger.addQuote({ threadId: t.id, platform: 'soomgo', service: 'detail_page_design', amountKRW: 300000, costKRW: 4000, status: 'sent', at: hoursAgo(5) });
+  const report = await supplyReport('soomgo', { instance, ledger, now: NOW, openSurface: surfaceWith([]) });
+  assert.deepEqual(report.funnel, { days: 7, sent: 1, opened: 0, hiredUs: 0, hiredOther: 0, noAnswer: 1, unlinked: 0, opensKnown: false });
+});

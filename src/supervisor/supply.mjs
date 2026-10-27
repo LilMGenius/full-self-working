@@ -11,6 +11,7 @@ import { dayKey, hourKey } from '../core/clock.mjs';
 import { notifyOperator } from '../core/notify.mjs';
 import { pipelineSettings } from '../core/settings.mjs';
 import { answeredServices, catalogServicesFor } from '../economics/catalog.mjs';
+import { quoteFunnel } from '../economics/quote-results.mjs';
 import { loadDescriptor } from '../platforms/registry.mjs';
 import { listingsDir, readPublished } from '../listings/gig.mjs';
 import { gigStatus, readReview } from '../listings/review.mjs';
@@ -92,6 +93,7 @@ export async function supplyReport(platform, { instance, ledger, now = new Date(
     parked: parkedCounts(ledger, platform, now),
     paced: pacedCounts(ledger, platform, now),
     candidates: expansionCandidates(ledger, descriptor, now),
+    funnel: quoteFunnel(ledger, { platform, now, days: SUPPLY_DAYS }),
     awaitingReply: settings ? ledger.listThreads({ platform }).filter((t) => t.kind !== 'project' && awaitingReply(t, ledger.threadMessages(t.id), { now, settings })).length : null,
     waiting, notes,
   };
@@ -167,6 +169,9 @@ export function supplyLines(supply) {
   if (!supply.reports.length) return ['- no platform is enabled'];
   return supply.reports.map((r) => {
     const parts = [(r.awaitingReply ?? 'unknown') + ' awaiting reply', 'parked in ' + SUPPLY_DAYS + ' days: ' + counts({ 'out of catalog': r.parked.outOfCatalog, stale: r.parked.stale, expired: r.parked.expired, notices: r.parked.notice })];
+    // The quote funnel (U7.Q): what customers did with the quotes of the last SUPPLY_DAYS days.
+    const f = r.funnel;
+    if (f && (f.sent || f.unlinked)) parts.push('quotes in ' + f.days + ' days: ' + f.sent + ' sent, ' + (f.opensKnown ? f.opened + ' opened' : 'opens not recorded yet') + ', ' + f.hiredUs + ' hired us, ' + f.hiredOther + ' hired another pro, ' + f.noAnswer + ' no answer yet' + (f.unlinked ? ', ' + f.unlinked + ' chats not linked to an fsw quote' : ''));
     if (r.candidates?.length) parts.push('labels no service covers yet: ' + r.candidates.map((c) => c.label + ' ' + c.threads).join(', '));
     if (r.paced?.waited) parts.push(r.paced.waited + ' requests waited for the hourly read share' + (r.paced.parkedUnread ? ', ' + r.paced.parkedUnread + ' of them parked unread' : ''));
     if (r.listings) parts.push('gigs: ' + counts(r.listings.byStatus) + ' of ' + r.listings.published);

@@ -11,6 +11,8 @@ import { applyEffects, step } from '../src/loop/index.mjs';
 import { decide } from '../src/brain/respond.mjs';
 import { THREAD_ATTEMPTS } from '../src/triage/index.mjs';
 import { scriptedSurface } from './helpers/surface.mjs';
+import { readRecording } from '../src/surface/recorder.mjs';
+import { openSurface } from '../src/surface/index.mjs';
 import { notifyOperator } from '../src/core/notify.mjs';
 import { tempDir } from './tmp.mjs';
 
@@ -555,3 +557,18 @@ test('a deal signal that fails on every tick tells the operator once', async () 
   assert.equal(s.events('deal.signal_failed').length, 2);
 });
 
+// The soomgo sense fixture through the real surface: chat 501 names request r-9001 and its quote was opened.
+test('a step records the quote funnel from the rows it senses, and a second step over the same rows writes none', async () => {
+  const s = setup((c) => ({ ...c, platforms: { ...c.platforms, soomgo: { ...c.platforms.soomgo, mode: 'observe' } } }));
+  const lines = readRecording(join('test', 'fixtures', 'surfaces', 'soomgo', 'sense.jsonl'));
+  const inbound = await (await openSurface('soomgo', { replay: lines })).sense();
+  const req = s.ledger.upsertThread({ platform: 'soomgo', externalId: 'r-9001', kind: 'request' });
+  const q = s.ledger.addQuote({ threadId: req.id, platform: 'soomgo', service: 'landing_page_web', amountKRW: 300000, costKRW: 990, status: 'sent', at: hoursBefore(NOON, 20) });
+  const surface = () => scriptedSurface({ sense: inbound });
+  const first = await s.run('soomgo', surface());
+  assert.equal(first.funnel, 1);
+  assert.deepEqual(s.events('quote.opened').map((e) => [e.ref, e.quoteId, e.firstSeen]), [['501', q.id, true]]);
+  const second = await s.run('soomgo', surface());
+  assert.equal(second.funnel, 0);
+  assert.equal(s.events('quote.opened').length, 1);
+});

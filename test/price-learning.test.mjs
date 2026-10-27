@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openLedger } from '../src/core/ledger.mjs';
 import { plan, setStatus } from '../src/outbox/index.mjs';
-import { QUOTE_RESULTS, dayStart, priceIndex, quoteResults } from '../src/economics/quote-results.mjs';
+import { QUOTE_RESULTS, dayStart, priceIndex, quoteFunnel, quoteResults } from '../src/economics/quote-results.mjs';
 import { learnPriceRows, learnedFactor } from '../src/economics/price-learning.mjs';
 import { quoteForRequest } from '../src/economics/pricing.mjs';
 import { quoteFromRow } from '../src/economics/quote.mjs';
@@ -184,4 +184,45 @@ test('decided quotes without a pricing basis fill the win rate, never minCases: 
   assert.deepEqual([r.baseKRW, r.learned.factor, r.learned.cases, r.learned.priced, r.learned.winRate, r.learned.reason], [300000, 1, 5, 1, 1 / 7, '1 of 5 priced decided quotes']);
   const [five] = learnPriceRows([row()], [...unpriced, ...cases('expired', 1, 5)], { settings: SETTINGS, descriptors, asOf: ASOF });
   assert.deepEqual([five.learned.factor, five.learned.cases, five.learned.priced], [0.8655, 9, 5], 'five priced cases move it, and the unpriced ones still count in the win rate');
+});
+
+// The chat list's acts, as recordFunnel writes them (src/loop/funnel.mjs).
+const act = (ledger, kind, ref, quoteId, at, extra = {}) => ledger.addEvent({ kind, platform: 'soomgo', ref, at, payload: { quoteId, requestThreadId: null, unlinked: quoteId == null ? 'the row names no request' : null, firstSeen: false, otherStatus: null, ...extra } });
+
+test('a customer who hired another pro makes the quote lost from the time it is seen, and the end of that hire reopens it', () => {
+  const ledger = openLedger(':memory:');
+  const { quote } = sent(ledger, { ref: 'h' });
+  act(ledger, 'quote.hired_other', 'c-h', quote.id, plus(T0, 2 * DAY), { otherStatus: 'hired' });
+  const at = (d) => quoteResults(ledger, { asOf: new Date(plus(T0, d * DAY)), expireAfterDays: 14 }).find((r) => r.id === quote.id);
+  assert.deepEqual([at(1).result, at(1).cause], ['open', null]);
+  assert.deepEqual([at(3).result, at(3).cause, at(3).aged], ['lost', 'hired_other', false]);
+  act(ledger, 'quote.hired_other_cancelled', 'c-h', quote.id, plus(T0, 4 * DAY));
+  assert.deepEqual([at(5).result, at(5).cause], ['open', null]);
+});
+
+test('an accepted quote stays won once whatever the chat showed before, and opened follows the open event', () => {
+  const ledger = openLedger(':memory:');
+  const won = sent(ledger, { ref: 'w', status: 'accepted' });
+  const seen = sent(ledger, { ref: 's' });
+  act(ledger, 'quote.hired_other', 'c-w', won.quote.id, plus(T0, DAY));
+  act(ledger, 'quote.opened', 'c-s', seen.quote.id, plus(T0, DAY));
+  const r = byId(quoteResults(ledger, { asOf: new Date(plus(T0, 2 * DAY)), expireAfterDays: 14 }));
+  assert.deepEqual([r['quote:' + won.quote.id].result, r['quote:' + won.quote.id].cause], ['won', null]);
+  assert.deepEqual([r['quote:' + seen.quote.id].opened, r['quote:' + won.quote.id].opened], [true, false]);
+});
+
+test('quoteFunnel counts what customers did with the quotes of the window', () => {
+  const ledger = openLedger(':memory:');
+  const now = new Date(plus(T0, 3 * DAY));
+  const opened = sent(ledger, { ref: 'o' });
+  const other = sent(ledger, { ref: 'x' });
+  sent(ledger, { ref: 'p' });
+  sent(ledger, { ref: 'old', quoteAt: plus(T0, -10 * DAY), rowAt: plus(T0, -10 * DAY) });
+  act(ledger, 'quote.opened', 'c-o', opened.quote.id, plus(T0, DAY));
+  act(ledger, 'quote.hired_other', 'c-x', other.quote.id, plus(T0, DAY), { otherStatus: 'hired' });
+  act(ledger, 'quote.opened', 'c-u', null, plus(T0, DAY));
+  const f = quoteFunnel(ledger, { platform: 'soomgo', now, days: 7 });
+  assert.deepEqual(f, { days: 7, sent: 3, opened: 1, hiredUs: 0, hiredOther: 1, noAnswer: 2, unlinked: 1, opensKnown: false });
+  ledger.upsertThread({ platform: 'soomgo', externalId: 'c-o', kind: 'message', meta: { funnel: { opened: true } } });
+  assert.equal(quoteFunnel(ledger, { platform: 'soomgo', now, days: 7 }).opensKnown, true);
 });

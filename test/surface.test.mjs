@@ -112,7 +112,7 @@ test('sense maps soomgo chats and requests and kmong inbox rows to Inbound, open
   const soomgo = await openSurface('soomgo', { replay: fixture('soomgo') });
   const rows = await soomgo.sense();
   assert.deepEqual(rows.map((r) => [r.kind, r.ref, r.unread]), [['message', '501', true], ['message', '502', false], ['request', 'r-9002', true]]);
-  assert.deepEqual(Object.keys(rows[0]).sort(), ['at', 'customer', 'expiresAt', 'hired', 'kind', 'notice', 'platform', 'preview', 'quotable', 'quote', 'quoteCostKRW', 'quoteCount', 'ref', 'requestId', 'service', 'status', 'unread']);
+  assert.deepEqual(Object.keys(rows[0]).sort(), ['at', 'customer', 'expiresAt', 'hired', 'kind', 'notice', 'otherProHired', 'platform', 'preview', 'quotable', 'quote', 'quoteCostKRW', 'quoteCount', 'ref', 'requestId', 'service', 'status', 'unread']);
   assert.equal(rows[0].at, '2026-10-25T10:12:00.000+09:00');
   assert.deepEqual(rows[0].quote, { priceKRW: 300000, unit: 'total', opened: true });
   assert.match(rows[1].notice, /결제한 금액/);
@@ -174,4 +174,12 @@ test('read takes kind message or request: kmong refuses a request and an unknown
 test('soomgo orders count hired chats with no counters, so no counter alert can rise', async () => {
   const soomgo = await openSurface('soomgo', { replay: readRecording(fixture('soomgo')).slice(0, 2) });
   assert.deepEqual(await soomgo.orders(), { counts: null, total: 1, gap: 'soomgo has no order list; hires are chat rows from sense', orders: null });
+});
+
+test('a soomgo chat Inbound carries otherProHired from the chat list', async () => {
+  const lines = readRecording(fixture('soomgo'));
+  const rows = lines.find((l) => l.name === 'pageChats').answer.map((c, i) => (i === 0 ? { ...c, otherProHireStatus: 'hired' } : c));
+  const surface = await openSurface('soomgo', { replay: lines.map((l) => (l.name === 'pageChats' ? { ...l, answer: rows } : l)) });
+  const chats = (await surface.sense()).filter((ib) => ib.kind === 'message');
+  assert.deepEqual(chats.map((c) => [c.ref, c.otherProHired, c.quote?.opened ?? null, c.requestId]), [['501', 'hired', true, 'r-9001'], ['502', null, null, null]]);
 });

@@ -5,11 +5,11 @@ import { AdapterRefusal } from '../platforms/kit.mjs';
 import { REQUEST_FULL, openSoomgo } from '../platforms/soomgo/adapter.mjs';
 import { authorizedSend, messageOf, readKind, receiptOf, unauthorized } from './shared.mjs';
 
-const base = { platform: 'soomgo', notice: null, status: null, hired: null, quotable: null, expiresAt: null, quoteCostKRW: null, requestId: null, quote: null, quoteCount: null };
+const base = { platform: 'soomgo', notice: null, status: null, hired: null, otherProHired: null, quotable: null, expiresAt: null, quoteCostKRW: null, requestId: null, quote: null, quoteCount: null };
 
 export const inboundOfChat = (c) => ({
   ...base, ref: String(c.id), kind: 'message', at: c.at ?? null, unread: c.unread === true, service: c.service ?? null, preview: c.preview ?? null,
-  notice: c.notice ?? null, status: c.status ?? null, hired: c.hired ?? null, requestId: c.requestId == null ? null : String(c.requestId), customer: c.customer ?? null, quote: c.quote ?? null,
+  notice: c.notice ?? null, status: c.status ?? null, hired: c.hired ?? null, otherProHired: c.otherProHired ?? null, requestId: c.requestId == null ? null : String(c.requestId), customer: c.customer ?? null, quote: c.quote ?? null,
 });
 
 export const inboundOfRequest = (r) => ({

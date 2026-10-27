@@ -3,7 +3,7 @@
 // own order with its own tier. Quote costs count whether or not the quote won.
 import { sellerNet } from './fees.mjs';
 import { EconomicsError, requireNumber } from './errors.mjs';
-import { quoteResults } from './quote-results.mjs';
+import { decidedThreads, quoteResults } from './quote-results.mjs';
 
 const WON = new Set(['ordered', 'in_progress', 'delivered', 'revision', 'closed']);
 
@@ -45,13 +45,12 @@ export function armStats(ledger, { descriptors, services, config, results = quot
 
   for (const t of ledger.listThreads()) arm(t.platform, t.service).leadKeys.add(`thread:${t.id}`);
 
-  // Threads whose job already decided its quote: a job past quoted counts its own win or loss. A soomgo job
-  // moves to its chat thread and names the request thread its quote sits on (findJob in src/deal/advance.mjs).
-  const decidedThreads = new Set();
+  // Threads whose deal already decided its quotes (decidedThreads, quote-results.mjs): their job counts its
+  // own win or loss.
+  const decided = decidedThreads(ledger);
   for (const job of ledger.listJobs()) {
     const a = arm(job.platform, job.service);
     a.leadKeys.add(job.threadId != null ? `thread:${job.threadId}` : `job:${job.id}`);
-    if (job.status !== 'quoted') for (const t of [job.threadId, job.meta?.requestThreadId]) if (t != null) decidedThreads.add(t);
     const won = WON.has(job.status);
     if (won) a.wins += 1;
     if (job.status === 'lost') a.losses += 1;
@@ -83,7 +82,7 @@ export function armStats(ledger, { descriptors, services, config, results = quot
   for (const r of results) {
     const a = arm(r.platform, r.service);
     if (r.result === 'refused') a.refused += 1;
-    else if ((r.result === 'lost' || r.result === 'expired') && !(r.threadId != null && decidedThreads.has(r.threadId))) a.losses += 1;
+    else if ((r.result === 'lost' || r.result === 'expired') && !(r.threadId != null && decided.has(r.threadId))) a.losses += 1;
   }
 
   return [...arms.values()]

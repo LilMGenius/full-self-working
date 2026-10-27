@@ -145,3 +145,34 @@ test('priceLearningSettings reads the group, learns nothing without it, and refu
   assert.throws(() => priceLearningSettings({ priceLearning: { ...SETTINGS, maxMove: 1 } }), { code: 'FSW_CONFIG_MISSING' });
   assert.throws(() => priceLearningSettings({ priceLearning: { ...SETTINGS, minCases: 0 } }), { code: 'FSW_CONFIG_MISSING' });
 });
+
+// Two quotes on one thread, sent a day apart: the client hired on the newer one.
+function requote(ledger, ref, { jobStatus = 'ordered', newerStatus = 'accepted', chat = false } = {}) {
+  const t = ledger.upsertThread({ platform: 'soomgo', externalId: ref, kind: 'request' });
+  const quote = (amountKRW, at, status) => {
+    const row = plan(ledger, { platform: 'soomgo', threadId: t.id, kind: 'quote', payload: { text: 'q ' + ref + amountKRW, amountKRW, service: 'detail_page_design', decision: { quote: { amountKRW, pricing: { source: 'guide', guideAvg: 300000, complexity: 1 } } } } });
+    setStatus(ledger, row.id, { from: 'planned', to: 'sending' });
+    setStatus(ledger, row.id, { from: 'sending', to: 'observed', receipt: { observed: true } });
+    ledger.db.prepare('UPDATE outbox SET updated_at = ? WHERE id = ?').run(at, row.id);
+    return ledger.addQuote({ threadId: t.id, platform: 'soomgo', service: 'detail_page_design', amountKRW, costKRW: 990, status, at });
+  };
+  const older = quote(240000, T0, 'sent');
+  const newer = quote(300000, plus(T0, DAY), newerStatus);
+  const jobThread = chat ? ledger.upsertThread({ platform: 'soomgo', externalId: ref + '-chat', kind: 'message' }) : t;
+  ledger.upsertJob({ id: 'soomgo-' + ref, threadId: jobThread.id, platform: 'soomgo', service: 'detail_page_design', status: jobStatus, meta: chat ? { requestThreadId: t.id } : {} });
+  return { older, newer };
+}
+
+test('a quote the client passed over for a newer one on the same deal is superseded, never a loss', () => {
+  const ledger = openLedger(':memory:');
+  const hired = requote(ledger, 'h');
+  const cancelled = requote(ledger, 'c', { jobStatus: 'lost', newerStatus: 'declined', chat: true });
+  const waiting = requote(ledger, 'w', { jobStatus: 'quoted', newerStatus: 'sent' });
+  const r = byId(quoteResults(ledger, { asOf: new Date(plus(T0, 30 * DAY)), expireAfterDays: 14 }));
+  const at = (q) => [q.amountKRW, r['quote:' + q.id].result];
+  assert.deepEqual([at(hired.older), at(hired.newer)], [[240000, 'superseded'], [300000, 'won']]);
+  assert.deepEqual([at(cancelled.older), at(cancelled.newer)], [[240000, 'superseded'], [300000, 'lost']], 'a soomgo chat job names the request thread its quotes sit on');
+  assert.deepEqual([at(waiting.older), at(waiting.newer)], [[240000, 'expired'], [300000, 'expired']], 'a deal still at quoted has decided nothing');
+  const [row] = learnPriceRows([{ platform: 'soomgo', service: 'detail_page_design', viable: true, baseKRW: 300000, costFloorKRW: 50000, marketCeilingKRW: 1000000 }], Object.values(r).filter((x) => x.threadId === hired.older.threadId), { settings: { minCases: 1, step: 0.2, maxMove: 0.3, lookbackDays: 180 }, descriptors: { soomgo: loadDescriptor('soomgo') }, asOf: new Date(plus(T0, 30 * DAY)) });
+  assert.deepEqual([row.learned.won, row.learned.superseded, row.learned.cases, row.learned.factor], [1, 1, 1, 1], 'only the won quote is learned');
+});

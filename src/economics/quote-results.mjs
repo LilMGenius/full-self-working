@@ -1,9 +1,20 @@
 // What became of every quote fsw sent, replayed from the ledger (docs/DESIGN.md, Economics): won, lost,
-// expired, refused or still open, each with the price index it went out at when its pricing basis is known.
+// expired, refused, superseded or still open, each with the price index it went out at when its pricing
+// basis is known.
 // Nothing here writes; the same ledger and the same day give the same list, which the price table
 // (price-learning.mjs) and the allocation (yield.mjs) both read, so neither counts a quote its own way.
-export const QUOTE_RESULTS = ['won', 'lost', 'expired', 'refused', 'open'];
+export const QUOTE_RESULTS = ['won', 'lost', 'expired', 'refused', 'superseded', 'open'];
 const DAY_MS = 86_400_000;
+
+// Threads whose deal already moved past its quotes: one holding an accepted quote, and the thread of a job
+// past lead and quoted together with the request thread a soomgo chat job names (meta.requestThreadId, set
+// by findJob in src/deal/advance.mjs). A still-sent quote on such a thread was passed over for another quote
+// of the same deal (superseded), and the allocation (yield.mjs) leaves the job to count that deal's result.
+export function decidedThreads(ledger) {
+  const out = new Set(ledger.listQuotes({ status: 'accepted' }).map((q) => q.threadId).filter((t) => t != null));
+  for (const job of ledger.listJobs()) if (!['lead', 'quoted'].includes(job.status)) for (const t of [job.threadId, job.meta?.requestThreadId]) if (t != null) out.add(t);
+  return out;
+}
 
 // 00:00 Seoul of a dayKey (YYYYMMDD, src/core/clock.mjs): the instant a day's table and allocation are
 // computed as of, so a rerun later that day sees the same cases.
@@ -41,14 +52,18 @@ export function quoteResults(ledger, { asOf, expireAfterDays }) {
   if (!(expireAfterDays > 0)) throw new RangeError('expireAfterDays must be positive, got ' + expireAfterDays);
   const cut = asOf.getTime();
   const observed = ledger.listOutbox({ kinds: ['quote'], statuses: ['observed'] });
+  const decided = decidedThreads(ledger);
   const out = [];
   for (const q of ledger.listQuotes()) {
     const src = sourceRow(q, observed);
     const sent = sentAt(q, src);
     const at = Date.parse(sent);
     if (at > cut) continue;
-    const aged = q.status === 'sent' && cut - at >= expireAfterDays * DAY_MS;
-    const result = q.status === 'accepted' ? 'won' : q.status === 'declined' ? 'lost' : q.status === 'expired' || aged ? 'expired' : 'open';
+    // A quote still sent on a thread whose deal moved on was passed over for another quote of that deal: it is
+    // neither won nor lost, and it never ages into expired.
+    const superseded = q.status === 'sent' && decided.has(q.threadId);
+    const aged = q.status === 'sent' && !superseded && cut - at >= expireAfterDays * DAY_MS;
+    const result = q.status === 'accepted' ? 'won' : q.status === 'declined' ? 'lost' : q.status === 'expired' || aged ? 'expired' : superseded ? 'superseded' : 'open';
     out.push({ source: 'quote', id: q.id, threadId: q.threadId, platform: q.platform, service: q.service ?? src?.payload?.service ?? null, at: sent, amountKRW: q.amountKRW, costKRW: q.costKRW ?? 0, result, aged, index: priceIndex(q.amountKRW, src?.payload?.decision?.quote?.pricing) });
   }
   // A send the platform refused before the client saw it (the drain's STALE_NOT_SENT): no quote row exists.

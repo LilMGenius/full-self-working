@@ -833,3 +833,19 @@ test('a dollar amount that disagrees with its KRW price is blocked, and the one 
   const call = surface.calls.find((c) => c.name === 'propose');
   assert.deepEqual([call.ref, call.args.amount, call.args.currency], ['p2', 286, 'USD']);
 });
+// The C re-review of wp8, finding 1: settling a send without --cost keeps the cost its receipt recorded.
+test('fsw approve --sent without --cost keeps the recorded bid cost, so the next bid past the month limit is blocked', async () => {
+  const s = bidSetup({ monthlyKRW: 3000, stopAfterUnanswered: 20 });
+  const old = earlierBid(s, 'old', 1000, { observed: false, cashSpentKRW: 2500 });
+  assert.equal(settleSent(s.ledger, old.approvalId, { now: NOON }).receipt.cashSpentKRW, 2500);
+  assert.equal(bidUsage(s.ledger, 'freelancer', NOON).bidMonthKRW, 2500);
+  const row = plan(s.ledger, { platform: 'freelancer', threadId: s.thread('p1', 'request').id, kind: 'proposal', payload: bidPayload(2000, 1) });
+  const surface = scriptedSurface({ methods: ['propose'] });
+  await s.run(surface);
+  assert.deepEqual([s.ledger.getOutbox(row.id).status, surface.count('propose')], ['blocked', 0]);
+  // A press the surface recorded is kept the same way, and --cost still sets the cost.
+  const pressed = earlierBid(s, 'pressed', 1000, { observed: false, costKRW: 1800 }, '20261020-freelancer-0000aaa3');
+  assert.equal(settleSent(s.ledger, pressed.approvalId, { now: NOON }).receipt.cashSpentKRW, 1800);
+  const told = earlierBid(s, 'told', 1000, { observed: false, cashSpentKRW: 2500 }, '20261020-freelancer-0000aaa4');
+  assert.equal(settleSent(s.ledger, told.approvalId, { costKRW: 700, now: NOON }).receipt.cashSpentKRW, 700);
+});

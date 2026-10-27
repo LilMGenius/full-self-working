@@ -159,10 +159,23 @@ test('wishket sense lists open 외주 projects as requests and read gives the de
   const rows = await s.sense();
   assert.deepEqual(rows.map((r) => [r.ref, r.kind, r.service, r.quotable, r.quoteCostKRW, r.unread, r.at]), [['1', 'request', '랜딩ㆍ소개 페이지', true, 0, false, '2026-10-21T00:00:00+09:00'], ['2', 'request', '랜딩ㆍ소개 페이지', false, 0, false, '2026-10-21T00:00:00+09:00']]);
   const t = await s.read('1', { kind: 'request' });
-  assert.deepEqual([t.platform, t.kind, t.title, t.budget, t.messages], ['wishket', 'request', '예약 웹 1', 12000000, [{ direction: 'in', text: '예약 웹을 만들고 싶습니다 1', at: '2026-10-21T00:00:00+09:00', externalId: 'request' }]]);
+  assert.deepEqual([t.platform, t.kind, t.title, t.budget, t.messages], ['wishket', 'request', '예약 웹 1', 12000000, [{ direction: 'in', text: '예약 웹을 만들고 싶습니다 1', at: '2026-10-21T00:00:00+09:00', externalId: 'request:' + rows[0].rev }]]);
   await assert.rejects(s.read('1', { kind: 'message' }), { code: 'FSW_READ_KIND' });
   await s.stop();
   assert.deepEqual(reader.calls, [['list', 2], ['read', 1], ['close']]);
+});
+
+test('a wishket card edited under the same posted day is read again, and an unedited one waits', async () => {
+  const { inboundOfProject } = await import('../src/surface/wishket.mjs');
+  const { needsWork } = await import('../src/triage/index.mjs');
+  const before = inboundOfProject(wishketProject(1));
+  const row = { lastInboundAt: before.at, meta: { settled: { at: before.at, rev: before.rev, by: 'observe', key: null } } };
+  assert.equal(needsWork(before, row, null, 'observe'), false);
+  for (const edit of [{ title: '예약 웹 수정' }, { amountKRW: 15000000 }, { field: '웹 개발' }]) {
+    const after = inboundOfProject(wishketProject(1, edit));
+    assert.equal(after.at, before.at);
+    assert.equal(needsWork(after, row, null, 'observe'), true, 'edit ' + JSON.stringify(edit));
+  }
 });
 
 test('every wishket write throws APPLY_UNMAPPED before the project reader is opened, authorized or not', async () => {

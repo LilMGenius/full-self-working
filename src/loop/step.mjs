@@ -187,7 +187,7 @@ export async function step(platform, ctx) {
       if (t.action === 'park') {
         // Parked from its list row with the list time and the settings key it was parked under; it waits for
         // a newer message or a settings change.
-        ledger.upsertThread({ platform, externalId: ref, kind: ib.kind ?? 'message', meta: { ...(ledger.getThread(row.id).meta ?? {}), skipped: { at: ib.at ?? null, reason: t.reason, key } } });
+        ledger.upsertThread({ platform, externalId: ref, kind: ib.kind ?? 'message', meta: { ...(ledger.getThread(row.id).meta ?? {}), skipped: { at: ib.at ?? null, rev: ib.rev ?? null, reason: t.reason, key } } });
         // An item parked while it was still waiting for the read share was never read; the park says so,
         // and the supply report lists it, instead of a silent stale or expired park.
         event(parkEvent(t.reason), ref, { reason: t.reason, service: ib.service ?? null, ...(ledger.getThread(row.id).meta?.paced ? { paced: true } : {}) });
@@ -245,7 +245,7 @@ export async function step(platform, ctx) {
         // A read remembers the list time it covered under the settings key (meta.settled, e5d20eb), so a list
         // time a platform notice moved past the newest stored message is not decided again every tick; a
         // night read holds only for observe ticks.
-        const settled = (by) => ({ at: ib.at ?? null, by, key });
+        const settled = (by) => ({ at: ib.at ?? null, rev: ib.rev ?? null, by, key });
         const readMeta = (extra) => ({ ...(ledger.getThread(row.id).meta ?? {}), ...extra });
         if (t.action === 'observe') {
           event('thread.observed', ref, { unread: false, messages: (thread.messages ?? []).length, reason: t.reason, service: ib.service ?? null });
@@ -256,7 +256,7 @@ export async function step(platform, ctx) {
         // The request page can count more quotes than the list row did; a full request parks before the model.
         const full = fullReason({ kind: ib.kind, quoteCount: thread.quoteCount ?? ib.quoteCount }, descriptor);
         if (full) {
-          ledger.upsertThread({ platform, externalId: ref, kind: ib.kind ?? 'message', meta: readMeta({ skipped: { at: ib.at ?? null, reason: full, key } }) });
+          ledger.upsertThread({ platform, externalId: ref, kind: ib.kind ?? 'message', meta: readMeta({ skipped: { at: ib.at ?? null, rev: ib.rev ?? null, reason: full, key } }) });
           event(parkEvent(full), ref, { reason: full, service: ib.service ?? null });
           bump('threads', 'parked');
           continue;
@@ -324,7 +324,7 @@ export async function step(platform, ctx) {
           });
           event('quote.judged', ref, { ...judged, fit: d.fit ?? null, fitReason: d.fitReason ?? null, service: d.service ?? null, amountKRW: d.quote?.amountKRW ?? null, quoteCount, quoteCostKRW: view.quoteCostKRW });
           if (judged.verdict === 'drop') {
-            ledger.upsertThread({ platform, externalId: ref, kind: view.kind, meta: readMeta({ skipped: { at: ib.at ?? null, reason: judged.reason, key } }) });
+            ledger.upsertThread({ platform, externalId: ref, kind: view.kind, meta: readMeta({ skipped: { at: ib.at ?? null, rev: ib.rev ?? null, reason: judged.reason, key } }) });
             event(parkEvent(judged.reason), ref, { reason: judged.reason, service: ib.service ?? null });
             bump('threads', 'parked');
             continue;

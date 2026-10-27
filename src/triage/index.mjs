@@ -34,8 +34,12 @@ export const THREAD_ATTEMPTS = 3;
 // outbound hours still decides.
 export function needsWork(inbound, row, key, mode = 'auto') {
   if (!row) return true;
+  // A list row may carry a revision (inbound.rev) when its time cannot move on an edit, such as a board that
+  // shows only the posted day; a park or read recorded under another revision is not the same item.
+  const rev = inbound.rev ?? null;
+  const same = (rec) => rec.at === (inbound.at ?? null) && (rec.rev ?? null) === rev;
   const skipped = row.meta?.skipped;
-  if (skipped && skipped.at === (inbound.at ?? null)) {
+  if (skipped && same(skipped)) {
     if (skipped.key === key) return false;
     // A paid quote the value gate dropped (reason "gate: ...") was read and decided, so its list row shows
     // nothing new; a moved setting is the only thing that can change its verdict, and it is judged again.
@@ -46,7 +50,9 @@ export function needsWork(inbound, row, key, mode = 'auto') {
   if (failed && failed.count < THREAD_ATTEMPTS && !(Date.parse(row.lastOutboundAt ?? 0) > Date.parse(failed.at))) return true;
   if (!inbound.at) return false;
   const settled = row.meta?.settled;
-  if (settled && settled.at === inbound.at && settled.key === key && (settled.by !== 'observe' || mode === 'observe')) return false;
+  if (settled && same(settled) && settled.key === key && (settled.by !== 'observe' || mode === 'observe')) return false;
+  const last = settled ?? skipped;
+  if (rev !== null && last && (last.rev ?? null) !== rev) return true;
   const seen = Math.max(Date.parse(row.lastInboundAt ?? 0) || 0, Date.parse(row.lastOutboundAt ?? 0) || 0);
   return Date.parse(inbound.at) > seen;
 }

@@ -376,11 +376,11 @@ test('a sign-in that throws after the form went out counts against the hour, and
 });
 
 // freelancer signs in with the operator's Google account (080 order 6): the logins file names the method,
-// the identity file the email, and a failure asks once.
-function googleSetup(identity) {
-  const instance = makeInstance({ freelancer: { enabled: true, mode: 'auto' } });
+// the identity file the email, and a failure asks once. id and mode set up another board the same way.
+function googleSetup(identity, id = 'freelancer', mode = 'auto') {
+  const instance = makeInstance({ [id]: { enabled: true, mode } });
   const dir = tempDir('fsw-google-');
-  writeFileSync(join(dir, 'logins.json'), JSON.stringify({ freelancer: { method: 'google' } }));
+  writeFileSync(join(dir, 'logins.json'), JSON.stringify({ [id]: { method: 'google' } }));
   writeFileSync(join(dir, 'identity.json'), JSON.stringify(identity));
   instance.config.logins = join(dir, 'logins.json');
   instance.config.onboarding = { ...instance.config.onboarding, identity: join(dir, 'identity.json') };
@@ -388,11 +388,30 @@ function googleSetup(identity) {
   const state = { lastRuns: {} };
   const tick = async (surface, min) => (await runTick({ instance, ledger, now: new Date(Date.parse('2026-10-28T01:00:00Z') + min * 60_000), state, only: ['poll'], openSurface: async () => surface, persist: false })).jobs[0].platforms[0];
   const signIns = () => ledger.db.prepare("SELECT payload FROM events WHERE kind = 'platform.sign_in' ORDER BY id").all().map((e) => JSON.parse(e.payload));
-  const requests = () => (readFileSync(join(instance.paths.operator, 'requests.md'), 'utf8').match(/^- dedupe: sign-in:freelancer:google$/gm) ?? []).length;
+  const notices = (key) => readFileSync(join(instance.paths.operator, 'requests.md'), 'utf8').split(/\r?\n/).filter((l) => l === '- dedupe: ' + key).length;
+  const requests = () => notices('sign-in:' + id + ':google');
   const rereads = () => ledger.db.prepare("SELECT COUNT(*) AS n FROM events WHERE kind = 'platform.login_reread'").get().n;
-  return { tick, signIns, requests, rereads };
+  return { tick, signIns, requests, rereads, notices };
 }
 const IDENTITY = { person: { google_login_email: 'operator@example.invalid', date_of_birth: '1990-01-01', phone: '+82 10-0000-0000' }, business: { address_en: { street: '1 Example Road', city: 'Seoul', postal_code: '00000', country: 'South Korea' } } };
++
+// 088 unit 3: upwork's surface has no signIn until 080 order 8 maps a positive signed-in marker, so a signed-out
+// upwork with a google login entry gets no sign-in attempt and no sign-in event; the step asks the operator once a
+// Seoul day, and nothing ever records an upwork sign-in as successful (success only on login() reading true).
+test('a signed-out upwork with a google login is never signed in: no attempt, no event, one login notice a day', async () => {
+  const g = googleSetup(IDENTITY, 'upwork', 'draft');
+  const { openUpworkSurface } = await import('../src/surface/upwork.mjs');
+  const loads = [];
+  const login = 'https://www.upwork.com/ab/account-security/login?redir=%2Fnx%2Ffind-work%2F';
+  const session = { navigate: async (url) => (loads.push(url), login), evaluate: async () => ({ url: login, title: 'Log in to Upwork', text: 'Continue with Google' }), stop: async () => {} };
+  const surface = await openUpworkSurface({ session });
+  const first = await g.tick(surface, 0);
+  const second = await g.tick(surface, 5);
+  for (const r of [first, second]) assert.deepEqual([r.platform, r.status, r.error, r.login.loggedIn], ['upwork', 'failed', 'not logged in', false]);
+  assert.deepEqual([g.signIns(), g.rereads()], [[], 0]);
+  assert.equal(g.notices('login:upwork:20261028'), 1);
+  assert.deepEqual(loads, ['https://www.upwork.com/nx/find-work/', 'https://www.upwork.com/nx/find-work/'], 'each tick loads only the sign-in probe');
+});
 
 test('a signed-out platform with a google login signs in once an hour with the identity file email, and a failure asks once', async () => {
   const g = googleSetup(IDENTITY);

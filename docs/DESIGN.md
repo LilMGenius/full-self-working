@@ -22,7 +22,7 @@ Arrows point from importer to imported and name the main edges: supervisor to lo
 | outbox | `src/outbox` | plan, usage, drain, resolve | `plan`, `setStatus`, `drain`, `resolve`, `itemOf`, `newApprovalId` | brain, deal | wp3 |
 | deal | `src/deal` | the state machine, money signals and keys, delivery text, readiness, sweep | `advance` | surface, brain, outbox, work | wp3 |
 | work | `src/work` | recipes, job runner, acceptance | `runJob` | surface, deal, outbox | wp3 |
-| render | `src/render` | HTML to PNG and PDF, font checks | `openRenderer`, `renderHtml`, font checks | | wp3 |
+| render | `src/render` | HTML to PNG and PDF, font checks, the viewport list | `openRenderer`, font checks, `VIEWPORTS` | | wp3 |
 | portfolio | `src/portfolio` | the one ordering of portfolio items and their store | `rankPortfolio`, `syncPortfolio` | | wp3 |
 | learning | `src/learning` | outcomes in wp3; lessons, playbook and `playbooks/` in wp4 | `recordOutcome`, `writeLessons`, `refreshPlaybook` | | wp3, wp4 |
 | listings | `src/listings` | gig images, the kmong gig builder, proofs, review, the listings jobs | `listingsWatch`, `listingsRefresh` | | wp4 |

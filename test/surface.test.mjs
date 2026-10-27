@@ -159,7 +159,7 @@ test('a recorded error replays as the same error, and a platform without a surfa
   const s = replaySession([{ seq: 0, op: 'navigate', name: 'https://soomgo.com/mypage', arg: null, error: { message: 'navigation timed out', code: 'FSW_NAV' } }]);
   await assert.rejects(s.navigate('https://soomgo.com/mypage'), { code: 'FSW_NAV', message: 'navigation timed out' });
   assert.equal(s.remaining(), 0);
-  await assert.rejects(openSurface('wishket', { session: fakeSession({}) }), { code: 'FSW_NO_SURFACE' });
+  await assert.rejects(openSurface('nowhere', { session: fakeSession({}) }), { code: 'FSW_NO_SURFACE' });
 });
 
 test('read takes kind message or request: kmong refuses a request and an unknown kind is refused before any page loads', async () => {

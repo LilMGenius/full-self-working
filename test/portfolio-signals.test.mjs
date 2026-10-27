@@ -66,7 +66,7 @@ test('itemsFromProfile marks a contribution role and carries the npm package, th
 });
 
 test('only an authored repository carries figures: a contribution, a fork, another owner and another first committer do not', async () => {
-  const fetch = stubFetch({ repos: { 'maker/own': { stars: 12 }, 'maker/forked': { stars: 900, fork: true }, 'other/lib': { stars: 5000, owner: 'other' }, 'maker/adopted': { stars: 70, first: 'someone' } }, npm: { 'own-tool': 345 } });
+  const fetch = withRegistry(stubFetch({ repos: { 'maker/own': { stars: 12 }, 'maker/forked': { stars: 900, fork: true }, 'other/lib': { stars: 5000, owner: 'other' }, 'maker/adopted': { stars: 70, first: 'someone' } }, npm: { 'own-tool': 345 } }), { 'own-tool': { repository: 'github:maker/own' } });
   const reach = await readReach([
     item('own', { package: 'own-tool' }),
     item('forked'),
@@ -297,4 +297,21 @@ test('a package whose first version was unpublished is not counted as the operat
   const fetch = withRegistry(stubFetch({ npm: { 'gone-first': 40 } }), { 'gone-first': rec });
   const reach = await readReach([{ id: 'p', source: 'background', url: null, package: 'gone-first', media: [], contribution: false }], { fetch, login: LOGIN, npmUser: 'maker-npm' });
   assert.deepEqual([reach.p.authored, reach.p.why, reach.p.downloads], [false, 'npm package gone-first: first version 0.1.0 was unpublished, so its publisher is unknown', null]);
+});
+
+// A repository that passes says nothing about a package named beside it: its downloads count only when its npm
+// record names that same repository; otherwise the item keeps its stars and no downloads, with the reason.
+test('a package beside an authored repository counts only when its npm record names that repository', async () => {
+  const base = stubFetch({ repos: { 'maker/own': { stars: 12 } }, npm: { 'somebody-elses-package': 90000, 'own-tool': 345, 'no-repo-pkg': 5 } });
+  const fetch = withRegistry(base, {
+    'somebody-elses-package': { maintainers: [{ name: 'other' }], repository: { url: 'git+https://github.com/other/lib.git' } },
+    'own-tool': { maintainers: [{ name: 'maker-npm' }], repository: 'github:Maker/own' },
+    'no-repo-pkg': { maintainers: [{ name: 'maker-npm' }] },
+  });
+  const reach = await readReach([item('a', { url: 'https://github.com/maker/own', package: 'somebody-elses-package' }), item('b', { url: 'https://github.com/maker/own', package: 'own-tool' }), item('c', { url: 'https://github.com/maker/own', package: 'no-repo-pkg' }), item('d', { url: 'https://github.com/maker/own', package: 'unpublished' })], { fetch, login: LOGIN, npmUser: 'maker-npm' });
+  assert.deepEqual([reach.a.authored, reach.a.stars, reach.a.downloads, reach.a.downloadsWhy], [true, 12, null, 'npm package somebody-elses-package names repository other/lib, not maker/own']);
+  assert.deepEqual([reach.b.authored, reach.b.stars, reach.b.downloads, reach.b.downloadsWhy], [true, 12, 345, undefined]);
+  assert.deepEqual([reach.c.downloads, reach.c.downloadsWhy], [null, 'npm package no-repo-pkg names no GitHub repository, not maker/own']);
+  assert.deepEqual([reach.d.downloads, reach.d.downloadsWhy], [null, 'npm package unpublished: record unread']);
+  assert.equal(base.calls.some((u) => u.includes('downloads/point/last-month/somebody-elses-package')), false);
 });

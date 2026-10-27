@@ -18,6 +18,9 @@ export function resolve(ledger, approvalId, { approve, editedText, reason } = {}
   const resolved = () => Object.assign(new Error('approval ' + approvalId + ' is already ' + ledger.getOutbox(row.id).status), { code: 'FSW_OUTBOX_RESOLVED' });
   const from = row.status;
   if (from !== 'awaiting_operator' && !(['unobserved', 'approved'].includes(from) && approve === false)) throw resolved();
+  // wp7: a delivery is approved only after a passed review (src/work/review.mjs), or with the operator's stated reason.
+  const review = row.kind === 'delivery' ? row.payload.review?.verdict ?? 'error' : null;
+  if (approve && review !== null && review !== 'pass' && !(reason ?? '').trim()) throw Object.assign(new Error('delivery ' + approvalId + ' has review ' + review + '; approving it needs --reason'), { code: 'FSW_REVIEW_NOT_PASSED' });
   const edited = typeof editedText === 'string' && editedText.trim() ? editedText.trim() : null;
   const draft = row.payload.text ?? null;
   const operator = { resolvedAt: new Date().toISOString(), finalText: approve ? edited ?? draft : null, edited: approve && edited !== null && edited !== draft, resolutionReason: reason ?? null };

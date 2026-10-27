@@ -576,6 +576,10 @@
         "jwc": {
           "model": null,
           "thinking": null
+        },
+        "review": {
+          "enabled": true,
+          "model": null
         }
       },
       "properties": {
@@ -633,6 +637,15 @@
               "description": "the jawcode thinking level",
               "default": null
             }
+          }
+        },
+        "review": {
+          "type": "object",
+          "description": "the review of finished work (one read-only codex turn on another model family) before you approve its delivery",
+          "default": { "enabled": true, "model": null },
+          "properties": {
+            "enabled": { "type": "boolean", "description": "whether accepted work is reviewed; off sends every delivery to you as unreviewed, needing a reason to approve", "default": true },
+            "model": { "type": ["string", "null"], "description": "the model the review codex turn uses; it must be of another model family than the one that built the work, or the review records error; null picks gpt-6.1-sol for work another family built and records error for OpenAI-built work", "default": null }
           }
         }
       }

@@ -114,6 +114,7 @@ export function deliveryEffects(ledger, { job, descriptor, config }) {
       platform: job.platform, threadId: thread.id, jobId: job.id, kind: 'delivery',
       payload: {
         text: deliveryText({ language, files: files.map(baseName) }), files, captures: run.captures ?? [], runAt: run.at, service: job.service,
+        review: run.review ?? { verdict: 'error', findings: [{ severity: 'blocker', file: null, detail: 'no review ran' }] },
         handoffs: steps.map((h) => (makesFiles(h) ? { id: h.id, output: h.output, at: h.done.at, files: h.done.files } : { id: h.id, output: h.output, confirm: h.ask })),
         thread: { kind: thread.kind, stage: 'post_order', lastInboundText: msgs.filter((m) => m.direction === 'in').at(-1)?.body ?? '', language: thread.language ?? null, recentOutbound: msgs.filter((m) => m.direction === 'out').slice(-10).map((m) => m.body ?? '') },
         reason: 'acceptance passed for job ' + job.id + stepNote + '; review the ' + files.length + ' deliverables and ' + (run.captures ?? []).length + ' QA captures before approving',
@@ -425,7 +426,7 @@ const RULES = {
   run_accepted(ledger, out, s, { job, instance, descriptor }) {
     if (!job || job.status !== 'in_progress') return refuse(ledger, out, s, job, 'a run result needs an in_progress job');
     const ev = s.evidence ?? {};
-    const next = ledger.upsertJob({ id: job.id, agentMinutes: (job.agentMinutes ?? 0) + (ev.minutes ?? 0), meta: { ...(job.meta ?? {}), lastRun: { ...ev.lastRun, files: ev.files ?? [], captures: ev.captures ?? [], handoffs: ev.handoffs ?? [] } } });
+    const next = ledger.upsertJob({ id: job.id, agentMinutes: (job.agentMinutes ?? 0) + (ev.minutes ?? 0), meta: { ...(job.meta ?? {}), lastRun: { ...ev.lastRun, files: ev.files ?? [], captures: ev.captures ?? [], handoffs: ev.handoffs ?? [], review: ev.review ?? null } } });
     out.effects.push(...deliveryEffects(ledger, { job: next, descriptor, config: instance.config }));
   },
   // fsw job handoff: the operator finished one step of the last run that produces files, with those files,

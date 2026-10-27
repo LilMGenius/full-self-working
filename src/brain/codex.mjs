@@ -31,11 +31,13 @@ export class CodexError extends Error {
 // --ignore-user-config also drops [windows] sandbox, and without it codex 0.164.0 on Windows runs a
 // workspace-write turn read-only (its banner says "sandbox: read-only" and every write is "blocked by
 // policy"; measured 2026-10-25), so a writing turn names the Windows sandbox itself.
-export function codexArgs({ schemaFile, outFile, model, effort, cwd, sandbox = 'read-only', proxyUrl = DEFAULT_PROXY_URL, platform = process.platform, windowsSandbox = process.env.FSW_CODEX_WINDOWS_SANDBOX ?? 'elevated' }) {
+// images: files attached to the prompt (--image), for a turn that may not open files itself.
+export function codexArgs({ schemaFile, outFile, model, effort, cwd, images = [], sandbox = 'read-only', proxyUrl = DEFAULT_PROXY_URL, platform = process.platform, windowsSandbox = process.env.FSW_CODEX_WINDOWS_SANDBOX ?? 'elevated' }) {
   const args = ['exec', '--ephemeral', '--skip-git-repo-check', '-s', sandbox, '--output-schema', schemaFile, '--output-last-message', outFile, '--color', 'never'];
   if (model) args.push('-m', model);
   if (effort) args.push('-c', `model_reasoning_effort="${effort}"`);
   if (cwd) args.push('-C', cwd);
+  for (const f of images) args.push('--image=' + f);
   if (proxyUrl) {
     args.push('--ignore-user-config', '-c', `model_providers.fsw={name="fsw",base_url="${proxyUrl}",wire_api="responses",supports_websockets=false}`, '-c', 'model_provider="fsw"');
     if (platform === 'win32' && sandbox !== 'read-only') args.push('-c', `windows.sandbox="${windowsSandbox}"`);
@@ -46,7 +48,7 @@ export function codexArgs({ schemaFile, outFile, model, effort, cwd, sandbox = '
 
 const tail = (s, n = 1200) => (s.length > n ? s.slice(-n) : s);
 
-export async function runCodex({ prompt, schema, model, effort, cwd, sandbox, timeoutMs = 240_000, proxyUrl = process.env.FSW_CODEX_PROXY ?? DEFAULT_PROXY_URL, bin = process.env.FSW_CODEX_BIN ?? 'codex' }) {
+export async function runCodex({ prompt, schema, model, effort, cwd, images, sandbox, timeoutMs = 240_000, proxyUrl = process.env.FSW_CODEX_PROXY ?? DEFAULT_PROXY_URL, bin = process.env.FSW_CODEX_BIN ?? 'codex' }) {
   if (typeof prompt !== 'string' || !prompt.trim()) throw new TypeError('runCodex needs a prompt');
   if (!schema || typeof schema !== 'object') throw new TypeError('runCodex needs a JSON schema object');
   const dir = mkdtempSync(join(tmpdir(), 'fsw-codex-'));
@@ -54,7 +56,7 @@ export async function runCodex({ prompt, schema, model, effort, cwd, sandbox, ti
     const schemaFile = join(dir, 'schema.json');
     const outFile = join(dir, 'last.txt');
     writeFileSync(schemaFile, JSON.stringify(schema));
-    const args = codexArgs({ schemaFile, outFile, model, effort, cwd, sandbox, proxyUrl: proxyUrl === '' || proxyUrl === 'none' ? null : proxyUrl });
+    const args = codexArgs({ schemaFile, outFile, model, effort, cwd, images, sandbox, proxyUrl: proxyUrl === '' || proxyUrl === 'none' ? null : proxyUrl });
     const started = Date.now();
     const { exitCode, stderr, timedOut } = await new Promise((resolve, reject) => {
       // No shell: libuv finds codex.exe on PATH and quotes each argument; the prompt travels on stdin.

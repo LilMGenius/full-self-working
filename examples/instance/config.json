@@ -123,6 +123,10 @@
     "jwc": {
       "model": null,
       "thinking": null
+    },
+    "review": {
+      "enabled": true,
+      "model": null
     }
   },
   "orders": {

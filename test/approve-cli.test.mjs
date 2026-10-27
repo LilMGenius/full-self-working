@@ -90,3 +90,17 @@ test('--sent dates the quote by its press, and a deal that throws leaves the row
   assert.deepEqual([q.at, q.costKRW], [pressedAt, 990]);
 });
 
+// U7.7: a delivery shows its review, and approving one that did not pass needs --reason.
+test('fsw approve shows a delivery review and approves a non-pass review only with --reason', async () => {
+  const s = setup();
+  s.waiting('c1', '20261020-soomgo-0000aa01', 'delivery', { files: ['C:/j/a.md'], runAt: '2026-10-20T10:00:00Z', review: { verdict: 'fail', findings: [{ severity: 'blocker', file: 'copy/a.md', detail: 'only one variant' }, { severity: 'minor', file: null, detail: 'title repeats' }] } });
+  await s.cli(['list']);
+  assert.match(s.lines.join('\n'), /20261020-soomgo-0000aa01 {2}soomgo {2}delivery[^\n]*\n {4}요청하신[^\n]*\n {4}review: fail \(2 findings\)\n {6}blocker copy\/a\.md: only one variant\n {6}minor: title repeats/);
+  s.lines.length = 0;
+  await s.cli(['show', '20261020-soomgo-0000aa01']);
+  assert.match(s.lines.join('\n'), /review: fail \(2 findings\)\n {2}blocker copy\/a\.md: only one variant/);
+  await assert.rejects(s.cli(['20261020-soomgo-0000aa01']), { code: 'FSW_REVIEW_NOT_PASSED' });
+  assert.equal(s.ledger.outboxByApproval('20261020-soomgo-0000aa01').status, 'awaiting_operator');
+  assert.equal(await s.cli(['20261020-soomgo-0000aa01', '--reason', 'read both files myself']), 0);
+  assert.deepEqual([s.ledger.outboxByApproval('20261020-soomgo-0000aa01').status, s.ledger.outboxByApproval('20261020-soomgo-0000aa01').operator.resolutionReason], ['approved', 'read both files myself']);
+});

@@ -399,3 +399,30 @@ test('a lesson hire on an instance that does not answer lessons stays the operat
   assert.match(job.meta.manual, /lesson_tutoring is not answered on soomgo/);
   assert.ok(!effectTypes(r).some((e) => e.startsWith('plan_outbox')));
 });
+
+// U7.7: run_accepted keeps the review beside the run's operator steps, and the delivery row carries it.
+function acceptedRun(s, evidence) {
+  const t = s.thread('c1');
+  s.step(s.quoteSignal(t));
+  s.step(s.notices(t, [{ text: NOTICE.hired, at: at('10:58') }])[0]);
+  s.step(s.notices(t, [{ text: NOTICE.paid('150,000'), at: at('11:58') }])[0]);
+  s.step({ type: 'run_started', platform: 'soomgo', jobId: 'soomgo-c1', at: at('12:00'), evidence: {} });
+  return s.step({ type: 'run_accepted', platform: 'soomgo', jobId: 'soomgo-c1', at: at('12:01'), evidence: { lastRun: { ok: true, at: at('12:01') }, minutes: 12, files: ['C:/w/site/index.html'], captures: [], ...evidence } });
+}
+const REVIEW = { verdict: 'fail', findings: [{ severity: 'major', file: 'site/index.html', detail: 'the brief asks for two sections' }], model: 'gpt-6.1-sol', builderModel: 'cpa/claude-opus-5-5', files: 1, hash: 'h', durationMs: 4, at: at('12:01') };
+
+test('run_accepted stores the review beside the operator steps, and a file-making step still holds the delivery', () => {
+  const s = setup();
+  const handoffs = [{ id: 'domain', ask: 'Buy the domain', output: 'domain.txt', produces: ['domain.txt'] }];
+  const acc = acceptedRun(s, { handoffs, review: REVIEW });
+  const run = s.ledger.getJob('soomgo-c1').meta.lastRun;
+  assert.deepEqual([run.handoffs, run.review], [handoffs, REVIEW]);
+  assert.deepEqual(effectTypes(acc).filter((t) => t === 'plan_outbox:delivery'), []);
+});
+
+test('the delivery row carries the run review, and a run without one is review error: no review ran', () => {
+  const reviewed = acceptedRun(setup(), { review: REVIEW });
+  assert.deepEqual(reviewed.effects.find((e) => e.item?.kind === 'delivery').item.payload.review, REVIEW);
+  const bare = acceptedRun(setup(), {});
+  assert.deepEqual(bare.effects.find((e) => e.item?.kind === 'delivery').item.payload.review, { verdict: 'error', findings: [{ severity: 'blocker', file: null, detail: 'no review ran' }] });
+});

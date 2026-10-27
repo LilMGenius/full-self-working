@@ -12,7 +12,14 @@ import { loadDescriptor } from '../platforms/registry.mjs';
 import { loadRecipe } from '../work/index.mjs';
 import { caseFromApproval, recordOutcome } from '../learning/outcomes.mjs';
 
-const USAGE = 'usage: fsw approve [list] | fsw approve <id> [--text "..."] | fsw approve <id> --reject [--reason "..."] | fsw approve <id> --sent [--cost <KRW>] | fsw approve show <id>';
+// A delivery's review (src/work/review.mjs) as lines: the verdict with its finding count, then one line per finding.
+const reviewLines = (row, indent) => {
+  if (row.kind !== 'delivery') return [];
+  const r = row.payload.review ?? { verdict: 'error', findings: [{ severity: 'blocker', file: null, detail: 'no review ran' }] };
+  return [indent + 'review: ' + r.verdict + ' (' + r.findings.length + ' findings)', ...r.findings.map((f) => indent + '  ' + f.severity + (f.file ? ' ' + f.file : '') + ': ' + f.detail)];
+};
+
+const USAGE = 'usage: fsw approve [list] | fsw approve <id> [--text "..." | --reason "..."] | fsw approve <id> --reject [--reason "..."] | fsw approve <id> --sent [--cost <KRW>] | fsw approve show <id>';
 
 export function parseArgs(argv) {
   const out = { positional: [] };
@@ -39,7 +46,7 @@ export async function run(argv, ctx = {}) {
     if (!first || first === 'list') {
       const open = ledger.listOutbox({ statuses: ['awaiting_operator'] });
       if (!open.length) log('no open approvals');
-      for (const r of open) log(r.approvalId + '  ' + r.platform + '  ' + r.kind + '  ' + (r.reason ?? '') + (r.payload.text ? '\n    ' + r.payload.text.replace(/\s+/g, ' ').slice(0, 160) : ''));
+      for (const r of open) log([r.approvalId + '  ' + r.platform + '  ' + r.kind + '  ' + (r.reason ?? '') + (r.payload.text ? '\n    ' + r.payload.text.replace(/\s+/g, ' ').slice(0, 160) : ''), ...reviewLines(r, '    ')].join('\n'));
       return 0;
     }
     if (first === 'show') {
@@ -47,6 +54,7 @@ export async function run(argv, ctx = {}) {
       const row = ledger.outboxByApproval(second);
       if (!row) throw Object.assign(new Error('no outbox item has approval id ' + second), { code: 'FSW_OUTBOX_NO_APPROVAL' });
       log(JSON.stringify(row, null, 2));
+      for (const l of reviewLines(row, '')) log(l);
       return 0;
     }
     if (args.sent) {

@@ -104,3 +104,27 @@ test('fsw approve shows a delivery review and approves a non-pass review only wi
   assert.equal(await s.cli(['20261020-soomgo-0000aa01', '--reason', 'read both files myself']), 0);
   assert.deepEqual([s.ledger.outboxByApproval('20261020-soomgo-0000aa01').status, s.ledger.outboxByApproval('20261020-soomgo-0000aa01').operator.resolutionReason], ['approved', 'read both files myself']);
 });
+
+// A delivery is approved against the bytes its review read: a changed file needs --reason, and files added after
+// the review (operator steps) are listed as unreviewed.
+test('fsw approve refuses a passed delivery whose files changed since the review unless --reason, and lists files added after it', async () => {
+  const { hashTree } = await import('../src/work/review.mjs');
+  const { mkdirSync: mk } = await import('node:fs');
+  const s = setup();
+  const work = join(s.instance.paths.jobs, 'j1', 'work');
+  mk(join(work, 'copy'), { recursive: true });
+  writeFileSync(join(work, 'copy', 'a.md'), '# 빵집\n');
+  const added = join(s.instance.paths.jobs, 'j1', 'handoff', 'domain.txt');
+  const review = { verdict: 'pass', findings: [], reviewed: ['copy/a.md'], work, hash: hashTree(work, ['copy/a.md']) };
+  s.waiting('c1', '20261020-soomgo-0000aa01', 'delivery', { files: [join(work, 'copy', 'a.md'), added], runAt: '2026-10-20T10:00:00Z', review });
+  await s.cli(['list']);
+  assert.match(s.lines.join('\n'), /review: pass \(0 findings\)\n {6}unreviewed, added after the review: .*domain\.txt/);
+  writeFileSync(join(work, 'copy', 'a.md'), '# 바뀐 빵집\n');
+  s.lines.length = 0;
+  await s.cli(['list']);
+  assert.match(s.lines.join('\n'), /review: pass \(0 findings\)\n {6}the reviewed files changed since the review/);
+  await assert.rejects(s.cli(['20261020-soomgo-0000aa01']), { code: 'FSW_REVIEW_CHANGED', message: /changed since its review; approving it needs --reason/ });
+  assert.equal(s.ledger.outboxByApproval('20261020-soomgo-0000aa01').status, 'awaiting_operator');
+  assert.equal(await s.cli(['20261020-soomgo-0000aa01', '--reason', 'I edited the title myself']), 0);
+  assert.equal(s.ledger.outboxByApproval('20261020-soomgo-0000aa01').status, 'approved');
+});

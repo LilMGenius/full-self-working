@@ -11,12 +11,20 @@ import { applyEffects } from '../loop/effects.mjs';
 import { loadDescriptor } from '../platforms/registry.mjs';
 import { loadRecipe } from '../work/index.mjs';
 import { caseFromApproval, recordOutcome } from '../learning/outcomes.mjs';
+import { reviewDrift } from '../work/review.mjs';
 
-// A delivery's review (src/work/review.mjs) as lines: the verdict with its finding count, then one line per finding.
+// A delivery's review (src/work/review.mjs) as lines: the verdict with its finding count, one line per finding, and
+// for a passed review whether the reviewed bytes changed and which delivery files it never read.
 const reviewLines = (row, indent) => {
   if (row.kind !== 'delivery') return [];
   const r = row.payload.review ?? { verdict: 'error', findings: [{ severity: 'blocker', file: null, detail: 'no review ran' }] };
-  return [indent + 'review: ' + r.verdict + ' (' + r.findings.length + ' findings)', ...r.findings.map((f) => indent + '  ' + f.severity + (f.file ? ' ' + f.file : '') + ': ' + f.detail)];
+  const drift = r.verdict === 'pass' ? reviewDrift(r, row.payload.files ?? []) : { changed: false, unreviewed: [] };
+  return [
+    indent + 'review: ' + r.verdict + ' (' + r.findings.length + ' findings)',
+    ...r.findings.map((f) => indent + '  ' + f.severity + (f.file ? ' ' + f.file : '') + ': ' + f.detail),
+    ...(drift.changed ? [indent + '  the reviewed files changed since the review'] : []),
+    ...(drift.unreviewed.length ? [indent + '  unreviewed, added after the review: ' + drift.unreviewed.join(', ')] : []),
+  ];
 };
 
 const USAGE = 'usage: fsw approve [list] | fsw approve <id> [--text "..." | --reason "..."] | fsw approve <id> --reject [--reason "..."] | fsw approve <id> --sent [--cost <KRW>] | fsw approve show <id>';
@@ -74,6 +82,11 @@ export async function run(argv, ctx = {}) {
       await applyEffects(effects, { instance, ledger, notify: ctx.notify, loadRecipe });
       log(first + ' sent, as the operator confirmed');
       return 0;
+    }
+    // A passed review covers the bytes it read: a delivery whose reviewed files changed since needs a stated reason.
+    const waiting = args.reject ? null : ledger.outboxByApproval(first);
+    if (waiting?.kind === 'delivery' && waiting.payload.review?.verdict === 'pass' && reviewDrift(waiting.payload.review, waiting.payload.files ?? []).changed && !(args.reason ?? '').trim()) {
+      throw Object.assign(new Error('delivery ' + first + ' changed since its review; approving it needs --reason'), { code: 'FSW_REVIEW_CHANGED' });
     }
     const row = resolve(ledger, first, { approve: !args.reject, editedText: args.text, reason: args.reason });
     // A rejection and an edited approval say what the brain got wrong (src/cli/approvals.mjs:2).

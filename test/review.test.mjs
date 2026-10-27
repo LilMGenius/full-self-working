@@ -3,10 +3,10 @@
 // same-family or unknown pair never counts as independent.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { codexArgs } from '../src/brain/codex.mjs';
-import { REVIEW_SCHEMA, hashTree, modelFamily, reviewDeliverables, reviewInput, reviewerFor } from '../src/work/review.mjs';
+import { REVIEW_SCHEMA, hashTree, modelFamily, reviewDeliverables, reviewDrift, reviewInput, reviewerFor } from '../src/work/review.mjs';
 import { tempDir } from './tmp.mjs';
 
 function job() {
@@ -136,4 +136,42 @@ test('codexArgs attaches each image with --image', () => {
   const args = codexArgs({ schemaFile: 's', outFile: 'o', images: ['C:/q/a.png', 'C:/q/b.jpg'] });
   assert.deepEqual(args.filter((a) => a.startsWith('--image')), ['--image=C:/q/a.png', '--image=C:/q/b.jpg']);
   assert.equal(codexArgs({ schemaFile: 's', outFile: 'o' }).some((a) => a.startsWith('--image')), false);
+});
+
+// Review fixes on 93f4764: a cut file or a blocker never leaves a pass, and the delivery is checked against what was reviewed.
+test('a text cut at the review limit turns a pass into error naming the file, and the cut end never reaches the prompt', async () => {
+  const paths = job();
+  writeFileSync(join(paths.work, 'copy', 'variant-a.md'), 'a'.repeat(50_000) + 'PLACEHOLDER_AT_END');
+  const runCodex = stub({ verdict: 'pass', findings: [] });
+  const r = await reviewDeliverables({ paths, recipe, builderModel: BUILDER, model: REVIEWER, runCodex });
+  assert.doesNotMatch(runCodex.calls[0].prompt, /PLACEHOLDER_AT_END/);
+  assert.deepEqual([r.verdict, r.partial], ['error', ['copy/variant-a.md']]);
+  assert.match(r.findings[0].detail, /^reviewed only in part, cut at the review limit: copy\/variant-a\.md$/);
+  const many = job();
+  const five = { deliverables: [{ path: 'part/*.md', format: 'md' }] };
+  mkdirSync(join(many.work, 'part'));
+  for (const n of [1, 2, 3, 4, 5]) writeFileSync(join(many.work, 'part', n + '.md'), String(n).repeat(39_000));
+  const all = await reviewDeliverables({ paths: many, recipe: five, builderModel: BUILDER, model: REVIEWER, runCodex: stub({ verdict: 'pass', findings: [] }) });
+  assert.deepEqual([all.verdict, all.partial], ['error', ['part/5.md']]);
+});
+
+test('a pass that carries a blocker finding is recorded as fail; minor and major findings leave it a pass', async () => {
+  const blocked = await reviewDeliverables({ paths: job(), recipe, builderModel: BUILDER, model: REVIEWER, runCodex: stub({ verdict: 'pass', findings: [{ severity: 'blocker', file: 'copy/variant-b.md', detail: 'placeholder left' }] }) });
+  assert.deepEqual([blocked.verdict, blocked.findings.length], ['fail', 1]);
+  const minor = await reviewDeliverables({ paths: job(), recipe, builderModel: BUILDER, model: REVIEWER, runCodex: stub({ verdict: 'pass', findings: [{ severity: 'major', file: null, detail: 'x' }, { severity: 'minor', file: null, detail: 'y' }] }) });
+  assert.equal(minor.verdict, 'pass');
+});
+
+test('reviewDrift says whether the reviewed bytes changed and which delivery files the review never saw', async () => {
+  const paths = job();
+  const r = await reviewDeliverables({ paths, recipe, builderModel: BUILDER, model: REVIEWER, runCodex: stub({ verdict: 'pass', findings: [] }) });
+  const delivered = FILES.map((f) => join(paths.work, f));
+  assert.deepEqual(reviewDrift(r, delivered), { changed: false, unreviewed: [] });
+  const added = join(paths.dir, 'handoff', 'domain.txt');
+  assert.deepEqual(reviewDrift(r, [...delivered, added]), { changed: false, unreviewed: [added] });
+  writeFileSync(join(paths.work, 'copy', 'variant-b.md'), '# 빵집\n\n바뀐 문구\n');
+  assert.equal(reviewDrift(r, delivered).changed, true);
+  rmSync(join(paths.work, 'copy', 'variant-b.md'));
+  assert.equal(reviewDrift(r, delivered).changed, true);
+  assert.deepEqual(reviewDrift({ verdict: 'error', findings: [] }, delivered), { changed: true, unreviewed: delivered });
 });

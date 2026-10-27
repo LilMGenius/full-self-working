@@ -61,8 +61,13 @@ export const FIT_FLOOR_PX = 28;
 const FIT = '<script>const over = ' + OVER + '; document.fonts.ready.then(() => { for (const el of document.querySelectorAll("[data-fit]")) {' +
   ' let size = Number(el.dataset.max); el.style.fontSize = size + "px";' +
   ' while (over(el) && size > ' + FIT_FLOOR_PX + ') { size -= 2; el.style.fontSize = size + "px"; } } });</script>';
-// Run after the page settled: the text of every fitted block that still overflows at the floor size.
-const FIT_PROBE = '(() => { const over = ' + OVER + '; return [...document.querySelectorAll("[data-fit]")].filter(over).map((el) => el.innerText.replace(/\\s+/g, " ")); })()';
+// Run after the page settled: every fitted heading that still overflows at the floor size, and every
+// [data-check] line set without wrapping (the scope items) that runs past its box, as {kind, text}. A scope
+// list is reported as a whole only when none of its items is, since an item's overflow widens the list too.
+const FIT_PROBE = '(() => { const over = ' + OVER + '; const text = (el) => el.innerText.replace(/\\s+/g, " ");' +
+  ' const lines = [...document.querySelectorAll("[data-check]")]; const past = (el) => el.scrollWidth > el.clientWidth + 1;' +
+  ' let bad = lines.filter((el) => el.tagName === "LI" && past(el)); if (!bad.length) bad = lines.filter((el) => el.tagName !== "LI" && past(el));' +
+  ' return [...[...document.querySelectorAll("[data-fit]")].filter(over).map((el) => ({ kind: "heading", text: text(el) })), ...bad.map((el) => ({ kind: "line", text: text(el) }))]; })()';
 
 // fontFace is the inlined @font-face rule; an empty one (a face that failed to inline) makes every text node
 // fall back, which the font proof in renderListingImages reports.
@@ -161,7 +166,7 @@ export function mainHtml({ listing, cardShots = [], fontFace, layout }) {
   }
   const claim = c.headline.map((line, i) => (i === c.headline.length - 1 && i > 0 ? '<em>' + esc(line) + '</em>' : esc(line))).join('<br>');
   const body = '<div class="card ' + frame + ' ' + ground + '"><div class="claim"><h1 data-fit data-max="112">' + claim + '</h1></div>' +
-    '<div class="foot"><div class="rule"></div><p class="sub">' + esc(c.subline) + '</p><ul class="scope">' + (c.tags ?? []).slice(0, 3).map((t) => '<li>' + esc(t) + '</li>').join('') + '</ul></div>' + visual + '</div>';
+    '<div class="foot"><div class="rule"></div><p class="sub">' + esc(c.subline) + '</p><ul class="scope" data-check>' + (c.tags ?? []).slice(0, 3).map((t) => '<li data-check>' + esc(t) + '</li>').join('') + '</ul></div>' + visual + '</div>';
   return page(body, MAIN_CSS, MAIN_SIZE, fontFace);
 }
 
@@ -311,7 +316,7 @@ export async function renderListingImages({ listing, studio, outDir, proofs = []
     // image edge), are each a violation of the image they were drawn in.
     const proved = (name, r) => {
       for (const detail of platformFontProblems(r.platformFonts, 'Pretendard')) fonts.push({ field: 'images.' + name, rule: 'image.font', detail });
-      for (const text of r.probe ?? []) fonts.push({ field: 'images.' + name, rule: 'image.text_fit', detail: 'the heading does not fit its box even at ' + FIT_FLOOR_PX + ' px: ' + text });
+      for (const { kind, text } of r.probe ?? []) fonts.push({ field: 'images.' + name, rule: 'image.text_fit', detail: kind === 'heading' ? 'the heading does not fit its box even at ' + FIT_FLOOR_PX + ' px: ' + text : 'the line runs past its box: ' + text });
       return r;
     };
     const mainPage = mainHtml({ listing, studio, cardShots: shots(plan.card), fontFace, layout: cardLayoutUsed });

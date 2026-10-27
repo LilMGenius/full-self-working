@@ -115,6 +115,13 @@ export function authorize(item, ctx) {
     const bid = bidBudgetCheck({ budget: instance.config?.platforms?.[item.platform]?.bidBudget, usage, costKRW: item.costKRW });
     if (!bid.ok) return { verdict: 'refuse', violations: [rule('budget.bid', 'a proposal on ' + item.platform + ' spends ' + descriptor.bidCost.unit + ': ' + bid.reason)], warnings: [], reasons: [rule('budget.bid', bid.reason)] };
   }
+  // A paid quote on a buyer request leaves unapproved only with the value gate's send verdict the loop stamped on
+  // it (payload.gate, src/economics/quote-gate.mjs); a row planned before the gate, or one that lost its stamp, was
+  // never judged and is refused. The operator judges an approved row himself.
+  if (item.kind === 'quote' && spendsCash(descriptor, item.thread?.kind) && !approved && item.gate?.verdict !== 'send') {
+    const detail = 'a paid quote on a buyer request carries no value gate send verdict; it was never judged';
+    return { verdict: 'refuse', violations: [rule('gate.unjudged', detail)], warnings: [], reasons: [rule('gate.unjudged', detail)] };
+  }
   // 1. The gate and its slop lint. A payment request sends no text (the platform form takes the amount).
   const g = item.kind === 'pay_request' ? { violations: [], warnings: [] } : gateOutbound(item, { descriptor, instance, priceRow, lessonsRules });
   const violations = [...g.violations];

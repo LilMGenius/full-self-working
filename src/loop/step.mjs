@@ -35,7 +35,9 @@ const msgText = (m) => String(m.text ?? m.body ?? '');
 const msgExternalId = (m) => String(m.externalId ?? m.id ?? createHash('sha1').update((m.at ?? '') + '\n' + msgText(m)).digest('hex').slice(0, 16));
 
 // The outbox payload of one decision (field chains in 030 section 4).
-function payloadOf(result, view) {
+// gate: the value gate's send verdict on a paid request quote (judgeQuote below), which authorize requires before
+// such a quote leaves unapproved.
+function payloadOf(result, view, gate = null) {
   const { decision: d, item, priceRow } = result;
   const q = d.quote;
   return {
@@ -43,6 +45,7 @@ function payloadOf(result, view) {
     costKRW: item.costKRW ?? null, serviceLabel: item.serviceLabel ?? null, service: d.service ?? null, thread: item.thread, decision: d, priceRow: priceRow ?? null, requestId: view.requestId ?? null, customer: view.customer ?? null,
     // A proposal on a board priced outside KRW: its price in the board's currency and the rate it used (wp8).
     ...(item.currency ? { currency: item.currency, amount: item.amount, fx: item.fx } : {}),
+    ...(gate ? { gate } : {}),
   };
 }
 
@@ -310,7 +313,9 @@ export async function step(platform, ctx) {
         // A quote that costs cash goes out only when the request clears the fit floor and a positive expected
         // value at the share-blended win chance (src/economics/quote-gate.mjs, docs/DESIGN.md Decisions). Chat quotes
         // ask no fit and cost nothing, and a bidding board answers with a proposal, so only a paid request quote is
-        // judged. A drop parks under this pass's key, so it holds until the list time or the settings move.
+        // judged. A drop parks under this pass's key, so it holds until the list time or the settings move. A send
+        // is stamped on the planned payload, and authorize refuses an unapproved paid quote without that stamp.
+        let gate = null;
         if (r.item.kind === 'quote' && spendsCash(descriptor, view.kind)) {
           const judged = judgeQuote({
             fit: d.fit ?? null, quoteCount, quoteCostKRW: view.quoteCostKRW, amountKRW: d.quote?.amountKRW ?? null, pricing: d.quote?.pricing ?? null,
@@ -323,9 +328,10 @@ export async function step(platform, ctx) {
             bump('threads', 'parked');
             continue;
           }
+          gate = { verdict: judged.verdict, evKRW: judged.evKRW, p: judged.p, at: now.toISOString() };
         }
         const job = ledger.listJobs({ platform }).filter((j) => j.threadId === row.id).at(-1) ?? null;
-        const planned = plan(ledger, { platform, threadId: row.id, jobId: job?.id ?? null, kind: r.item.kind, payload: payloadOf(r, view) });
+        const planned = plan(ledger, { platform, threadId: row.id, jobId: job?.id ?? null, kind: r.item.kind, payload: payloadOf(r, view, gate) });
         bump('threads', planned.inserted ? 'planned' : 'known');
       } catch (err) {
         threw = true;

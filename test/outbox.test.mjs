@@ -30,7 +30,8 @@ const TEXT = '요청하신 구성으로 진행 가능합니다. 원하시는 일
 const decision = (over = {}) => ({ intent: 'inquiry', service: 'landing_page_web', language: 'ko', reply: TEXT, quote: null, needsOperator: false, operatorReason: null, confidence: 0.9, claimsUsed: [], statedBudgetKRW: null, ...over });
 const msgPayload = (over = {}) => ({ text: TEXT, thread: { kind: 'message', stage: 'pre_order', lastInboundText: '랜딩 페이지 가능한가요?', recentOutbound: [] }, decision: decision(), ...over });
 const ROW = { platform: 'soomgo', service: 'landing_page_web', baseKRW: 300000, floorKRW: 100000, ceilingKRW: 1000000, costFloorKRW: 50000, viable: true };
-const quotePayload = (over = {}) => ({ text: TEXT, amountKRW: 300000, priceType: 'fixed', costKRW: 600, serviceLabel: '웹 개발', service: 'landing_page_web', priceRow: ROW, customer: null, thread: { kind: 'request', stage: 'pre_order', lastInboundText: '웹 개발 견적 부탁드립니다', recentOutbound: [] }, decision: decision({ intent: 'quote_request' }), ...over });
+// gate: the value gate's send verdict the loop stamps on a paid request quote it plans (src/loop/step.mjs).
+const quotePayload = (over = {}) => ({ text: TEXT, amountKRW: 300000, priceType: 'fixed', costKRW: 600, serviceLabel: '웹 개발', service: 'landing_page_web', priceRow: ROW, customer: null, thread: { kind: 'request', stage: 'pre_order', lastInboundText: '웹 개발 견적 부탁드립니다', recentOutbound: [] }, decision: decision({ intent: 'quote_request' }), gate: { verdict: 'send', evKRW: 82000, p: 1 / 3, at: NOON.toISOString() }, ...over });
 
 function setup(platform = 'kmong', edit) {
   const instance = makeInstance(edit);

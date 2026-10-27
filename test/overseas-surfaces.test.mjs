@@ -159,7 +159,8 @@ test('wishket sense lists open 외주 projects as requests and read gives the de
   const rows = await s.sense();
   assert.deepEqual(rows.map((r) => [r.ref, r.kind, r.service, r.quotable, r.quoteCostKRW, r.unread, r.at]), [['1', 'request', '랜딩ㆍ소개 페이지', true, 0, false, '2026-10-21T00:00:00+09:00'], ['2', 'request', '랜딩ㆍ소개 페이지', false, 0, false, '2026-10-21T00:00:00+09:00']]);
   const t = await s.read('1', { kind: 'request' });
-  assert.deepEqual([t.platform, t.kind, t.title, t.budget, t.messages], ['wishket', 'request', '예약 웹 1', 12000000, [{ direction: 'in', text: '예약 웹을 만들고 싶습니다 1', at: '2026-10-21T00:00:00+09:00', externalId: 'request:' + rows[0].rev }]]);
+  assert.deepEqual([t.platform, t.kind, t.title, t.budget, t.messages.map((m) => [m.direction, m.text, m.at])], ['wishket', 'request', '예약 웹 1', 12000000, [['in', '예약 웹을 만들고 싶습니다 1', '2026-10-21T00:00:00+09:00']]]);
+  assert.match(t.messages[0].externalId, /^request:[0-9a-f]{12}$/);
   await assert.rejects(s.read('1', { kind: 'message' }), { code: 'FSW_READ_KIND' });
   await s.stop();
   assert.deepEqual(reader.calls, [['list', 2], ['read', 1], ['close']]);
@@ -176,6 +177,19 @@ test('a wishket card edited under the same posted day is read again, and an uned
     assert.equal(after.at, before.at);
     assert.equal(needsWork(after, row, null, 'observe'), true, 'edit ' + JSON.stringify(edit));
   }
+});
+
+test('a reread wishket project with an edited description stores the new body, and an unchanged one adds nothing', async () => {
+  const { threadOfProject } = await import('../src/surface/wishket.mjs');
+  const ledger = openLedger(':memory:');
+  const t = ledger.upsertThread({ platform: 'wishket', externalId: '1', kind: 'request' });
+  // The detail page carries no field, so the stored id cannot lean on the card.
+  const detail = (over) => { const { field, ...p } = wishketProject(1, over); return p; };
+  for (const p of [detail(), detail(), detail({ description: '예약 웹 범위가 바뀌었습니다' })]) {
+    for (const m of threadOfProject(p).messages) ledger.addMessage({ threadId: t.id, direction: m.direction, body: m.text, externalId: m.externalId, at: m.at });
+  }
+  assert.deepEqual(ledger.db.prepare('SELECT body FROM messages WHERE thread_id = ? ORDER BY id').all(t.id).map((r) => r.body), ['예약 웹을 만들고 싶습니다 1', '예약 웹 범위가 바뀌었습니다']);
+  ledger.close();
 });
 
 test('every wishket write throws APPLY_UNMAPPED before the project reader is opened, authorized or not', async () => {

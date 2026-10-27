@@ -65,19 +65,23 @@ const NOT_READY = ['ENOENT', 'EBUSY', 'EPERM'];
 export async function readActivePort(profile, proc, timeoutMs, { read = (file) => readFileSync(file, 'utf8') } = {}) {
   const file = join(profile, 'DevToolsActivePort');
   const deadline = Date.now() + timeoutMs;
+  let lastError = null;
   while (Date.now() < deadline) {
     if (proc.exitCode !== null) throw new RenderError('FSW_RENDER_CHROME_EXIT', 'Chrome exited before DevTools came up (exit ' + proc.exitCode + ')');
     let text = null;
     try {
       text = read(file);
+      lastError = null;
     } catch (err) {
       if (!NOT_READY.includes(err.code)) throw err;
+      lastError = err;
     }
     const [port, path] = String(text ?? '').split(/\r?\n/);
     if (port && path) return { port: Number(port), path };
     await sleep(50);
   }
-  throw new RenderError('FSW_RENDER_TIMEOUT', 'Chrome did not open DevTools within ' + timeoutMs + ' ms');
+  // The last read error, when the file was still busy or gone, is the cause: a persistent EPERM says why.
+  throw new RenderError('FSW_RENDER_TIMEOUT', 'Chrome did not open DevTools within ' + timeoutMs + ' ms' + (lastError ? ' (last read: ' + lastError.code + ')' : ''), lastError ? { cause: lastError } : {});
 }
 
 // Every process that names a Chrome profile folder on its command line, as {pid, commandLine}. Each

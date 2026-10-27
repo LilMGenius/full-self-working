@@ -238,3 +238,16 @@ test('quoteFunnel counts unlinked chats from the funnel events only', () => {
   ledger.addEvent({ kind: 'quote.budget_refused', platform: 'soomgo', ref: 'c3', at, payload: { unlinked: true } });
   assert.equal(quoteFunnel(ledger, { platform: 'soomgo', now, days: 7 }).unlinked, 1);
 });
+
+// The bound is on the amount a row prints, not the factor: rounding to 1,000 KRW can carry a small base past it.
+test('the learned base stays within maxMove of the market base after rounding, rounding toward the base', () => {
+  const small = row({ baseKRW: 5000, costFloorKRW: 1000, marketCeilingKRW: 100000 });
+  const [up] = learnPriceRows([small], cases('won', 3, 5), { settings: SETTINGS, descriptors, asOf: ASOF });
+  assert.deepEqual([up.learned.factor, up.baseKRW, up.learned.capped], [1.3, 6000, true]);
+  const [down] = learnPriceRows([small], cases('lost', 0.1, 5), { settings: SETTINGS, descriptors, asOf: ASOF });
+  assert.deepEqual([down.learned.factor, down.baseKRW, down.learned.capped], [0.7, 4000, true]);
+  const [narrow] = learnPriceRows([row({ baseKRW: 1500, costFloorKRW: 1000, marketCeilingKRW: 100000 })], cases('won', 3, 5), { settings: SETTINGS, descriptors, asOf: ASOF });
+  assert.equal(narrow.baseKRW, 1500, 'no 1,000 KRW step fits inside the bound, so the base stays');
+  const [cost] = learnPriceRows([row({ baseKRW: 100000, costFloorKRW: 95500 })], cases('lost', 1, 5), { settings: SETTINGS, descriptors, asOf: ASOF });
+  assert.equal(cost.baseKRW, 96000, 'a cost floor between steps rounds up to the next step, never under it');
+});

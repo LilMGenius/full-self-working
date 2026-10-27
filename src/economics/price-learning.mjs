@@ -24,6 +24,18 @@ export function learnedFactor(cases, { step, maxMove }) {
 // quotes in the lookback gets baseKRW = its base x factor, held between costFloorKRW and marketCeilingKRW, and the matching
 // baseNetKRW. packages, floorKRW and ceilingKRW stay on the market (kmong gigs print packages, and the
 // listing gate pins them to the table).
+// The base a row prints: base x factor rounded to 1,000 KRW, kept inside the bounds the amount itself must hold (within
+// maxMove of the market base, at or above the cost floor, at or under the market ceiling). Rounding that would cross a
+// bound goes to the step on the base's side of it; when no 1,000 KRW step fits inside the bounds the base stays.
+function boundedBase(row, factor, maxMove) {
+  const lo = Math.max(row.costFloorKRW, row.baseKRW * (1 - maxMove));
+  const hi = Math.min(row.marketCeilingKRW, row.baseKRW * (1 + maxMove));
+  const first = Math.ceil(lo / 1000) * 1000;
+  const last = Math.floor(hi / 1000) * 1000;
+  if (first > last) return row.baseKRW;
+  return Math.min(last, Math.max(first, roundTo1000(row.baseKRW * factor)));
+}
+
 export function learnPriceRows(rows, results, { settings, descriptors, asOf }) {
   const { minCases, step, maxMove, lookbackDays } = settings;
   const since = asOf.getTime() - lookbackDays * 86_400_000;
@@ -36,7 +48,7 @@ export function learnPriceRows(rows, results, { settings, descriptors, asOf }) {
     if (learned.priced < minCases) return { ...row, learned: { ...learned, reason: learned.priced + ' of ' + minCases + ' priced decided quotes' } };
     const factor = Math.round(learnedFactor(decided, { step, maxMove }) * 10_000) / 10_000;
     const raw = roundTo1000(row.baseKRW * factor);
-    const base = Math.min(row.marketCeilingKRW, Math.max(row.costFloorKRW, raw));
+    const base = boundedBase(row, factor, maxMove);
     const capped = Math.abs(factor - 1) >= maxMove || base !== raw;
     return { ...row, baseKRW: base, baseNetKRW: sellerNet(base, descriptors[row.platform]).net, learned: { ...learned, factor, capped, reason: learned.priced + ' priced of ' + decided.length + ' decided quotes' } };
   });

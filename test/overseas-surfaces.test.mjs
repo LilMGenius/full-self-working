@@ -95,8 +95,13 @@ test('freelancer signIn presses the framed Google button on the login page, and 
   // An HTML error page from the self API after the pick is no sign-in (wp8 review): nothing reads it as one.
   const errorPage = await openFreelancerSurface({ session: page('https://www.freelancer.com/login', { title: 'Error 502', text: '<html>Bad gateway</html>' }), targets: TARGETS, google });
   assert.equal((await errorPage.signIn({ email: 'operator@example.invalid' })).signedIn, false);
-  const already = await openFreelancerSurface({ session: page('https://www.freelancer.com/dashboard', null), targets: TARGETS, google });
+  const already = await openFreelancerSurface({ session: page('https://www.freelancer.com/dashboard', { json: { status: 'success', result: { id: 1 } } }), targets: TARGETS, google });
   assert.deepEqual(await already.signIn({ email: 'operator@example.invalid' }), { signedIn: true, alreadySignedIn: true });
+  // A redirect away from /login proves nothing by itself: to an error page it is a failed sign-in (wp8 re-review).
+  const elsewhere = await openFreelancerSurface({ session: page('https://www.freelancer.com/maintenance', { title: 'Service unavailable', text: 'Try again later' }), targets: TARGETS, google });
+  const r = await elsewhere.signIn({ email: 'operator@example.invalid' });
+  assert.equal(r.signedIn, false);
+  assert.match(r.reason, /went to \/maintenance/);
   assert.equal(pressed.length, 3);
 });
 

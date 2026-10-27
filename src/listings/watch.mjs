@@ -8,7 +8,7 @@ import { priceRowFor } from '../economics/pricing.mjs';
 import { IMAGES_VERSION } from './images.mjs';
 import { listingTexts } from './kmong.mjs';
 import { basisChanged } from './proofs.mjs';
-import { itemFame } from '../portfolio/rank.mjs';
+import { aboveFame, itemFame } from '../portfolio/rank.mjs';
 import { addedText, gigStatus, nextReviewAction, parseReviewNotice, readReview, rejectionKey, reviewViolation, writeReview } from './review.mjs';
 import { recordOutcome } from '../learning/outcomes.mjs';
 import { careerLabel, careerMonths } from '../core/profile.mjs';
@@ -177,7 +177,7 @@ async function refreshGigs(ctx) {
   const cfg = loadProofs(instance);
   const items = portfolioItems(instance);
   // A near tie in fame (listings.basisFameGap) does not move a gig's basis; an absent setting keeps every swap.
-  const near = { fame: Object.fromEntries(items.map((i) => [i.id, itemFame(i)])), gap: instance.config.listings?.basisFameGap ?? 0 };
+  const near = { fame: Object.fromEntries(items.map((i) => [i.id, itemFame(i)])), above: Object.fromEntries(items.map((i) => [i.id, aboveFame(i)])), gap: instance.config.listings?.basisFameGap ?? 0 };
   const candidates = published.map((p) => {
     const spec = readJson(specFile(instance, p.service));
     const before = spec?.portfolioBasis ?? legacyBasis(cfg, p.service, items);

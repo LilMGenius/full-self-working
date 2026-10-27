@@ -49,3 +49,16 @@ test('a near-tie run holds only items close to every member, in a basis not sort
   assert.equal(basisChanged(['P', 'R', 'Q'], ['P', 'Q', 'R'], { fame: tiers, gap: 0.05 }), true);
   assert.equal(basisChanged(['P', 'R', 'Q'], ['R', 'P', 'Q'], { fame: tiers, gap: 0.05 }), false, 'P and R are within the gap of each other');
 });
+
+// The near-tie exception is about fame alone: when a key the ranking reads before fame (tier, liked) moved an item,
+// the move is a change whatever the fame gap.
+test('a swap from a key above fame is a change even when fame is a near tie', async () => {
+  const { aboveFame, rankPortfolio, itemFame } = await import('../src/portfolio/rank.mjs');
+  const items = [{ id: 'A', source: 'background', reach: { fame: 0.5 } }, { id: 'B', source: 'background', reach: { fame: 0.5 }, satisfaction: { liked: true } }];
+  const now = rankPortfolio(items).map((i) => i.id);
+  assert.deepEqual(now, ['B', 'A']);
+  const near = { fame: Object.fromEntries(items.map((i) => [i.id, itemFame(i)])), above: Object.fromEntries(items.map((i) => [i.id, aboveFame(i)])), gap: 0.02 };
+  assert.equal(basisChanged(['A', 'B'], now, near), true);
+  const same = { ...near, above: { A: aboveFame(items[0]), B: aboveFame(items[0]) } };
+  assert.equal(basisChanged(['A', 'B'], ['B', 'A'], same), false, 'equal keys above fame keep the near-tie exception');
+});

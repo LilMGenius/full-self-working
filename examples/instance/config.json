@@ -129,7 +129,9 @@
     "watched": false
   },
   "listings": {
-    "studio": null
+    "studio": null,
+    "refreshPerDay": 1,
+    "changeWindowDays": 28
   },
   "site": {
     "domain": null,

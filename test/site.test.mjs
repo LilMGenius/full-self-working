@@ -134,3 +134,47 @@ test('a share card drawn in a fallback face fails the build with FSW_SITE_FONT',
   await assert.rejects(buildSite({ instance: dir, out: join(dir, 'dist'), ogFontFace: '' }), (err) => err.code === 'FSW_SITE_FONT' && /og\.jpg: fallback font/.test(err.message));
   assert.ok(!existsSync(join(dir, 'dist', 'index.html')), 'a failed build leaves no output');
 });
+
+// A README capture is shown as the project's README and a contribution names the repository it went to, in both
+// languages, with rankPortfolio's order kept (AGENTS.md publicClaims).
+test('a README capture carries its own caption and a contribution is labelled with its repository', { skip: !existsSync(process.env.FSW_CHROME ?? DEFAULT_CHROME) && 'Chrome not installed' }, async (t) => {
+  const dir = fixture();
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  mkdirSync(join(dir, 'portfolio', 'media'), { recursive: true });
+  for (const f of ['rd-kit-readme.png', 'shop-screen.png', 'shop-readme.png']) writeFileSync(join(dir, 'portfolio', 'media', f), png);
+  const profile = JSON.parse(readFileSync(join(dir, 'profile.json'), 'utf8'));
+  const readme = (file, repo) => ({ kind: 'readme', src: 'media/' + file, width: 1676, height: 3200, alt: 'README of ' + repo + ' on GitHub' });
+  profile.projects = [
+    { name: 'R&D Kit', role: 'Author', url: 'https://github.com/yesi/rd-kit', what: 'A kit for small experiments.', media: [readme('rd-kit-readme.png', 'yesi/rd-kit')] },
+    { name: 'Shop Page', role: 'Author', url: 'https://github.com/yesi/shop', what: 'A shop page.', media: [readme('shop-readme.png', 'yesi/shop'), { kind: 'image', src: 'media/shop-screen.png', width: 1440, height: 900 }] },
+    { name: 'Big Lib', role: "Contributor to another maintainer's repository", url: 'https://github.com/other-org/big-lib', what: 'Fixes to a widely used library.' },
+    { name: 'Private Fix', role: 'Contributor', what: 'A fix in a repository that is not public.' },
+  ];
+  writeFileSync(join(dir, 'profile.json'), JSON.stringify(profile));
+  writeFileSync(join(dir, 'portfolio', 'items.json'), '[]');
+  await buildSite({ instance: dir, out: join(dir, 'dist') });
+  const ranked = rankPortfolio(JSON.parse(readFileSync(join(dir, 'portfolio', 'items.json'), 'utf8'))).map((i) => i.id);
+  const pages = { ko: readFileSync(join(dir, 'dist', 'index.html'), 'utf8'), en: readFileSync(join(dir, 'dist', 'en', 'index.html'), 'utf8') };
+  const card = (html, id) => html.match(new RegExp('<li class="work-item[^"]*" id="work-' + id + '">[\\s\\S]*?</li>'))[0];
+  const expect = {
+    ko: { readme: 'R&amp;D Kit의 GitHub README', repo: 'other-org/big-lib 저장소에 기여한 작업', other: '다른 메인테이너의 저장소에 기여한 작업' },
+    en: { readme: 'README of R&amp;D Kit on GitHub', repo: 'Contribution to other-org/big-lib', other: 'Contribution to another maintainer&#39;s repository' },
+  };
+  for (const [lang, html] of Object.entries(pages)) {
+    const e = expect[lang];
+    assert.deepEqual([...html.matchAll(/<li class="work-item[^"]*" id="work-([^"]+)"/g)].map((m) => m[1]), ranked, lang + ' order');
+    const rd = card(html, 'bg-r-d-kit');
+    assert.match(rd, /<figure class="work-media readme"><img src="\/media\/[0-9a-f]{8}\.png" alt="([^"]+)"/);
+    assert.equal(rd.match(/alt="([^"]+)"/)[1], e.readme, lang + ' alt names the README');
+    assert.ok(rd.includes('<figcaption>' + e.readme + '</figcaption>'), lang + ' README caption: ' + rd);
+    assert.doesNotMatch(rd, /work-kind/);
+    // A screen of the running work is preferred over the README, and a screen gets no README caption.
+    const shop = card(html, 'bg-shop-page');
+    assert.match(shop, /<figure class="work-media"><img /);
+    assert.doesNotMatch(shop, /figcaption|README/);
+    assert.ok(card(html, 'bg-big-lib').includes('<p class="work-kind">' + e.repo + '</p>'), lang + ' contribution names its repository');
+    assert.ok(card(html, 'bg-private-fix').includes('<p class="work-kind">' + e.other + '</p>'), lang + ' contribution without a repository');
+    assert.equal([...html.matchAll(/class="work-kind"/g)].length, 2, lang + ' only the two contributions are labelled');
+  }
+});

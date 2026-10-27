@@ -66,7 +66,7 @@ export async function run(argv, ctx = {}) {
     // A grant over a refusal or a condition publishes work the client limited, so the operator sees what he lifted.
     const lifted = { denied: 'refusal', conditional: 'condition' }[prior.permission];
     if (!reason && signal.type === 'permission_granted' && lifted) log('job ' + job.id + ' permission granted lifts the ' + lifted + ' recorded ' + (prior.answeredAt ?? 'earlier') + ' from ' + (prior.source ?? 'unknown') + (prior.quote ? ': "' + prior.quote + '"' : ' (no client sentence kept)'));
-    log('job ' + job.id + ' ' + sub + (reason ? ' refused: ' + reason : ' recorded; the portfolio is synced and the next daily publish shows it'));
+    log('job ' + job.id + ' ' + sub + (reason ? ' refused: ' + reason : ' recorded; the portfolio is synced and the next listings refresh shows it in the gig images it ranks into'));
     return reason ? 1 : 0;
   } finally {
     if (!ctx.ledger) ledger.close();

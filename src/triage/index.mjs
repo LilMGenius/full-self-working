@@ -34,7 +34,13 @@ export const THREAD_ATTEMPTS = 3;
 // outbound hours still decides.
 export function needsWork(inbound, row, key, mode = 'auto') {
   if (!row) return true;
-  if (row.meta?.skipped && row.meta.skipped.at === (inbound.at ?? null) && row.meta.skipped.key === key) return false;
+  const skipped = row.meta?.skipped;
+  if (skipped && skipped.at === (inbound.at ?? null)) {
+    if (skipped.key === key) return false;
+    // A paid quote the value gate dropped (reason "gate: ...") was read and decided, so its list row shows
+    // nothing new; a moved setting is the only thing that can change its verdict, and it is judged again.
+    if (String(skipped.reason).startsWith('gate: ')) return true;
+  }
   if (inbound.unread) return true;
   const failed = row.meta?.failed;
   if (failed && failed.count < THREAD_ATTEMPTS && !(Date.parse(row.lastOutboundAt ?? 0) > Date.parse(failed.at))) return true;

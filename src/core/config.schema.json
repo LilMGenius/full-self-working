@@ -66,9 +66,20 @@
           "type": "object",
           "description": "how fsw judges a paid quote on a buyer request before it is planned, and how it spends the day's quote cash",
           "default": {
+            "minFit": "some",
             "pace": "even"
           },
           "properties": {
+            "minFit": {
+              "type": "string",
+              "enum": [
+                "none",
+                "some",
+                "strong"
+              ],
+              "description": "the least fit the model must judge a buyer request to have before a paid quote on it is planned; a quote under it, or with a value at or under zero, parks with a gate reason",
+              "default": "some"
+            },
             "pace": {
               "type": "string",
               "enum": [
@@ -309,6 +320,7 @@
           "maxCashPerDay": 0,
           "platformSpendMaxPerDay": null,
           "quoteGate": {
+            "minFit": "some",
             "pace": "even"
           },
           "services": null

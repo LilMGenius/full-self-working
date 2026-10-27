@@ -2,9 +2,11 @@
 // generator import it. Pure: no I/O, input items are not mutated.
 //
 // Eligible: a background project, or a paid job (paidAt set) whose client granted portfolio use.
-// Never shown: any item rated below 4 of 5 or marked disliked. Tier A (liked, or rated 4.5 or more)
-// orders by liked, client fame, quality, volume; tier B by quality, volume. Volume compares the price
-// first and the hours second. Ties fall to the newest paidAt, then id. Missing values sort last.
+// Never shown: any item rated below 4 of 5 or marked disliked. The founder's order: satisfaction, fame,
+// quality, volume, recency. Tier A (liked, or rated 4.5 or more) orders by liked, fame, quality, volume;
+// tier B by fame, quality, volume. Fame is a client's fame, else the item's public reach that day
+// (src/portfolio/signals.mjs). Volume compares the price first and the hours second. Ties fall to the
+// newest paidAt, then id. Missing values sort last.
 
 const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
@@ -37,14 +39,15 @@ export function isTierA(item) {
 
 const keys = {
   liked: (i) => (i.satisfaction?.liked === true ? 1 : null),
-  fame: (i) => num(i.client?.fame),
+  // A client's fame for a paid job (operator-entered), else the item's public reach that day (signals.mjs).
+  fame: (i) => num(i.client?.fame) ?? num(i.reach?.fame),
   quality: (i) => num(i.quality),
   price: (i) => num(i.volume?.priceKRW),
   hours: (i) => num(i.volume?.hours),
   paidAt: (i) => time(i.paidAt),
 };
 const ORDER_A = ['liked', 'fame', 'quality', 'price', 'hours', 'paidAt'];
-const ORDER_B = ['quality', 'price', 'hours', 'paidAt'];
+const ORDER_B = ['fame', 'quality', 'price', 'hours', 'paidAt'];
 
 const compareBy = (order) => (a, b) => {
   for (const k of order) {

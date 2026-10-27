@@ -126,6 +126,17 @@ The hourly job writes `operator/supply/supply-<YYYYMMDDHH>.json`, one file per S
 
 The projects job reads, judges and drafts 크몽 엔터프라이즈 proposals within the day's quota and plans one outbox row of kind `proposal` per draft it keeps, `decision.needsOperator` false when the send policy allows it; it never sends. The kmong poll's drain screens the rows with `authorize` and sends them through `Surface.propose`, which reads the project, fills the form through the projects page module, reads it back and looks for the proposal on `/seller/proposals`. A spent quota and a missing enterprise profile come back as refusals the drain returns as they were; the next projects run carries what the drain sent onto the project threads (`project.proposed`, dated by the job's clock), remembers a missing profile for the day and turns a row whose project closed stale. Only `src/surface/kmong.mjs` and `src/outbox/drain.mjs` call `.propose(`.
 
+## Portfolio
+
+`src/portfolio/rank.mjs` is the one ordering of portfolio items; the site, the listing images and every listing generator import it. An item is shown when it is a background project, or a paid job whose client granted portfolio use, and never when it is rated under 4 of 5 or marked disliked. The order follows the founder's order of satisfaction, fame, quality, volume and recency:
+
+1. Tier A (liked, or rated 4.5 or more) comes before tier B.
+2. Tier A orders by liked, fame, quality, volume.
+3. Tier B orders by fame, quality, volume.
+4. Volume compares the price first and the hours second; ties fall to the newest `paidAt`, then the id; a missing value sorts after a present one.
+
+Fame is a client's fame on a paid job, else the item's public reach that day: GitHub stars and npm downloads of a repository or package the operator authored (created, owns and made the first commit of), each on a log scale against the largest of the instance's own items (`src/portfolio/signals.mjs`); a contribution to another maintainer's repository has none. Quality is the share of viewports at which the item's live page renders with no overflow and no broken image. The daily portfolio job reads both once per Seoul day, keeps no figure whose source went silent, and captures a README image (`kind: 'readme'`, never a gig image) for each authored repository without media (`src/portfolio/media.mjs`).
+
 ## Settings
 
 `src/core/config.schema.json` (JSON Schema 2020-12) owns every config key's type, allowed values, default and meaning; `x-choice` marks a choice the operator makes before the platform it guards acts (`platforms.<id>.mode`, `maxCashPerDay`, `services`, `bidBudget`). `examples/instance/config.json` is generated from its defaults (`scripts/gen-example-config.mjs`, checked in `npm run check`). `fsw settings` lists every key with its value, default and meaning; `fsw settings set <key> <value>` validates the whole new config with ajv, writes it beside `config.json` and renames it over, and records one `settings.changed` event; `fsw settings reset <key>` restores the default; `fsw doctor` warns once per unmade choice. ajv loads only inside `validateConfig`, which only `fsw settings set` and `reset` call. A career figure a listing prints is derived from the profile's dated roles (`careerMonths` and `careerLabel` in `src/core/profile.mjs`: the lower value of every coarse period, hidden when a period does not parse).

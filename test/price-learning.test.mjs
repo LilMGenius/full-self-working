@@ -103,7 +103,7 @@ test('learnedFactor moves a step per decided case toward where it won or under w
 
 test('learnPriceRows holds a row under minCases, moves it by the learned factor, and clamps to the cost floor and the market ceiling', () => {
   const [held] = learnPriceRows([row()], cases('expired', 1, 4), { settings: SETTINGS, descriptors, asOf: ASOF });
-  assert.deepEqual([held.baseKRW, held.learned.factor, held.learned.reason, held.learned.winRate], [300000, 1, '4 of 5 decided quotes', 1 / 6]);
+  assert.deepEqual([held.baseKRW, held.learned.factor, held.learned.reason, held.learned.winRate], [300000, 1, '4 of 5 priced decided quotes', 1 / 6]);
   const [moved] = learnPriceRows([row()], cases('expired', 1, 5), { settings: SETTINGS, descriptors, asOf: ASOF });
   assert.deepEqual([moved.baseKRW, moved.learned.factor, moved.learned.fromKRW, moved.learned.capped, moved.learned.priced], [260000, 0.8655, 300000, false, 5]);
   assert.equal(moved.baseNetKRW, sellerNet(260000, descriptors.soomgo).net);
@@ -116,7 +116,7 @@ test('learnPriceRows holds a row under minCases, moves it by the learned factor,
 
 test('learnPriceRows counts cases without a pricing basis toward the win rate and moves nothing with them', () => {
   const [r] = learnPriceRows([row()], [...cases('expired', null, 6), ...cases('won', null, 1)], { settings: SETTINGS, descriptors, asOf: ASOF });
-  assert.deepEqual([r.baseKRW, r.learned.factor, r.learned.cases, r.learned.priced, r.learned.winRate, r.learned.reason], [300000, 1, 7, 0, 2 / 9, '0 priced of 7 decided quotes']);
+  assert.deepEqual([r.baseKRW, r.learned.factor, r.learned.cases, r.learned.priced, r.learned.winRate, r.learned.reason], [300000, 1, 7, 0, 2 / 9, '0 of 5 priced decided quotes']);
   const [old] = learnPriceRows([row()], cases('expired', 1, 5, '2026-01-01T00:00:00Z'), { settings: SETTINGS, descriptors, asOf: ASOF });
   assert.equal(old.learned.cases, 0, 'cases older than lookbackDays are dropped');
   const [off] = learnPriceRows([row({ viable: false })], cases('expired', 1, 5), { settings: SETTINGS, descriptors, asOf: ASOF });
@@ -175,4 +175,13 @@ test('a quote the client passed over for a newer one on the same deal is superse
   assert.deepEqual([at(waiting.older), at(waiting.newer)], [[240000, 'expired'], [300000, 'expired']], 'a deal still at quoted has decided nothing');
   const [row] = learnPriceRows([{ platform: 'soomgo', service: 'detail_page_design', viable: true, baseKRW: 300000, costFloorKRW: 50000, marketCeilingKRW: 1000000 }], Object.values(r).filter((x) => x.threadId === hired.older.threadId), { settings: { minCases: 1, step: 0.2, maxMove: 0.3, lookbackDays: 180 }, descriptors: { soomgo: loadDescriptor('soomgo') }, asOf: new Date(plus(T0, 30 * DAY)) });
   assert.deepEqual([row.learned.won, row.learned.superseded, row.learned.cases, row.learned.factor], [1, 1, 1, 1], 'only the won quote is learned');
+});
+
+test('decided quotes without a pricing basis fill the win rate, never minCases: one priced loss among five moves nothing', () => {
+  const unpriced = cases('expired', null, 4);
+  const priced = cases('expired', 1, 1).map((c) => ({ ...c, id: 99 }));
+  const [r] = learnPriceRows([row()], [...unpriced, ...priced], { settings: SETTINGS, descriptors, asOf: ASOF });
+  assert.deepEqual([r.baseKRW, r.learned.factor, r.learned.cases, r.learned.priced, r.learned.winRate, r.learned.reason], [300000, 1, 5, 1, 1 / 7, '1 of 5 priced decided quotes']);
+  const [five] = learnPriceRows([row()], [...unpriced, ...cases('expired', 1, 5)], { settings: SETTINGS, descriptors, asOf: ASOF });
+  assert.deepEqual([five.learned.factor, five.learned.cases, five.learned.priced], [0.8655, 9, 5], 'five priced cases move it, and the unpriced ones still count in the win rate');
 });

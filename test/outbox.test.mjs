@@ -704,7 +704,7 @@ test('two priced proposals with room for one: the first goes out and the second 
   assert.deepEqual(out.map((x) => [x.id, x.action]), [[rows[0].id, 'observed'], [rows[1].id, 'blocked']]);
   assert.equal(surface.count('propose'), 1);
   assert.match(s.ledger.getOutbox(rows[1].id).reason, /^budget\.bid .*the month's bid budget is spent \(2000 \+ 2000 over 3000 KRW\)/);
-  assert.deepEqual(bidUsage(s.ledger, 'freelancer', NOON), { bidMonthKRW: 2000, bidUnanswered: 1 });
+  assert.deepEqual(bidUsage(s.ledger, 'freelancer', NOON), { bidMonthKRW: 2000, bidUnanswered: 1, unknownCost: [] });
 });
 
 test('one more unanswered proposal than the limit allows stops the next bid, and a reply frees its place', async () => {
@@ -717,7 +717,7 @@ test('one more unanswered proposal than the limit allows stops the next bid, and
   assert.match(s.ledger.getOutbox(rows[1].id).reason, /1 sent proposals have no reply; bids stop at 1/);
   const sentAt = Date.parse(s.ledger.getOutbox(rows[0].id).updatedAt);
   s.ledger.addMessage({ threadId: threads[0].id, direction: 'in', body: 'Thanks, can we talk?', externalId: 'r1', at: new Date(sentAt + 60_000).toISOString() });
-  assert.deepEqual(bidUsage(s.ledger, 'freelancer', NOON), { bidMonthKRW: 0, bidUnanswered: 0 });
+  assert.deepEqual(bidUsage(s.ledger, 'freelancer', NOON), { bidMonthKRW: 0, bidUnanswered: 0, unknownCost: [] });
 });
 // U8.11 of wp8: a converted proposal carries its rate; the drain sends its amount and currency, sends nothing on
 // a rate older than the day's, and reads an interrupted one back from the board's own proposal list.
@@ -769,4 +769,39 @@ test('an interrupted proposal is observed through the surface proposal list, and
   assert.equal(s.ledger.getOutbox(seen.id).receipt.externalId, 'bid-77');
   assert.equal(s.ledger.getOutbox(missing.id).reason, 'no bid on project p2 in the bid list');
   assert.deepEqual([surface.count('propose'), surface.count('read')], [0, 0]);
+});
+
+// A bid's earlier spend is the receipt's recorded cost before the planned one; an unknown cost is never 0
+// (the C review of wp8, finding 1).
+const earlierBid = (s, ref, payloadCost, receipt, approvalId = '20261020-freelancer-0000aaa1') => {
+  const t = s.thread(ref, 'request');
+  return s.ledger.addOutbox({ key: 'earlier-' + ref, platform: 'freelancer', threadId: t.id, kind: 'proposal', status: 'unobserved', approvalId, payload: { ...bidPayload(payloadCost, ref), costKRW: payloadCost }, receipt, updatedAt: NOON.toISOString() });
+};
+
+test('an earlier bid counts the cost its receipt recorded over the planned one, so a bid past the month limit is blocked', async () => {
+  const s = bidSetup({ monthlyKRW: 3000, stopAfterUnanswered: 20 });
+  earlierBid(s, 'old', 1000, { observed: false, costKRW: 2500 });
+  const row = plan(s.ledger, { platform: 'freelancer', threadId: s.thread('p1', 'request').id, kind: 'proposal', payload: bidPayload(2000, 1) });
+  assert.deepEqual(bidUsage(s.ledger, 'freelancer', NOON), { bidMonthKRW: 2500, bidUnanswered: 1, unknownCost: [] });
+  const surface = scriptedSurface({ methods: ['propose'] });
+  const out = await s.run(surface, { descriptor: mappedFreelancer() });
+  assert.deepEqual([out.map((x) => x.action), surface.count('propose')], [['blocked'], 0]);
+  assert.match(s.ledger.getOutbox(row.id).reason, /\(2500 \+ 2000 over 3000 KRW\)/);
+});
+
+test('an earlier bid with no known cost blocks the next bid by name until the operator settles it with --cost', async () => {
+  const s = bidSetup({ monthlyKRW: 3000, stopAfterUnanswered: 20 });
+  const old = earlierBid(s, 'old', null, { observed: false });
+  earlierBid(s, 'odd', -5, { observed: false }, '20261020-freelancer-0000aaa2');
+  const usage = bidUsage(s.ledger, 'freelancer', NOON);
+  assert.deepEqual([usage.bidMonthKRW, usage.unknownCost], [null, ['20261020-freelancer-0000aaa1', '20261020-freelancer-0000aaa2']]);
+  const row = plan(s.ledger, { platform: 'freelancer', threadId: s.thread('p1', 'request').id, kind: 'proposal', payload: bidPayload(0, 1) });
+  const surface = scriptedSurface({ methods: ['propose'] });
+  await s.run(surface, { descriptor: mappedFreelancer() });
+  assert.equal(surface.count('propose'), 0);
+  assert.match(s.ledger.getOutbox(row.id).reason, new RegExp("bid spend is unknown: no cost is recorded for " + old.approvalId));
+  // The operator's --cost lands on a proposal receipt as the bids it spent.
+  const { receipt } = settleSent(s.ledger, old.approvalId, { costKRW: 1200, now: NOON });
+  assert.equal(receipt.cashSpentKRW, 1200);
+  assert.deepEqual(bidUsage(s.ledger, 'freelancer', NOON).unknownCost, ['20261020-freelancer-0000aaa2']);
 });

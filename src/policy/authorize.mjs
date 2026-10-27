@@ -27,11 +27,14 @@ export const spendsCash = (descriptor, threadKind) => threadKind === 'request' &
 // reply. Fails closed on an unknown cost or uncounted usage.
 export const BID_BUDGET_DEFAULT = { monthlyKRW: 0, stopAfterUnanswered: 20 };
 
+const knownKRW = (v) => typeof v === 'number' && Number.isFinite(v) && v >= 0;
+
 export function bidBudgetCheck({ budget, usage, costKRW }) {
   const { monthlyKRW, stopAfterUnanswered } = { ...BID_BUDGET_DEFAULT, ...(budget ?? {}) };
-  if (typeof monthlyKRW !== 'number' || !Number.isInteger(stopAfterUnanswered)) return { ok: false, reason: 'the bid budget is malformed (monthlyKRW, stopAfterUnanswered)' };
-  if (typeof costKRW !== 'number' || !Number.isFinite(costKRW)) return { ok: false, reason: 'the bid cost in KRW is unknown' };
-  if (typeof usage?.bidMonthKRW !== 'number' || typeof usage?.bidUnanswered !== 'number') return { ok: false, reason: 'the bid usage was not counted' };
+  if (!knownKRW(monthlyKRW) || !(Number.isInteger(stopAfterUnanswered) && stopAfterUnanswered >= 0)) return { ok: false, reason: 'the bid budget is malformed (monthlyKRW, stopAfterUnanswered)' };
+  if (!knownKRW(costKRW)) return { ok: false, reason: 'the bid cost in KRW is unknown' };
+  if (usage?.unknownCost?.length) return { ok: false, reason: "the month's bid spend is unknown: no cost is recorded for " + usage.unknownCost.join(', ') + '; settle each with fsw approve <id> --sent --cost <KRW>' };
+  if (!knownKRW(usage?.bidMonthKRW) || !(Number.isInteger(usage?.bidUnanswered) && usage.bidUnanswered >= 0)) return { ok: false, reason: 'the bid usage was not counted' };
   if (usage.bidMonthKRW + costKRW > monthlyKRW) return { ok: false, reason: "the month's bid budget is spent (" + usage.bidMonthKRW + ' + ' + costKRW + ' over ' + monthlyKRW + ' KRW)' };
   if (usage.bidUnanswered >= stopAfterUnanswered) return { ok: false, reason: usage.bidUnanswered + ' sent proposals have no reply; bids stop at ' + stopAfterUnanswered };
   return { ok: true };

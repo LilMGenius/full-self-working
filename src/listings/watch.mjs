@@ -8,6 +8,7 @@ import { priceRowFor } from '../economics/pricing.mjs';
 import { IMAGES_VERSION } from './images.mjs';
 import { listingTexts } from './kmong.mjs';
 import { basisChanged } from './proofs.mjs';
+import { itemFame } from '../portfolio/rank.mjs';
 import { addedText, gigStatus, nextReviewAction, parseReviewNotice, readReview, rejectionKey, reviewViolation, writeReview } from './review.mjs';
 import { recordOutcome } from '../learning/outcomes.mjs';
 import { careerLabel, careerMonths } from '../core/profile.mjs';
@@ -146,8 +147,8 @@ export function legacyBasis(cfg, service, items) {
 // still go to kmong review this Seoul day (listings.refreshPerDay less those refreshed today);
 // redesignRejected says a gig rendered with the current images version was rejected after its redesign, so
 // the rest of a redesign waits for the operator instead of following it into review.
-export function refreshDecision({ status, before, now, last, imagesVersion = IMAGES_VERSION, room = 1, redesignRejected = false, today = new Date(), minDays = REFRESH_MIN_DAYS }) {
-  const moved = basisChanged(before, now);
+export function refreshDecision({ status, before, now, last, imagesVersion = IMAGES_VERSION, room = 1, redesignRejected = false, today = new Date(), minDays = REFRESH_MIN_DAYS, fame = {}, gap = 0 }) {
+  const moved = basisChanged(before, now, { fame, gap });
   if (!moved && imagesVersion === IMAGES_VERSION) return { refresh: false, reason: 'top portfolio items unchanged' };
   if (gigStatus(status) !== 'selling') return { refresh: false, reason: 'the gig is ' + (status ?? 'not listed') + ', not on sale' };
   if (last && today.getTime() - Date.parse(last) < minDays * 86_400_000) return { refresh: false, reason: 'refreshed within ' + minDays + ' days' };
@@ -175,12 +176,14 @@ async function refreshGigs(ctx) {
   if (!published.length) return { status: 'skipped', detail: 'no published kmong listing yet' };
   const cfg = loadProofs(instance);
   const items = portfolioItems(instance);
+  // A near tie in fame (listings.basisFameGap) does not move a gig's basis; an absent setting keeps every swap.
+  const near = { fame: Object.fromEntries(items.map((i) => [i.id, itemFame(i)])), gap: instance.config.listings?.basisFameGap ?? 0 };
   const candidates = published.map((p) => {
     const spec = readJson(specFile(instance, p.service));
     const before = spec?.portfolioBasis ?? legacyBasis(cfg, p.service, items);
     // A spec written before wp7 has no images version and reads as 1.
     return { p, spec, before, now: planFor(instance, p.service).basis, imagesVersion: spec?.imagesVersion ?? 1 };
-  }).filter((c) => basisChanged(c.before, c.now) || c.imagesVersion !== IMAGES_VERSION);
+  }).filter((c) => basisChanged(c.before, c.now, near) || c.imagesVersion !== IMAGES_VERSION);
   if (!candidates.length) return { status: 'ok', rows: [], detail: 'no gig shows a changed top item or an older images version' };
   if (ctx.forceMode === 'observe') return { status: 'skipped', detail: 'observe mode', keepDue: true };
   const dir = listingsDir(instance);
@@ -200,10 +203,10 @@ async function refreshGigs(ctx) {
     for (const c of candidates) {
       const gig = gigs.find((g) => g.gigId === c.p.gigId);
       const state = readReview(dir, c.p.service);
-      const d = refreshDecision({ status: gig?.status, before: c.before, now: c.now, last: state.refreshedAt ?? null, imagesVersion: c.imagesVersion, room, redesignRejected, today: ctx.now ?? new Date() });
+      const d = refreshDecision({ status: gig?.status, before: c.before, now: c.now, last: state.refreshedAt ?? null, imagesVersion: c.imagesVersion, room, redesignRejected, today: ctx.now ?? new Date(), ...near });
       const row = { service: c.p.service, gigId: c.p.gigId, refresh: d.refresh, reason: d.reason };
       if (d.refresh) {
-        const moved = basisChanged(c.before, c.now);
+        const moved = basisChanged(c.before, c.now, near);
         const redesign = c.imagesVersion !== IMAGES_VERSION;
         let reached = false;
         let r = null;

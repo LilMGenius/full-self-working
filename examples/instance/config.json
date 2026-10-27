@@ -135,7 +135,8 @@
   "listings": {
     "studio": null,
     "refreshPerDay": 1,
-    "changeWindowDays": 28
+    "changeWindowDays": 28,
+    "basisFameGap": 0.05
   },
   "site": {
     "domain": null,

@@ -670,7 +670,8 @@
       "default": {
         "studio": null,
         "refreshPerDay": 1,
-        "changeWindowDays": 28
+        "changeWindowDays": 28,
+        "basisFameGap": 0.05
       },
       "properties": {
         "studio": {
@@ -692,6 +693,13 @@
           "minimum": 1,
           "description": "days of buyer chats compared before and after a gig redesign, recorded as a learning case; four whole weeks put each weekday into the before and the after once",
           "default": 28
+        },
+        "basisFameGap": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "the fame difference (0 to 1, on the log scale of src/portfolio/signals.mjs) under which two neighbouring top items that swap places leave a gig's images as they are; kmong reviews every image change for days, and 0.05 is about a 40% difference in stars at the scale of the top item, so a star or two never sends a gig to review; 0 refreshes on every swap",
+          "default": 0.05
         }
       }
     },

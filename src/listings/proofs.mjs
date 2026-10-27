@@ -45,5 +45,21 @@ export function proofPlan({ service, items = [], profile = null, proofs = [], sa
   return { gallery, basis };
 }
 
-// True when the ranked items a gig was built from are no longer the ones it would show now.
-export const basisChanged = (before, now) => JSON.stringify(before ?? []) !== JSON.stringify(now ?? []);
+// True when the ranked items a gig was built from are no longer the ones it would show now. The ranking stays exact
+// (src/portfolio/rank.mjs); here a run of neighbouring items in now whose fame differs by less than gap (both known)
+// is read in its before order, so a one-star change that swaps two close items does not send the gig to kmong
+// review again. An item that enters or leaves the basis, or a swap on any other key, still counts.
+export function basisChanged(before, now, { fame = {}, gap = 0 } = {}) {
+  const b = before ?? [];
+  const n = now ?? [];
+  if (JSON.stringify(b) === JSON.stringify(n)) return false;
+  if (!(gap > 0) || b.length !== n.length || [...b].sort().join('\n') !== [...n].sort().join('\n')) return true;
+  const close = (x, y) => fame[x] != null && fame[y] != null && Math.abs(fame[x] - fame[y]) < gap;
+  const runs = [];
+  for (const id of n) {
+    if (runs.length && close(runs.at(-1).at(-1), id)) runs.at(-1).push(id);
+    else runs.push([id]);
+  }
+  const at = new Map(b.map((id, i) => [id, i]));
+  return JSON.stringify(runs.flatMap((r) => [...r].sort((x, y) => at.get(x) - at.get(y)))) !== JSON.stringify(b);
+}

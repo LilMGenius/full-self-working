@@ -29,6 +29,9 @@ function sent(ledger, { ref, amountKRW = 300000, service = 'detail_page_design',
   return { thread, row, quote: q };
 }
 const byId = (results) => Object.fromEntries(results.map((r) => [r.source + ':' + r.id, r]));
+// A soomgo quote its customer never opened expires 48 hours after it went out (bidCost.unreadRefundHours), so a
+// case about the age rule or the chat's hire marks its quote opened the day after it was sent.
+const seenNextDay = (ledger, x) => ledger.addEvent({ kind: 'quote.opened', platform: 'soomgo', ref: 'c-' + x.thread.externalId, at: plus(x.quote.at, DAY), payload: { quoteId: x.quote.id } });
 
 test('dayStart is 00:00 Seoul of a day key and refuses anything else', () => {
   assert.equal(dayStart('20261111').toISOString(), '2026-11-10T15:00:00.000Z');
@@ -63,6 +66,7 @@ test('every quote ends in one result read from the ledger', () => {
   const exp = sent(ledger, { ref: 'e', status: 'expired' });
   const aged = sent(ledger, { ref: 'a' });
   const young = sent(ledger, { ref: 'y', quoteAt: plus(T0, DAY), rowAt: plus(T0, DAY) });
+  seenNextDay(ledger, young);
   const late = sent(ledger, { ref: 'z', quoteAt: plus(T0, 30 * DAY), rowAt: plus(T0, 30 * DAY) });
   const full = plan(ledger, { platform: 'soomgo', threadId: ledger.upsertThread({ platform: 'soomgo', externalId: 'f', kind: 'request' }).id, kind: 'quote', payload: { text: 'q f', amountKRW: 300000, service: 'detail_page_design' } });
   // The drain's path for a refused send: sending, back to planned, then stale with the refusal code.
@@ -83,6 +87,7 @@ test('every quote ends in one result read from the ledger', () => {
 test('a quote ages from its row read-back, a d605c5d send from its own time, and a stale row without a refusal is no case', () => {
   const ledger = openLedger(':memory:');
   const v0 = sent(ledger, { ref: 'v', quoteAt: T0, rowAt: plus(T0, 2 * DAY) });
+  seenNextDay(ledger, v0);
   const old = sent(ledger, { ref: 'o', quoteAt: T0, rowAt: plus(T0, 2 * DAY), pipeline: 'd605c5d', pricing: null });
   const asOf = new Date(plus(T0, 15 * DAY));
   const r = byId(quoteResults(ledger, { asOf, expireAfterDays: 14 }));
@@ -94,12 +99,33 @@ test('a quote ages from its row read-back, a d605c5d send from its own time, and
   assert.equal(quoteResults(ledger, { asOf, expireAfterDays: 14 }).filter((x) => x.source === 'outbox').length, 0);
 });
 
-test('quoteResults needs a day and a positive expiry, and Infinity reads statuses only', () => {
+test('quoteResults needs a day and a positive expiry, and Infinity turns the age rule off', () => {
   const ledger = openLedger(':memory:');
   const a = sent(ledger, { ref: 'a' });
+  seenNextDay(ledger, a);
   assert.throws(() => quoteResults(ledger, { asOf: null, expireAfterDays: 14 }), TypeError);
   assert.throws(() => quoteResults(ledger, { asOf: new Date(), expireAfterDays: 0 }), RangeError);
   assert.equal(quoteResults(ledger, { asOf: new Date(plus(T0, 400 * DAY)), expireAfterDays: Infinity }).find((x) => x.id === a.quote.id).result, 'open');
+});
+
+// soomgo refunds a quote the customer has not opened 48 hours after it went out (descriptor
+// bidCost.unreadRefundHours), so such a quote can no longer win: it resolves as expired with cause unread within
+// two days instead of fourteen. An expired quote is a loss to price learning (learnedFactor) and to the allocation
+// (yield.mjs), and the funnel no longer counts it as no answer yet.
+test('a soomgo quote unread past the refund window is expired with cause unread, and an opened one stays open', () => {
+  const ledger = openLedger(':memory:');
+  const unread = sent(ledger, { ref: 'u' });
+  const opened = sent(ledger, { ref: 'o' });
+  ledger.addEvent({ kind: 'quote.opened', platform: 'soomgo', ref: 'c-o', at: plus(T0, DAY), payload: { quoteId: opened.quote.id } });
+  const at = (hours, expireAfterDays = 14) => byId(quoteResults(ledger, { asOf: new Date(plus(T0, hours * 3_600_000)), expireAfterDays }));
+  const pick = (r, x) => [r['quote:' + x.quote.id].result, r['quote:' + x.quote.id].cause, r['quote:' + x.quote.id].aged];
+  assert.deepEqual(pick(at(47), unread), ['open', null, false]);
+  assert.deepEqual(pick(at(48), unread), ['expired', 'unread', true]);
+  assert.deepEqual(pick(at(48), opened), ['open', null, false]);
+  // The age rule off (Infinity, the funnel's read) still expires an unread quote.
+  assert.deepEqual(pick(at(48, Infinity), unread), ['expired', 'unread', true]);
+  const f = quoteFunnel(ledger, { platform: 'soomgo', now: new Date(plus(T0, 2 * DAY)), days: 7 });
+  assert.deepEqual([f.sent, f.opened, f.noAnswer], [2, 1, 1]);
 });
 
 const SETTINGS = { enabled: true, minCases: 5, step: 0.2, maxMove: 0.3, expireAfterDays: 14, lookbackDays: 180 };
@@ -207,6 +233,7 @@ const act = (ledger, kind, ref, quoteId, at, extra = {}) => ledger.addEvent({ ki
 test('a customer who hired another pro makes the quote lost from the time it is seen, and the end of that hire reopens it', () => {
   const ledger = openLedger(':memory:');
   const { quote } = sent(ledger, { ref: 'h' });
+  ledger.addEvent({ kind: 'quote.opened', platform: 'soomgo', ref: 'c-h', at: plus(T0, DAY), payload: { quoteId: quote.id } });
   act(ledger, 'quote.hired_other', 'c-h', quote.id, plus(T0, 2 * DAY), { otherStatus: 'hired' });
   const at = (d) => quoteResults(ledger, { asOf: new Date(plus(T0, d * DAY)), expireAfterDays: 14 }).find((r) => r.id === quote.id);
   assert.deepEqual([at(1).result, at(1).cause], ['open', null]);
@@ -228,7 +255,8 @@ test('an accepted quote stays won once whatever the chat showed before, and open
 
 test('quoteFunnel counts what customers did with the quotes of the window', () => {
   const ledger = openLedger(':memory:');
-  const now = new Date(plus(T0, 3 * DAY));
+  // Inside the 48 hours an unopened soomgo quote stays open (bidCost.unreadRefundHours).
+  const now = new Date(plus(T0, 1.5 * DAY));
   const opened = sent(ledger, { ref: 'o' });
   const other = sent(ledger, { ref: 'x' });
   sent(ledger, { ref: 'p' });

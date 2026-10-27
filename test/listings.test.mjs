@@ -763,3 +763,14 @@ test('render draws the card layout proofs.json names for the service and records
   const spec = JSON.parse(readFileSync(join(dir, 'landing_page_web', 'spec.json'), 'utf8'));
   assert.deepEqual(spec.images.layout, { frame: 'wide', ground: 'paper' });
 });
+
+test('a scope item too long for its column is a violation, not text run under the proof', async () => {
+  const long = listingOf();
+  long.imageCopy.card.tags = ['소스', '반응형 HTML과 CSS 소스 파일 전체 전달', '배포'];
+  const r = await renderListingImages({ listing: long, studio: '스튜디오', outDir: tempDir('fsw-img-') });
+  const fit = r.violations.filter((v) => v.rule === 'image.text_fit');
+  assert.deepEqual(fit.map((v) => v.field), ['images.main'], JSON.stringify(r.violations));
+  assert.match(fit[0].detail, /반응형 HTML과 CSS 소스 파일 전체 전달/);
+  const short = await renderListingImages({ listing: listingOf(), studio: '스튜디오', outDir: tempDir('fsw-img-') });
+  assert.deepEqual(short.violations, []);
+});

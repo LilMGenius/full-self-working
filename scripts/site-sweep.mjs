@@ -20,9 +20,11 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css', '.js': 
 export const SITE_FAMILY = 'Pretendard';
 
 // The built folder as a static host: a directory serves its index.html, a missing file answers 404 (which the
-// broken-image check reports), and no path outside the folder is served.
+// broken-image check reports), and no path outside the folder is served, by name or through a link inside it.
 export function serveDir(root) {
   const base = resolve(root);
+  const realBase = realpathSync(base);
+  const inside = (path, top) => path === top || path.startsWith(top + sep);
   const server = createServer((req, res) => {
     let file;
     try {
@@ -30,9 +32,11 @@ export function serveDir(root) {
     } catch {
       return void res.writeHead(400).end();
     }
-    if (file !== base && !file.startsWith(base + sep)) return void res.writeHead(403).end();
+    if (!inside(file, base)) return void res.writeHead(403).end();
     if (existsSync(file) && statSync(file).isDirectory()) file = join(file, 'index.html');
     if (!existsSync(file)) return void res.writeHead(404).end();
+    // A junction or symlink inside the folder may point anywhere; the file it resolves to must lie inside too.
+    if (!inside(realpathSync(file), realBase)) return void res.writeHead(403).end();
     res.writeHead(200, { 'content-type': TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream' });
     createReadStream(file).pipe(res);
   });

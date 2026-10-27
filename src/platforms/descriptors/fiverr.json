@@ -33,7 +33,16 @@
   "automation": {
     "officialAutoReply": "unknown",
     "forbidden": [],
-    "notes": "Prohibited Services and Community Standards not fully read (unknown). Seller onboarding (src/platforms/fiverr/onboarding.mjs, mapped 2026-10-26): about an hour into filling the profile in the operator's Chrome, the onboarding page answered with the PerimeterX human check (PXCR error code). A run stops there and reports it; passing the press-and-hold on the operator's own signed-in session is the step not built yet."
+    "notes": "Prohibited Services and Community Standards not fully read (unknown). Seller onboarding (src/platforms/fiverr/onboarding.mjs, mapped 2026-10-26): about an hour into filling the profile in the operator's Chrome, the onboarding page answered with the PerimeterX human check (PXCR error code). A run stops there and reports it; passing the press-and-hold on the operator's own signed-in session is the step not built yet.",
+    "sendRequiresOperator": []
+  },
+  "forms": {
+    "message": {
+      "mapped": false,
+      "mappedAt": null,
+      "recording": null,
+      "readBack": true
+    }
   },
   "aiPolicy": "AI is allowed when used responsibly, refined and customized; honor a client request for no AI and disclose the workflow; deepfakes, unauthorized likeness and fraud are banned.",
   "taxInvoice": "unknown",
@@ -59,6 +68,9 @@
       "maxChars": "unknown"
     },
     "profile": {
+      "maxChars": "unknown"
+    },
+    "proposal": {
       "maxChars": "unknown"
     }
   },

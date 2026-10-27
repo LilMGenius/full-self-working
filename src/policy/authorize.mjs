@@ -1,10 +1,12 @@
 // authorize(item, ctx) -> {verdict, violations, warnings, reasons}: the one decision on whether an
-// outbound item may leave the machine (architect D6). Composition order: the outbound gate with its slop
+// outbound item may leave the machine (architect D6). Composition order: a form the platform lists unmapped
+// (descriptor forms, wp8), the outbound gate with its slop
 // lint (src/policy/gate.mjs), mode and outbound hours (src/supervisor/run.mjs:153-157, :192-196), what the
 // model decided (src/pipeline/thread.mjs:187-193), operator-only kinds (src/orders/requests.mjs:3-4,
 // src/orders/delivery.mjs:1-3), the price row and the cash budget (src/pipeline/thread.mjs:63-71,
 // :195-205), all at 2c77326, the stated budget under the cost floor (003 Decisions of 20:30), the daily
-// caps of b223ed7 and the answered services of 9b23f5f. Every rule fails closed: a missing setting throws,
+// caps of b223ed7, the answered services of 9b23f5f, and the kinds a person confirms on the platform
+// (descriptor automation.sendRequiresOperator, wp8). Every rule fails closed: a missing setting throws,
 // an unknown cost refuses the spend. A send verdict that carries a HOLD_RULES reason means "may send, not
 // now"; the outbox leaves such a row as it is.
 import { isActive } from '../core/clock.mjs';
@@ -60,6 +62,10 @@ export function authorize(item, ctx) {
   if (!['observe', 'draft', 'auto'].includes(mode)) throw new RangeError('authorize needs ctx.mode observe, draft or auto, got ' + mode);
   const operator = [];
   const holds = [];
+  // 0. A kind this platform's surface lists unmapped (descriptor forms) has never been filled and read back
+  // on its page, so it is refused, approved or not (wp8).
+  const form = descriptor.forms?.[item.kind];
+  if (form && form.mapped !== true) return { verdict: 'refuse', violations: [rule('form.unmapped', item.kind + ' form on ' + item.platform + ' is not mapped and read back')], warnings: [], reasons: [rule('form.unmapped', 'form unmapped')] };
   // 1. The gate and its slop lint. A payment request sends no text (the platform form takes the amount).
   const g = item.kind === 'pay_request' ? { violations: [], warnings: [] } : gateOutbound(item, { descriptor, instance, priceRow, lessonsRules });
   const violations = [...g.violations];
@@ -105,6 +111,8 @@ export function authorize(item, ctx) {
       else if (!check.ok) operator.push(rule('budget.unpayable', 'cash quote refused: ' + check.reason));
     }
   }
+  // 5. Kinds the platform sends only on a person's confirmation (descriptor automation.sendRequiresOperator).
+  if ((descriptor.automation?.sendRequiresOperator ?? []).includes(item.kind) && !approved) operator.push(rule('automation.operator', item.platform + ' requires a person to confirm every ' + item.kind));
   return { verdict: operator.length ? 'operator' : 'send', violations, warnings: g.warnings, reasons: [...operator, ...holds] };
 }
 

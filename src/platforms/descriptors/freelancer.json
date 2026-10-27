@@ -36,7 +36,22 @@
   "automation": {
     "officialAutoReply": "unknown",
     "forbidden": [],
-    "notes": "unknown"
+    "notes": "unknown",
+    "sendRequiresOperator": []
+  },
+  "forms": {
+    "proposal": {
+      "mapped": false,
+      "mappedAt": null,
+      "recording": null,
+      "readBack": true
+    },
+    "message": {
+      "mapped": false,
+      "mappedAt": null,
+      "recording": null,
+      "readBack": true
+    }
   },
   "aiPolicy": "unknown",
   "taxInvoice": "unknown",
@@ -71,6 +86,9 @@
       "maxChars": "unknown"
     },
     "profile": {
+      "maxChars": "unknown"
+    },
+    "proposal": {
       "maxChars": "unknown"
     }
   },

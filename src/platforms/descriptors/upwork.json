@@ -40,7 +40,25 @@
       "proposal submission without human confirmation",
       "spam proposals"
     ],
-    "notes": "MCP agents may draft proposals but a human confirms submission."
+    "notes": "MCP agents may draft proposals but a human confirms submission.",
+    "sendRequiresOperator": [
+      "proposal",
+      "message"
+    ]
+  },
+  "forms": {
+    "proposal": {
+      "mapped": false,
+      "mappedAt": null,
+      "recording": null,
+      "readBack": true
+    },
+    "message": {
+      "mapped": false,
+      "mappedAt": null,
+      "recording": null,
+      "readBack": true
+    }
   },
   "aiPolicy": "AI preference controls govern training on user data; no seller AI-disclosure rule was found (unknown).",
   "taxInvoice": "unknown",
@@ -75,6 +93,9 @@
       "maxChars": "unknown"
     },
     "profile": {
+      "maxChars": "unknown"
+    },
+    "proposal": {
       "maxChars": "unknown"
     }
   },

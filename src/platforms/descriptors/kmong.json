@@ -63,7 +63,22 @@
       "multiple accounts",
       "changing a service first-level category after approval"
     ],
-    "notes": "No bot or scraping clause was found in the fetched 운영정책 sections (unknown); treat anything outside official features as banned."
+    "notes": "No bot or scraping clause was found in the fetched 운영정책 sections (unknown); treat anything outside official features as banned.",
+    "sendRequiresOperator": []
+  },
+  "forms": {
+    "proposal": {
+      "mapped": true,
+      "mappedAt": "2026-10-25T13:03:04.191Z",
+      "recording": "ledger outbox kmong proposal observed 2026-10-25T13:03:04.191Z",
+      "readBack": true
+    },
+    "message": {
+      "mapped": true,
+      "mappedAt": "2026-10-26T01:42:54Z",
+      "recording": "test/fixtures/surfaces/kmong/shapes.json#evaluate pageThread",
+      "readBack": true
+    }
   },
   "aiPolicy": "AI use is allowed. Hiding AI use or presenting AI output as human-made is deceptive advertising under 표시광고법; AI virtual persons are labelled 가상인물; deepfakes and illegal synthetic content are banned.",
   "taxInvoice": "Business sellers (일반과세, 법인) issue 세금계산서 on buyer request through 홈택스; 크몽 auto-issues reverse invoices for 품질보장 and Prime orders when a 공동인증서 is registered, and invoices its own commission monthly.",

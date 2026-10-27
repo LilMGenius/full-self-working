@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import fs, { copyFileSync, existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { hashTree } from '../src/core/reviewed.mjs';
 import { basename, join } from 'node:path';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
@@ -648,4 +649,37 @@ test('an approved delivery uploads the approved bytes even when its file changes
     assert.notEqual(u.path, u.original);
     assert.equal(existsSync(u.path), false, 'the frozen copy of ' + u.ref + ' is removed once the send settles');
   }
+});
+
+// A send folder Windows will not let go (EBUSY after rmSync's own retries) is recorded and left for a later drain: the
+// removal never takes the place of the send's result or stops the rows after it.
+test('a send folder that cannot be removed leaves the receipt observed, the next row drained and the folder to a later drain', async () => {
+  const s = setup('soomgo');
+  const first = reviewedDelivery(s, 'd1', '20261020-soomgo-0000e007');
+  const second = reviewedDelivery(s, 'd2', '20261020-soomgo-0000e008');
+  resolve(s.ledger, '20261020-soomgo-0000e007', { approve: true });
+  resolve(s.ledger, '20261020-soomgo-0000e008', { approve: true });
+  const realRm = fs.rmSync;
+  fs.rmSync = (path, opts) => {
+    if (basename(String(path)).startsWith('fsw-send-')) throw Object.assign(new Error('EBUSY: resource busy or locked, rmdir ' + path), { code: 'EBUSY' });
+    return realRm(path, opts);
+  };
+  syncBuiltinESMExports();
+  let out;
+  try {
+    out = await s.run(scriptedSurface());
+  } finally {
+    fs.rmSync = realRm;
+    syncBuiltinESMExports();
+  }
+  assert.deepEqual(out.map((x) => [x.id, x.action]).sort(), [[first.row.id, 'observed'], [second.row.id, 'observed']].sort());
+  for (const { row } of [first, second]) assert.equal(s.ledger.getOutbox(row.id).status, 'observed');
+  const left = s.ledger.db.prepare("SELECT payload FROM events WHERE kind = 'send.cleanup_failed'").all().map((e) => JSON.parse(e.payload));
+  assert.deepEqual(left.map((e) => [e.outboxId, e.code]).sort(), [[first.row.id, 'EBUSY'], [second.row.id, 'EBUSY']].sort());
+  for (const e of left) assert.ok(existsSync(e.dir), 'the event names the folder left behind: ' + e.dir);
+  // An hour on, the next drain removes them.
+  const old = new Date(Date.now() - 2 * 3_600_000);
+  for (const e of left) utimesSync(e.dir, old, old);
+  await s.run(scriptedSurface());
+  for (const e of left) assert.equal(existsSync(e.dir), false, e.dir + ' is swept');
 });

@@ -86,7 +86,8 @@ export const studioName = (instance) => instance.config.listings?.studio ?? Stri
 async function renderFor(instance, service, listing, plan, { refreshProofs = false } = {}) {
   const cfg = loadProofs(instance);
   const outDir = join(listingsDir(instance), service);
-  const images = await renderListingImages({ listing, studio: studioName(instance), outDir, proofs: cfg.proofs ?? [], plan, proofDir: join(listingsDir(instance), '_proofs'), refreshProofs });
+  // The card layout is the service's taste in proofs.json, like its card shots.
+  const images = await renderListingImages({ listing, studio: studioName(instance), outDir, proofs: cfg.proofs ?? [], plan, proofDir: join(listingsDir(instance), '_proofs'), refreshProofs, layout: cfg.services?.[service]?.layout });
   if (images.violations.length) throw new ListingError('FSW_LISTING_IMAGES', 'rendered images break the slot rules', { violations: images.violations });
   // A video category requires one file in 동영상: proofs.json services[service].video names a sample
   // (sample:<id>), copied beside the images.
@@ -98,7 +99,7 @@ async function renderFor(instance, service, listing, plan, { refreshProofs = fal
     copyFileSync(s.file, join(outDir, 'video-1.mp4'));
     video = ['video-1.mp4'];
   }
-  return { main: relative(outDir, images.main), detail: images.detail.map((f) => relative(outDir, f)), preview190: relative(outDir, images.preview), ...(video ? { video } : {}) };
+  return { main: relative(outDir, images.main), detail: images.detail.map((f) => relative(outDir, f)), preview190: relative(outDir, images.preview), layout: images.layout, ...(video ? { video } : {}) };
 }
 
 // Re-renders the images of a written spec without asking the brain again (a template change). The gallery

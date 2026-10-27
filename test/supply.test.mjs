@@ -37,7 +37,36 @@ test('parked counts distinct threads per reason over the last seven days', () =>
   park('thread.system', 'c1', 'notice: unread quote', hoursAgo(5));
   park('thread.skipped', 'r9', 'stale: 90h', hoursAgo(24 * 8));
   ledger.addEvent({ kind: 'thread.operator', platform: 'kmong', ref: 'x', payload: { reason: 'catalog: x' }, at: hoursAgo(1) });
-  assert.deepEqual(parkedCounts(ledger, 'soomgo', NOW), { outOfCatalog: 1, stale: 1, expired: 1, notice: 1 });
+  assert.deepEqual(parkedCounts(ledger, 'soomgo', NOW), { outOfCatalog: 1, stale: 1, expired: 1, notice: 1, gate: 0 });
+});
+
+test('a park the quote value gate wrote is its own bucket, not stale', () => {
+  const ledger = openLedger(':memory:');
+  const park = (ref, reason, at = hoursAgo(1)) => ledger.addEvent({ kind: 'thread.skipped', platform: 'soomgo', ref, payload: { reason }, at });
+  park('g1', 'gate: value.negative');
+  park('g1', 'gate: value.negative', hoursAgo(2));
+  park('g2', 'gate: fit.low');
+  park('s1', 'stale: 80h');
+  assert.deepEqual(parkedCounts(ledger, 'soomgo', NOW), { outOfCatalog: 0, stale: 1, expired: 0, notice: 0, gate: 2 });
+});
+
+test('the report counts the Seoul day\'s quote verdicts by reason and the pace holds, and the digest prints one line', async () => {
+  const ledger = openLedger(':memory:');
+  const judged = (ref, reason, at = hoursAgo(1)) => ledger.addEvent({ kind: 'quote.judged', platform: 'soomgo', ref, payload: { verdict: reason === 'gate: value.positive' ? 'send' : 'drop', reason }, at });
+  judged('r1', 'gate: value.positive');
+  judged('r2', 'gate: value.negative');
+  judged('r2', 'gate: value.negative', hoursAgo(2));
+  judged('r3', 'gate: fit.low');
+  judged('r4', 'expired: the request already has 10 quotes and soomgo takes 10');
+  judged('r5', 'gate: value.negative', hoursAgo(20)); // yesterday in Seoul
+  ledger.addEvent({ kind: 'quote.pace_held', platform: 'soomgo', ref: 'r6', payload: {}, at: hoursAgo(1) });
+  ledger.addEvent({ kind: 'quote.judged', platform: 'kmong', ref: 'k1', payload: { reason: 'gate: fit.low' }, at: hoursAgo(1) });
+  const report = await supplyReport('soomgo', { instance: makeInstance(), ledger, now: NOW, openSurface: surfaceWith([]) });
+  assert.deepEqual(report.judged, { day: '20261025', byReason: { 'value.positive': 1, 'value.negative': 1, 'fit.low': 1, expired: 1 }, paceHeld: 1 });
+  const line = supplyLines({ reports: [report] })[0];
+  assert.match(line, /; quote gate 20261025: value\.positive 1, value\.negative 1, fit\.low 1, expired 1, pace held 1(;|$)/);
+  const none = await supplyReport('soomgo', { instance: makeInstance(), ledger: openLedger(':memory:'), now: NOW, openSurface: surfaceWith([]) });
+  assert.doesNotMatch(supplyLines({ reports: [none] })[0], /quote gate/);
 });
 
 test('the labels behind the out-of-catalog count are listed as expansion candidates, top five by threads', async () => {

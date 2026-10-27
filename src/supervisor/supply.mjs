@@ -11,7 +11,7 @@ import { dayKey, hourKey } from '../core/clock.mjs';
 import { notifyOperator } from '../core/notify.mjs';
 import { pipelineSettings } from '../core/settings.mjs';
 import { answeredServices, catalogServicesFor } from '../economics/catalog.mjs';
-import { quoteFunnel } from '../economics/quote-results.mjs';
+import { dayStart, quoteFunnel } from '../economics/quote-results.mjs';
 import { loadDescriptor } from '../platforms/registry.mjs';
 import { listingsDir, readPublished } from '../listings/gig.mjs';
 import { gigStatus, readReview } from '../listings/review.mjs';
@@ -24,14 +24,15 @@ const DAY_MS = 86_400_000;
 const FILE_RE = /^supply-(\d{10})\.json$/;
 export const supplyDir = (instance) => join(instance.paths.operator, 'supply');
 
-// Distinct threads parked in the window, by the event kinds the loop writes (src/triage parkEvent).
+// Distinct threads parked in the window, by the event kinds the loop writes (src/triage parkEvent). A park
+// whose reason starts "gate: " is the quote value gate's (src/loop/step.mjs) and counts apart from stale.
 export function parkedCounts(ledger, platform, now) {
   const since = now.getTime() - SUPPLY_DAYS * DAY_MS;
-  const seen = { outOfCatalog: new Set(), stale: new Set(), expired: new Set(), notice: new Set() };
+  const seen = { outOfCatalog: new Set(), stale: new Set(), expired: new Set(), notice: new Set(), gate: new Set() };
   const rows = ledger.db.prepare("SELECT kind, ref, payload, at FROM events WHERE platform = ? AND kind IN ('thread.operator', 'thread.skipped', 'thread.system')").all(platform);
   for (const e of rows.filter((r) => Date.parse(r.at) >= since && Date.parse(r.at) <= now.getTime())) {
     const reason = String(JSON.parse(e.payload ?? '{}')?.reason ?? '');
-    const bucket = e.kind === 'thread.operator' ? 'outOfCatalog' : e.kind === 'thread.system' ? 'notice' : reason.startsWith('expired') ? 'expired' : 'stale';
+    const bucket = e.kind === 'thread.operator' ? 'outOfCatalog' : e.kind === 'thread.system' ? 'notice' : reason.startsWith('expired') ? 'expired' : reason.startsWith('gate: ') ? 'gate' : 'stale';
     seen[bucket].add(e.ref);
   }
   return Object.fromEntries(Object.entries(seen).map(([k, v]) => [k, v.size]));
@@ -52,6 +53,24 @@ export function expansionCandidates(ledger, descriptor, now, limit = CANDIDATES_
     byLabel.get(label).add(e.ref);
   }
   return [...byLabel].map(([label, refs]) => ({ label, threads: refs.size })).sort((a, b) => b.threads - a.threads || a.label.localeCompare(b.label)).slice(0, limit);
+}
+
+// The Seoul day's quote verdicts (quote.judged, one per distinct request and reason) and the requests held
+// back by the pace (quote.pace_held, which the step writes once a request a day). A reason prints without
+// its "gate: " prefix, and an expiry by its first word.
+export function judgedCounts(ledger, platform, now) {
+  const day = dayKey(now);
+  const from = dayStart(day).getTime();
+  const inDay = (r) => Date.parse(r.at) >= from && Date.parse(r.at) <= now.getTime();
+  const pairs = new Map();
+  for (const e of ledger.db.prepare("SELECT ref, payload, at FROM events WHERE platform = ? AND kind = 'quote.judged'").all(platform).filter(inDay)) {
+    const reason = String(JSON.parse(e.payload ?? '{}')?.reason ?? 'unknown');
+    pairs.set(e.ref + ' ' + reason, reason.startsWith('gate: ') ? reason.slice(6) : reason.split(':')[0]);
+  }
+  const byReason = {};
+  for (const key of pairs.values()) byReason[key] = (byReason[key] ?? 0) + 1;
+  const paceHeld = new Set(ledger.db.prepare("SELECT ref, at FROM events WHERE platform = ? AND kind = 'quote.pace_held'").all(platform).filter(inDay).map((r) => r.ref)).size;
+  return { day, byReason, paceHeld };
 }
 
 // Published kmong gigs by the review state the listings job last saw (src/listings/review.mjs codes).
@@ -92,6 +111,7 @@ export async function supplyReport(platform, { instance, ledger, now = new Date(
     services: null,
     parked: parkedCounts(ledger, platform, now),
     paced: pacedCounts(ledger, platform, now),
+    judged: judgedCounts(ledger, platform, now),
     candidates: expansionCandidates(ledger, descriptor, now),
     funnel: quoteFunnel(ledger, { platform, now, days: SUPPLY_DAYS }),
     awaitingReply: settings ? ledger.listThreads({ platform }).filter((t) => t.kind !== 'project' && awaitingReply(t, ledger.threadMessages(t.id), { now, settings })).length : null,
@@ -168,13 +188,16 @@ export function supplyLines(supply) {
   if (!supply) return ['- none yet (the hourly job writes it)'];
   if (!supply.reports.length) return ['- no platform is enabled'];
   return supply.reports.map((r) => {
-    const parts = [(r.awaitingReply ?? 'unknown') + ' awaiting reply', 'parked in ' + SUPPLY_DAYS + ' days: ' + counts({ 'out of catalog': r.parked.outOfCatalog, stale: r.parked.stale, expired: r.parked.expired, notices: r.parked.notice })];
+    const parts = [(r.awaitingReply ?? 'unknown') + ' awaiting reply', 'parked in ' + SUPPLY_DAYS + ' days: ' + counts({ 'out of catalog': r.parked.outOfCatalog, stale: r.parked.stale, expired: r.parked.expired, 'value gate': r.parked.gate, notices: r.parked.notice })];
     // The quote funnel (U7.Q): what customers did with the quotes of the last SUPPLY_DAYS days.
     const f = r.funnel;
     if (f && (f.sent || f.unlinked)) parts.push('quotes in ' + f.days + ' days: ' + f.sent + ' sent, ' + (f.opensKnown ? f.opened + ' opened' : 'opens not recorded yet') + ', ' + f.hiredUs + ' hired us, ' + f.hiredOther + ' hired another pro, ' + f.noAnswer + ' no answer yet' + (f.unlinked ? ', ' + f.unlinked + ' chats not linked to an fsw quote' : ''));
     if (r.candidates?.length) parts.push('labels no service covers yet: ' + r.candidates.map((c) => c.label + ' ' + c.threads).join(', '));
     if (r.paced?.waited) parts.push(r.paced.waited + ' requests waited for the hourly read share' + (r.paced.parkedUnread ? ', ' + r.paced.parkedUnread + ' of them parked unread' : ''));
     if (r.listings) parts.push('gigs: ' + counts(r.listings.byStatus) + ' of ' + r.listings.published);
+    // The value gate's day (src/economics/quote-gate.mjs): verdicts by reason, then requests the pace held back.
+    const j = r.judged;
+    if (j && (Object.keys(j.byReason).length || j.paceHeld)) parts.push('quote gate ' + j.day + ': ' + counts({ ...j.byReason, 'pace held': j.paceHeld }));
     if (r.services) parts.push(r.services.withoutItems.length ? 'offered services without request items: ' + r.services.withoutItems.join(', ') : 'every offered service has request items');
     if (r.spend) parts.push(...spendParts(r.spend));
     if (r.waiting.awaiting_operator) parts.push(r.waiting.awaiting_operator + ' waiting for your approval');

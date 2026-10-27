@@ -148,6 +148,21 @@ test('a decision carries statedBudgetKRW, and one without it parses as null', ()
   assert.ok(DECISION_SCHEMA(ids).required.includes('statedBudgetKRW'));
 });
 
+test('a decision carries the fit of a request it would quote and its reason, and one without them parses as null', async () => {
+  const ids = ['landing_page_web'];
+  const d = parseDecision(decision({ fit: 'some', fitReason: 'the page is in the catalog, the budget is under the floor' }), ids);
+  assert.deepEqual([d.fit, d.fitReason], ['some', 'the page is in the catalog, the budget is under the floor']);
+  const { fit, fitReason, ...older } = decision();
+  assert.deepEqual([parseDecision(older, ids).fit, parseDecision(older, ids).fitReason], [null, null]);
+  for (const over of [{ fit: 'great' }, { fit: 2 }, { fit: 'strong', fitReason: 3 }]) assert.throws(() => parseDecision(decision(over), ids), { code: 'FSW_BRAIN_BAD_DECISION' }, JSON.stringify(over));
+  const schema = DECISION_SCHEMA(ids);
+  assert.ok(schema.required.includes('fit') && schema.required.includes('fitReason'));
+  assert.deepEqual(schema.properties.fit.enum, ['strong', 'some', 'none', null]);
+  const codex = fakeCodex([decision({ service: null, reply: null })]);
+  await decide(thread([{ direction: 'in', text: '회사 소개 랜딩 페이지가 필요합니다.' }], { platform: 'soomgo', kind: 'request' }), ctx(makeInstance(), 'soomgo', codex));
+  assert.match(codex.calls[0].prompt, /Set fit to strong, some or none/);
+});
+
 test('a decision carries the portfolio answer with its quote; a grant without a quote or an unknown answer is rejected', () => {
   const ids = ['landing_page_web'];
   const granted = parseDecision(decision({ portfolioPermission: 'granted', permissionQuote: '네, 올리셔도 됩니다.' }), ids);

@@ -9,6 +9,7 @@ import { COMPLEXITY_RANGE, guideOf, priceRowFor, quoteForRequest, splitPayment }
 import { quoteFromRow } from '../economics/quote.mjs';
 import { answeredCatalog } from '../economics/catalog.mjs';
 import { foreignAmount, fxNote, loadFx as defaultLoadFx } from '../economics/fx.mjs';
+import { FIT_RANK } from '../economics/quote-gate.mjs';
 import { isSystemNotice } from '../core/notices.mjs';
 import { runCodex as defaultRunCodex } from './codex.mjs';
 import { INTENTS, buildDecisionPrompt, catalogIds, loadCatalog, loadLessons, loadPlaybook } from './prompts.mjs';
@@ -38,10 +39,13 @@ export function matchSystemNotice(thread) {
   return pending.length > 0 && pending.every(isSystemNotice);
 }
 
+// The fit scale of a request, best first (FIT_RANK of the quote gate).
+export const FITS = Object.keys(FIT_RANK).sort((a, b) => FIT_RANK[b] - FIT_RANK[a]);
+
 export const DECISION_SCHEMA = (ids) => ({
   type: 'object',
   additionalProperties: false,
-  required: ['intent', 'service', 'language', 'reply', 'quote', 'needsOperator', 'operatorReason', 'confidence', 'claimsUsed', 'statedBudgetKRW', 'portfolioPermission', 'permissionQuote'],
+  required: ['intent', 'service', 'language', 'reply', 'quote', 'needsOperator', 'operatorReason', 'confidence', 'claimsUsed', 'statedBudgetKRW', 'fit', 'fitReason', 'portfolioPermission', 'permissionQuote'],
   properties: {
     intent: { type: 'string', enum: INTENTS },
     service: { type: ['string', 'null'], enum: [...ids, null] },
@@ -69,6 +73,8 @@ export const DECISION_SCHEMA = (ids) => ({
     confidence: { type: 'number' },
     claimsUsed: { type: 'array', items: { type: 'string' } },
     statedBudgetKRW: { type: ['integer', 'null'], description: 'the budget the customer states for this work, in a request field or in the text, in KRW; null when none is stated' },
+    fit: { type: ['string', 'null'], enum: [...FITS, null], description: 'for a buyer request you would quote, how well its deliverables fit the service you chose and the past work behind it; null on any other conversation' },
+    fitReason: { type: ['string', 'null'], description: 'one sentence on why fit is what it is; null when fit is null' },
     portfolioPermission: { type: ['string', 'null'], enum: ['granted', 'conditional', 'refused', null], description: 'the customer answered the portfolio question: granted only when the consent sets no condition, limitation, preference or timing about what, where, how or when the work is shown; conditional when it sets one; refused; or null when the conversation holds no answer' },
     permissionQuote: { type: ['string', 'null'], description: 'the customer sentence that answers it (for conditional, the sentence that sets the condition), copied verbatim; null when portfolioPermission is null' },
   },
@@ -97,6 +103,12 @@ export function parseDecision(data, ids) {
   // A decision written before the field existed (an older fixture) parses as null.
   const stated = data.statedBudgetKRW ?? null;
   if (stated !== null && !(Number.isInteger(stated) && stated > 0)) throw bad('statedBudgetKRW');
+  // The paid-quote gate (src/economics/quote-gate.mjs) reads fit; a decision without it parses as null, which the
+  // gate drops as fit.unknown.
+  const fit = data.fit ?? null;
+  const fitReason = data.fitReason ?? null;
+  if (fit !== null && !FITS.includes(fit)) throw bad('fit ' + fit);
+  if (fitReason !== null && typeof fitReason !== 'string') throw bad('fitReason');
   let permission = data.portfolioPermission ?? null;
   const permissionQuote = data.permissionQuote ?? null;
   if (![null, 'granted', 'conditional', 'refused'].includes(permission)) throw bad('portfolioPermission ' + permission);
@@ -119,6 +131,8 @@ export function parseDecision(data, ids) {
     confidence: data.confidence,
     claimsUsed: data.claimsUsed,
     statedBudgetKRW: stated,
+    fit,
+    fitReason,
     portfolioPermission: permission,
     permissionQuote,
     permissionIssue,
@@ -180,7 +194,7 @@ export function outboundItem(thread, decision, text, { descriptor = null, fx = n
 
 const SYSTEM_DECISION = Object.freeze({
   intent: 'system', service: null, language: null, reply: null, quote: null,
-  needsOperator: false, operatorReason: null, confidence: 1, claimsUsed: [], statedBudgetKRW: null, portfolioPermission: null, permissionQuote: null, permissionIssue: null,
+  needsOperator: false, operatorReason: null, confidence: 1, claimsUsed: [], statedBudgetKRW: null, fit: null, fitReason: null, portfolioPermission: null, permissionQuote: null, permissionIssue: null,
 });
 
 export async function decide(thread, ctx) {

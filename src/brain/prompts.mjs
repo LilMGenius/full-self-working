@@ -166,6 +166,7 @@ export function buildDecisionPrompt({ thread, instance, descriptor, priceRows = 
       '',
       '# This is a buyer request',
       'The reply goes out through the platform quote form, which shows the price beside your text, so quote is required: scope, deliveryDays (a whole number of days, at least 1; for a service I deliver myself, the days until the first session), priceType "fixed" and complexity. On a platform with a price guide the amount is computed from the guide and your complexity, so write no price in the reply and set amountKRW to your best estimate. Use the reply to show you read the request: restate the need in one line, say what is included, ask the one or two questions that remain, and mention the deposit and balance split. Set statedBudgetKRW to the budget the customer states for this work, in the request form or in the text, as whole KRW, or null when none is stated.',
+      'A quote on a buyer request can cost cash to send, so judge whether this one is worth it. Set fit to strong, some or none: how well the deliverables the request asks for match what the catalog line of the service you chose delivers and the past work the profile ties to it. A budget far below that service\'s price row floor, or a scope the service cannot deliver, lowers it; none means the request should not be quoted. Set fitReason to one sentence saying why.',
     );
   }
   if (violations.length) {

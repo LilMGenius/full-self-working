@@ -30,8 +30,13 @@ const ROW = { service: 'landing_page_web', baseKRW: 300000, floorKRW: 100000, ce
 const rules = (v) => v.reasons.map((r) => r.rule);
 const ctx = (instance, descriptor, over = {}) => ({ descriptor, instance, mode: 'auto', now: NOON, ...over });
 
-// The item the drain builds from an outbox row (itemOf), so these verdicts are the ones the drain sees.
-const proposalRow = (platform, payload = {}) => ({ platform, kind: 'proposal', payload: { text: EN, amountKRW: 300000, thread: { kind: 'request', stage: 'pre_order' }, decision: decision({ language: 'en', reply: EN }), ...payload } });
+// A proposal on a USD board states its price in dollars at a dated rate, as the planner writes it (U8.11).
+const NOTE = { currency: 'USD', krwPerUnit: 1400, date: '2026-10-19', source: 'https://api.frankfurter.dev/v1/latest?base=USD' };
+const usd = (amountKRW) => ({ amountKRW, currency: 'USD', amount: Math.ceil(amountKRW / 1400), fx: NOTE });
+// The item the drain builds from an outbox row (itemOf with the platform's descriptor), so these verdicts are the
+// ones the drain sees.
+const proposalRow = (platform, payload = {}) => ({ platform, kind: 'proposal', payload: { text: EN, amountKRW: 300000, ...(loadDescriptor(platform).currency === 'USD' ? usd(300000) : {}), thread: { kind: 'request', stage: 'pre_order' }, decision: decision({ language: 'en', reply: EN }), ...payload } });
+const item = (row) => itemOf(row, loadDescriptor(row.platform));
 // kmong's enterprise proposal as planProposal plans it (src/projects/job.mjs): no costKRW, a project thread,
 // a decision with no quote, auto when needsOperator is false.
 const kmongProposal = () => ({ platform: 'kmong', kind: 'proposal', payload: { text: KO, amountKRW: 1500000, service: 'landing_page_web', thread: { kind: 'project', stage: 'pre_order' }, decision: { intent: 'quote_request', service: 'landing_page_web', language: 'ko', reply: KO, quote: null, needsOperator: false, operatorReason: null, confidence: 1, claimsUsed: [] }, proposal: { totalKRW: 1500000, phases: [], floorKRW: 1000000 } } });
@@ -55,12 +60,12 @@ test('a request on a board whose proposal form is unmapped is observed with reas
 test('a kind listed unmapped is refused by form.unmapped, approved or not', () => {
   const i = makeInstance();
   for (const approved of [false, true]) {
-    const v = authorize(itemOf(proposalRow('freelancer')), ctx(i, loadDescriptor('freelancer'), { approved, priceRow: ROW }));
+    const v = authorize(item(proposalRow('freelancer')), ctx(i, loadDescriptor('freelancer'), { approved, priceRow: ROW }));
     assert.equal(v.verdict, 'refuse');
     assert.deepEqual(v.violations.map((x) => x.rule), ['form.unmapped']);
     assert.deepEqual(rules(v), ['form.unmapped']);
   }
-  const msg = authorize({ ...itemOf(proposalRow('wishket')), kind: 'message', thread: { kind: 'message', stage: 'pre_order' } }, ctx(i, loadDescriptor('wishket'), { approved: true }));
+  const msg = authorize({ ...item(proposalRow('wishket')), kind: 'message', thread: { kind: 'message', stage: 'pre_order' } }, ctx(i, loadDescriptor('wishket'), { approved: true }));
   assert.deepEqual([msg.verdict, rules(msg)], ['refuse', ['form.unmapped']]);
 });
 
@@ -72,10 +77,10 @@ test('upwork asks a person before every proposal once its form is mapped, and an
   assert.deepEqual(real.automation.sendRequiresOperator, ['proposal', 'message']);
   const upwork = structuredClone(real);
   upwork.forms.proposal = { mapped: true, mappedAt: '2026-10-28T00:00:00Z', recording: 'test fixture', readBack: true };
-  const asked = authorize(itemOf(proposalRow('upwork', { costKRW: 2160 })), ctx(i, upwork, { priceRow: ROW, usage }));
+  const asked = authorize(item(proposalRow('upwork', { costKRW: 2160 })), ctx(i, upwork, { priceRow: ROW, usage }));
   assert.equal(asked.verdict, 'operator');
   assert.ok(rules(asked).includes('automation.operator'), rules(asked).join(', '));
-  const approved = authorize(itemOf(proposalRow('upwork', { costKRW: 2160 })), ctx(i, upwork, { approved: true, priceRow: ROW, usage }));
+  const approved = authorize(item(proposalRow('upwork', { costKRW: 2160 })), ctx(i, upwork, { approved: true, priceRow: ROW, usage }));
   assert.ok(!rules(approved).includes('automation.operator'));
 });
 
@@ -84,7 +89,7 @@ test('the kinds the live line sends keep verdict send: a kmong proposal, a soomg
   const kmong = loadDescriptor('kmong');
   const soomgo = loadDescriptor('soomgo');
   for (const approved of [true, false]) {
-    const p = authorize(itemOf(kmongProposal()), ctx(i, kmong, { approved }));
+    const p = authorize(item(kmongProposal()), ctx(i, kmong, { approved }));
     assert.deepEqual([p.verdict, rules(p)], ['send', []], 'kmong proposal approved=' + approved);
   }
   const quote = { platform: 'soomgo', kind: 'quote', text: KO, amountKRW: 300000, costKRW: 990, serviceLabel: '웹 개발', attachments: [], thread: { kind: 'request', stage: 'pre_order', lastInboundText: '웹 개발 견적 부탁드립니다', recentOutbound: [] }, decision: decision() };
@@ -102,7 +107,7 @@ const mappedFreelancer = () => {
   return d;
 };
 const withBidBudget = (bidBudget) => makeInstance((c) => ({ ...c, platforms: { ...c.platforms, freelancer: { ...c.platforms.freelancer, enabled: true, mode: 'auto', ...(bidBudget ? { bidBudget } : {}) } } }));
-const bidItem = (costKRW) => itemOf(proposalRow('freelancer', { costKRW }));
+const bidItem = (costKRW) => item(proposalRow('freelancer', { costKRW }));
 
 test('the default bid budget refuses a priced bid and passes a free one; the month and unanswered limits hold', () => {
   assert.deepEqual(BID_BUDGET_DEFAULT, { monthlyKRW: 0, stopAfterUnanswered: 20 });
@@ -128,12 +133,12 @@ test('an unknown bid cost or uncounted bid usage refuses the bid, and a platform
   const uncounted = authorize(bidItem(0), ctx(i, mappedFreelancer(), { approved: true }));
   assert.deepEqual([uncounted.verdict, uncounted.reasons[0].detail], ['refuse', 'the bid usage was not counted']);
   // kmong's bidCost.unit is none: its proposals carry no costKRW and never meet the bid budget.
-  const k = authorize(itemOf(kmongProposal()), ctx(makeInstance(), loadDescriptor('kmong'), { approved: true }));
+  const k = authorize(item(kmongProposal()), ctx(makeInstance(), loadDescriptor('kmong'), { approved: true }));
   assert.deepEqual([k.verdict, rules(k)], ['send', []]);
 });
 
 // U8.11 of wp8: a proposal answering a buyer request is priced by code, so it meets the price rules a quote meets.
-const pricedProposal = (over = {}) => itemOf(proposalRow('freelancer', { costKRW: 0, amount: 343, currency: 'USD', decision: decision({ language: 'en', reply: EN, quote: { amountKRW: 480000, scope: ['landing page'], deliveryDays: 7, priceType: 'fixed', complexity: 1.2 }, ...over }) }));
+const pricedProposal = (over = {}) => item(proposalRow('freelancer', { costKRW: 0, ...usd(480000), decision: decision({ language: 'en', reply: EN, quote: { amountKRW: 480000, scope: ['landing page'], deliveryDays: 7, priceType: 'fixed', complexity: 1.2 }, ...over }) }));
 const FREE_BIDS = { bidMonthKRW: 0, bidUnanswered: 0 };
 
 test('a code-priced freelancer proposal meets price.row and budget.below_floor, and kmong enterprise proposals keep send', () => {
@@ -147,11 +152,17 @@ test('a code-priced freelancer proposal meets price.row and budget.below_floor, 
   assert.ok(rules(low).includes('budget.below_floor'), rules(low).join(', '));
   const clean = authorize(pricedProposal(), ctx(i, mappedFreelancer(), { usage: FREE_BIDS, priceRow: ROW }));
   assert.deepEqual([clean.verdict, rules(clean)], ['send', []]);
-  // A request proposal the model left without a quote has no code-set amount and goes to the operator.
-  const unpriced = authorize(itemOf(proposalRow('freelancer', { costKRW: 0, amountKRW: null })), ctx(i, mappedFreelancer(), { usage: FREE_BIDS, priceRow: ROW }));
-  assert.ok(unpriced.reasons.some((r) => r.rule === 'price.row' && r.detail === 'proposal without a code-set amount'));
+  // A request proposal the model left without a quote has no code-set amount: on a USD board it has no dollar
+  // amount to state and is refused, and on a KRW board it goes to the operator.
+  const unpriced = authorize(item(proposalRow('freelancer', { costKRW: 0, amountKRW: null, amount: null })), ctx(i, mappedFreelancer(), { usage: FREE_BIDS, priceRow: ROW }));
+  assert.deepEqual([unpriced.verdict, rules(unpriced)], ['refuse', ['price.terms']]);
+  assert.match(unpriced.reasons[0].detail, /has no amount to state/);
+  const wishket = structuredClone(loadDescriptor('wishket'));
+  wishket.forms.proposal = { mapped: true, mappedAt: '2026-10-28T00:00:00Z', recording: 'test fixture', readBack: true };
+  const krw = authorize(itemOf(proposalRow('wishket', { amountKRW: null }), wishket), ctx(i, wishket, { priceRow: ROW }));
+  assert.ok(krw.reasons.some((r) => r.rule === 'price.row' && r.detail === 'proposal without a code-set amount'), JSON.stringify(krw.reasons));
   // kmong's planner sets decision.quote null on a project thread: no price row is asked of it, in auto mode.
-  const k = authorize(itemOf(kmongProposal()), ctx(makeInstance(), loadDescriptor('kmong'), { priceRow: null }));
+  const k = authorize(item(kmongProposal()), ctx(makeInstance(), loadDescriptor('kmong'), { priceRow: null }));
   assert.deepEqual([k.verdict, rules(k)], ['send', []]);
 });
 test('a bid usage or cost that is not a finite amount of 0 or more refuses the bid', () => {
@@ -161,4 +172,27 @@ test('a bid usage or cost that is not a finite amount of 0 or more refuses the b
   }
   for (const costKRW of [NaN, -1, Infinity]) assert.deepEqual(bidBudgetCheck({ budget, usage: { bidMonthKRW: 0, bidUnanswered: 0 }, costKRW }), { ok: false, reason: 'the bid cost in KRW is unknown' });
   assert.equal(bidBudgetCheck({ budget: { monthlyKRW: NaN, stopAfterUnanswered: 20 }, usage: { bidMonthKRW: 0, bidUnanswered: 0 }, costKRW: 0 }).ok, false);
+});
+
+// What propose receives is what authorize judges (the C review of wp8, findings 2 and 3): a proposal names its
+// currency, and a foreign amount equals foreignAmount of its KRW price at the dated rate it carries.
+test('a proposal whose stated amount, currency or rate disagrees with its KRW price is refused, approved or not', () => {
+  const i = withBidBudget();
+  const judge = (payload) => authorize(item(proposalRow('freelancer', { costKRW: 0, ...payload })), ctx(i, mappedFreelancer(), { usage: FREE_BIDS, priceRow: ROW, approved: true }));
+  const refused = (v, pattern) => {
+    assert.deepEqual([v.verdict, rules(v)], ['refuse', ['price.terms']]);
+    assert.match(v.reasons[0].detail, pattern);
+  };
+  refused(judge({ ...usd(400000), amount: 1 }), /states 1 USD where 400000 KRW at 1400 KRW per USD \(2026-10-19\) is 286/);
+  refused(judge({ ...usd(400000), fx: undefined }), /in USD carries no dated USD rate/);
+  refused(judge({ ...usd(400000), fx: { ...NOTE, date: null } }), /carries no dated USD rate/);
+  refused(judge({ ...usd(400000), fx: { ...NOTE, currency: 'EUR' } }), /carries no dated USD rate/);
+  refused(judge({ ...usd(400000), currency: undefined }), /names no currency/);
+  assert.deepEqual(rules(judge(usd(400000))), []);
+  // A KRW proposal states its amountKRW; kmong's planner writes no amount, so it states the price itself.
+  const kmong = loadDescriptor('kmong');
+  const k = kmongProposal();
+  refused(authorize(itemOf({ ...k, payload: { ...k.payload, amount: 1 } }, kmong), ctx(makeInstance(), kmong, { approved: true })), /states 1 KRW against its price of 1500000 KRW/);
+  // With no descriptor to say the board's currency, a proposal without one is refused rather than taken as KRW.
+  refused(authorize(itemOf(k), ctx(makeInstance(), kmong, { approved: true })), /names no currency/);
 });

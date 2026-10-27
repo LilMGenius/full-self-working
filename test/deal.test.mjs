@@ -426,3 +426,14 @@ test('the delivery row carries the run review, and a run without one is review e
   const bare = acceptedRun(setup(), {});
   assert.deepEqual(bare.effects.find((e) => e.item?.kind === 'delivery').item.payload.review, { verdict: 'error', findings: [{ severity: 'blocker', file: null, detail: 'no review ran' }] });
 });
+
+// The quote and the send it came from are linked where both are known, in the one transaction of the signal.
+test('deal.quote_observed names the quote it added beside the outbox row it came from', () => {
+  const s = setup();
+  const t = s.thread('c1');
+  s.step(s.quoteSignal(t));
+  s.step(s.quoteSignal(t, 300000));
+  const quotes = s.ledger.listQuotes({ threadId: t.id });
+  assert.deepEqual(s.events('deal.quote_observed').map((e) => [e.outboxId, e.quoteId]), [[1, quotes[0].id], [1, quotes[1].id]]);
+  assert.equal(s.events('deal.transition').length, 1);
+});

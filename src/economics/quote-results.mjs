@@ -36,23 +36,32 @@ export function priceIndex(amountKRW, pricing) {
   return amountKRW > 0 && ref > 0 && cx > 0 ? amountKRW / (cx * ref) : null;
 }
 
-// The observed outbox row each quote came from, by quote id. The quotes table keeps no outbox id, so the quotes and
-// the observed rows of one thread and amount pair one to one in the order the deal recorded them: a row by its
-// deal.quote_observed event (written in the transaction that adds the quote, src/deal/advance.mjs) when every row of
-// the group has one, else by row id (rows the 2c77326 pipeline sent have no event). A group whose quote and row counts
-// differ links none, so a quote never borrows another quote's pricing basis; it then has no basis and ages from its
-// own time.
+// The observed outbox row each quote came from, by quote id. The deal names both on deal.quote_observed (outboxId and
+// quoteId, src/deal/advance.mjs), and that link decides. Rows with no such link pair one to one within a thread and
+// amount: rows whose event predates the quote id, in event order, which is the order the deal added their quotes;
+// rows the 2c77326 pipeline sent (no event), in send order (the row's close time and the quote's own time), since the
+// import wrote them in approval order. A row of neither kind, a mix of the two, or unequal counts links none, so a
+// quote never borrows another quote's pricing basis; it then has no basis and ages from its own time.
 function sourceRows(ledger, quotes, observed) {
-  const order = new Map(ledger.db.prepare("SELECT id, payload FROM events WHERE kind = 'deal.quote_observed' ORDER BY id").all().map((e) => [JSON.parse(e.payload ?? '{}').outboxId, e.id]));
-  const key = (threadId, amountKRW) => threadId + ':' + amountKRW;
-  const rows = Map.groupBy(observed, (r) => key(r.threadId, r.payload?.amountKRW));
+  const events = ledger.db.prepare("SELECT id, payload FROM events WHERE kind = 'deal.quote_observed' ORDER BY id").all().map((e) => ({ id: e.id, ...JSON.parse(e.payload ?? '{}') }));
+  const linked = new Map(events.filter((e) => e.quoteId != null).map((e) => [e.outboxId, e.quoteId]));
+  const order = new Map(events.filter((e) => e.quoteId == null).map((e) => [e.outboxId, e.id]));
   const out = new Map();
-  for (const [k, qs] of Map.groupBy(quotes, (q) => key(q.threadId, q.amountKRW))) {
+  for (const r of observed) if (linked.has(r.id)) out.set(linked.get(r.id), r);
+  const imported = (r) => r.receipt?.pipeline === 'd605c5d';
+  const time = (v) => Date.parse(v ?? '') || 0;
+  const key = (threadId, amountKRW) => threadId + ':' + amountKRW;
+  const rows = Map.groupBy(observed.filter((r) => !linked.has(r.id) && (order.has(r.id) || imported(r))), (r) => key(r.threadId, r.payload?.amountKRW));
+  for (const [k, qs] of Map.groupBy(quotes.filter((q) => !out.has(q.id)), (q) => key(q.threadId, q.amountKRW))) {
     const rs = rows.get(k) ?? [];
     if (rs.length !== qs.length) continue;
-    const byEvent = rs.every((r) => order.has(r.id));
-    const sorted = [...rs].sort((a, b) => (byEvent ? order.get(a.id) - order.get(b.id) : a.id - b.id));
-    [...qs].sort((a, b) => a.id - b.id).forEach((q, i) => out.set(q.id, sorted[i]));
+    if (rs.every((r) => order.has(r.id))) {
+      const sorted = [...rs].sort((a, b) => order.get(a.id) - order.get(b.id));
+      [...qs].sort((a, b) => a.id - b.id).forEach((q, i) => out.set(q.id, sorted[i]));
+    } else if (rs.every(imported)) {
+      const sorted = [...rs].sort((a, b) => time(a.updatedAt) - time(b.updatedAt) || a.id - b.id);
+      [...qs].sort((a, b) => time(a.at) - time(b.at) || a.id - b.id).forEach((q, i) => out.set(q.id, sorted[i]));
+    }
   }
   return out;
 }

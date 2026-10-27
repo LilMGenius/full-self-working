@@ -27,12 +27,12 @@ export function loadPlaybook(instance, platform) {
 }
 
 // The newest lessons for one platform's prompt: a lesson scoped to other platforms (appliesTo) stays out; a
-// lesson without appliesTo, or scoped to all, reaches every platform.
+// lesson without appliesTo, with an empty one, or scoped to all, reaches every platform.
 export function loadLessons(instance, { platform = null, limit = LESSONS_IN_PROMPT } = {}) {
   const file = join(instance.paths.lessons, 'lessons.jsonl');
   if (!existsSync(file)) return [];
   const lines = readFileSync(file, 'utf8').split('\n').filter((l) => l.trim());
-  const applies = (l) => !platform || !Array.isArray(l.appliesTo) || l.appliesTo.includes('all') || l.appliesTo.includes(platform);
+  const applies = (l) => !platform || !Array.isArray(l.appliesTo) || !l.appliesTo.length || l.appliesTo.includes('all') || l.appliesTo.includes(platform);
   return lines.map((l) => JSON.parse(l)).filter(applies).sort((a, b) => String(b.updatedAt ?? '').localeCompare(String(a.updatedAt ?? ''))).slice(0, limit);
 }
 

@@ -7,6 +7,7 @@ import { ensureDir } from '../core/instance.mjs';
 import { logEvent } from '../core/log.mjs';
 import { runCodex as defaultRunCodex } from '../brain/codex.mjs';
 import { readCases } from './outcomes.mjs';
+import { SCOPE_IDS, normalizeAppliesTo } from './scope.mjs';
 
 export const lessonsFile = (instance) => join(instance.paths.lessons, 'lessons.jsonl');
 const stateFile = (instance) => join(instance.paths.lessons, 'state.json');
@@ -41,7 +42,7 @@ export const LESSONS_SCHEMA = {
           evidence: { type: 'array', items: { type: 'string' }, description: 'case ids this lesson is drawn from' },
           gate: { type: 'string', enum: ['regex', 'existing_gate', 'judgment'], description: 'regex when a pattern over outbound text decides it, existing_gate when a built-in gate rule already covers it, judgment otherwise' },
           pattern: { type: ['string', 'null'], description: 'JavaScript regex source when gate is regex; it must match the offending text of its evidence' },
-          appliesTo: { type: 'array', items: { type: 'string' }, description: 'platform ids, or ["all"]' },
+          appliesTo: { type: 'array', items: { type: 'string', enum: SCOPE_IDS }, description: 'platform ids, or ["all"]' },
         },
       },
     },
@@ -82,23 +83,27 @@ export async function writeLessons(instance, { runCodex = defaultRunCodex, model
   const known = new Set([...readCases(instance).map((c) => c.id)]);
   const now = new Date().toISOString();
   const byClass = new Map();
+  const scopeDropped = [];
   for (const l of data.lessons) {
     if (typeof l.class !== 'string' || !l.class.trim() || typeof l.rule !== 'string' || !l.rule.trim()) throw new TypeError('a lesson needs class and rule');
     const evidence = (l.evidence ?? []).filter((id) => known.has(id));
     const prev = byClass.get(l.class);
     const before = existing.find((e) => e.class === l.class);
+    const scope = normalizeAppliesTo(l.appliesTo);
+    if (scope.dropped.length) scopeDropped.push({ class: l.class, values: scope.dropped });
     byClass.set(l.class, {
       class: l.class,
       rule: l.rule.trim(),
       evidence: [...new Set([...(prev?.evidence ?? []), ...evidence])],
       gate: l.gate,
       pattern: l.gate === 'regex' ? l.pattern : null,
-      appliesTo: l.appliesTo?.length ? l.appliesTo : ['all'],
+      appliesTo: scope.appliesTo,
       createdAt: before?.createdAt ?? now,
       updatedAt: before && before.rule === l.rule.trim() && before.pattern === l.pattern ? before.updatedAt : now,
     });
   }
   const lessons = [...byClass.values()];
+  if (scopeDropped.length) logEvent(instance, 'learning.scope_dropped', { dropped: scopeDropped });
   ensureDir(instance.paths.lessons);
   writeAtomic(lessonsFile(instance), lessons.map((l) => JSON.stringify(l)).join('\n') + (lessons.length ? '\n' : ''));
   writeAtomic(stateFile(instance), JSON.stringify({ ...state, learnedCaseIds: [...learned, ...fresh.map((c) => c.id)] }, null, 2) + '\n');

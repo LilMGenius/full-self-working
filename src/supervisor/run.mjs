@@ -382,7 +382,7 @@ export const JOB_HANDLERS = {
     } finally {
       await renderer.close();
     }
-    if (captured.missing.length) await (ctx.notify ?? notifyOperator)(ctx.instance, { kind: 'portfolio', title: captured.missing.length + ' portfolio items have no media', body: 'Add an image to profile.projects[].media for: ' + captured.missing.join(', '), dedupeKey: 'portfolio-media:' + captured.missing.join(',') });
+    if (captured.missing.length) await (ctx.notify ?? notifyOperator)(ctx.instance, { kind: 'portfolio', title: captured.missing.length + ' portfolio items have no media', body: 'Add an image to profile.projects[].media for: ' + captured.missing.map((id) => id + (captured.reasons[id] ? ' (' + captured.reasons[id] + ')' : '')).join(', '), dedupeKey: 'portfolio-media:' + captured.missing.join(',') });
     const shown = syncPortfolio(ctx.instance, ctx.ledger, { signals, media: captured.media });
     return { status: 'ok', shown: shown.length, withFame: shown.filter((i) => i.reach?.fame != null).length, missingMedia: captured.missing.length };
   },

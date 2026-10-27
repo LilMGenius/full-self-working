@@ -146,7 +146,7 @@ test('a README capture is taken only for an authored repository without media, a
   assert.deepEqual(out.media, { own: [{ kind: 'readme', src: 'media/own-readme.png', width: 1800, height: 3200, alt: 'README of maker/own on GitHub' }] });
   assert.deepEqual(calls.map((c) => [c.url, Boolean(c.probe), c.clip ?? null]), [['https://github.com/maker/own', true, null], ['https://github.com/maker/own', false, { x: 10, y: 400, width: 900, height: 1600 }]]);
   const none = await captureRepoMedia([item('own')], { renderer: { render: async () => ({ probe: null }) }, dir: tempDir('fsw-media-'), reach });
-  assert.deepEqual(none, { media: {}, missing: ['own'] });
+  assert.deepEqual(none, { media: {}, missing: ['own'], reasons: {} });
 });
 
 test('a README capture stays out of gig images', () => {
@@ -198,4 +198,19 @@ test('the portfolio job reads the day signals, captures README media for authore
   assert.deepEqual([items['bg-own'].reach.fame, items['bg-own'].media[0].kind, items['bg-lib'].contribution, items['bg-lib'].reach.authored, items['bg-lib'].media, items['bg-site'].quality], [1, 'readme', true, false, [], 1]);
   assert.equal(renders.filter((u) => u.includes('other/lib')).length, 0);
   assert.deepEqual(readdirSync(instance.paths.portfolio).filter((f) => f.startsWith('signals-')), ['signals-20261028.json']);
+});
+
+// A repository GitHub would not show (404, private, a dropped network) may be the operator's own: without media it
+// is told to the operator with what GitHub answered, never left out of the notice.
+test('a repository that answered nothing and has no media is listed missing with what GitHub answered', async () => {
+  const reach = { kyro: { authored: false, why: 'repository unread', errors: ['github maker/kyro answered 404'] }, lib: { authored: false, why: 'owned by other', errors: [] } };
+  const out = await captureRepoMedia([item('kyro'), item('lib', { url: 'https://github.com/other/lib' })], { renderer: { render: async () => { throw new Error('nothing to render'); } }, dir: tempDir('fsw-media-'), reach });
+  assert.deepEqual(out, { media: {}, missing: ['kyro'], reasons: { kyro: 'github maker/kyro answered 404' } });
+  const { JOB_HANDLERS } = await import('../src/supervisor/run.mjs');
+  const dir = tempDir('fsw-portfolio-job-');
+  const instance = { dir, profile: { person: { links: ['https://github.com/maker'] }, projects: [{ name: 'Kyro', url: 'https://github.com/maker/kyro' }, { name: 'Bare' }] }, paths: { portfolio: join(dir, 'portfolio') } };
+  const notes = [];
+  const r = await JOB_HANDLERS.portfolio({ instance, ledger: openLedger(':memory:'), fetch: stubFetch({}), openRenderer: async () => ({ close: async () => {}, render: async () => { throw new Error('nothing to render'); } }), notify: async (_i, n) => (notes.push(n), {}), now: new Date('2026-10-27T03:00:00.000Z') });
+  assert.equal(r.missingMedia, 2);
+  assert.match(notes[0].body, /: bg-kyro \(github maker\/kyro answered 404\), bg-bare$/);
 });

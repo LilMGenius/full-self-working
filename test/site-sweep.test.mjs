@@ -99,7 +99,7 @@ test('overflow, a fallback font and a broken image each name their problem; a cl
   for (const [body, expected] of cases) {
     const dir = site(body);
     try {
-      const report = await sweep({ dist: dir, out: join(dir, '..', 'sweep-' + Date.now()), family: 'Pretendard', viewports: PHONE });
+      const report = await sweep({ dist: dir, out: join(dir, '..', 'sweep-' + Date.now()), family: 'Pretendard', viewports: PHONE, fine: false });
       assert.equal(report.problems.length, expected.length, body + ': ' + report.problems.join(' | '));
       expected.forEach((re, k) => assert.match(report.problems[k], re));
       assert.deepEqual(report.captures, ['index-320x568.jpg']);
@@ -145,3 +145,32 @@ test('the fixture site built by buildSite sweeps clean over http, while its page
   }
 });
 
+test('the width pass finds overflow and a shrunken wordmark between the fixed viewports, and a clean page passes it', chrome, async () => {
+  const fine = { range: { from: 320, to: 1920 }, step: 1, heights: [568] };
+  const cases = [
+    ['<style>@media (min-width:500px) and (max-width:560px){.band{width:900px}}</style><p>밴드</p><div class="band">넓은 블록</div>', ['index.html@500-560x568 (every 1 px): horizontal overflow (div.band)']],
+    ['<style>.mark{font-size:18px}@media (min-width:420px) and (max-width:700px){.mark{font-size:2px}}</style><a class="mark" data-min-size="16" href="/">이름</a>', ['index.html@420-700x568 (every 1 px): a.mark under its minimum size 16 px']],
+    ['<style>.mark{font-size:18px}</style><a class="mark" data-min-size="16" href="/">이름</a><p>깔끔한 페이지입니다.</p>', []],
+  ];
+  for (const [body, expected] of cases) {
+    const dir = site(body);
+    try {
+      const report = await sweep({ dist: dir, out: join(dir, '..', 'fine-' + Date.now()), family: 'Pretendard', fine });
+      assert.deepEqual(report.problems, expected, body);
+      assert.deepEqual(report.widths, { from: 320, to: 1920, step: 1, heights: [568] });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('a key element below its minimum size at a fixed viewport is named with its drawn size', chrome, async () => {
+  const dir = site('<style>.mark{font-size:18px}@media (max-width:400px){.mark{font-size:2px}}</style><a class="mark" data-min-size="16" href="/">이름</a>');
+  try {
+    const report = await sweep({ dist: dir, out: join(dir, '..', 'small-' + Date.now()), family: 'Pretendard', viewports: PHONE, fine: false });
+    assert.equal(report.problems.length, 1);
+    assert.match(report.problems[0], /^index\.html@320x568: a\.mark drawn \d+x\d+, under its minimum size 16 px$/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

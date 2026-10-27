@@ -4,67 +4,14 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildSite } from '../site/build.mjs';
+import { publish } from '../scripts/publish.mjs';
 import { rankPortfolio } from '../src/portfolio/rank.mjs';
 import { DEFAULT_CHROME } from '../src/render/html2png.mjs';
 import { tempDir } from './tmp.mjs';
+import { PRIVATE, writeSiteFixture } from './fixtures/site-instance.mjs';
 
-const BIZ_REG_NO = '314-15-92653';
-const PAYOUT_ACCOUNT = '271-828-182845';
-const PHONE = '010-5555-0199';
-
-function fixture() {
-  const dir = tempDir('fsw-site-test-');
-  const write = (file, data) => {
-    mkdirSync(join(dir, file, '..'), { recursive: true });
-    writeFileSync(join(dir, file), typeof data === 'string' ? data : JSON.stringify(data, null, 2));
-  };
-  write('profile.json', {
-    person: { nameKo: '김예시', nameEn: 'Yesi Kim', handle: 'yesi', phone: PHONE, links: ['https://example.org/yesi'] },
-    headline_ko: '작은 가게의 예약 페이지와 자동화를 만드는 개발자',
-    headline_en: 'Developer who builds booking pages and automations for small shops',
-    summary_ko: '예약 페이지와 반복 업무 자동화를 기획부터 배포까지 맡습니다.',
-    summary_en: 'I plan, build and deploy booking pages and office automations.',
-    roles: [{ org: 'Example Studio', title: 'Developer', period: '2023.01 to present' }],
-    projects: [
-      { name: 'Booking Page', name_ko: '예약 페이지', role: 'Author', url: 'https://example.org/booking', what: 'A booking page for a bakery.', stack: ['HTML', 'CSS'] },
-      { name: 'Sheet Bot', role: 'Author', url: 'https://example.org/sheet-bot', what: 'A bot that fills a spreadsheet from orders.', stack: ['Node.js'] },
-    ],
-    serviceFit: {
-      landing_page_web: { evidence: ['Booking Page'], strength: 'strong' },
-      excel_macro: { evidence: ['Sheet Bot'], strength: 'some' },
-      logo_brand: { evidence: [], strength: 'none' },
-    },
-    claimsNotToMake: [],
-  });
-  write('business.json', {
-    company: 'Example Studio', bizRegNo: BIZ_REG_NO, email: 'hello@example.org', taxInvoice: true,
-    payout: { bank: 'Example Bank', account: PAYOUT_ACCOUNT, holder: 'Yesi Kim' },
-  });
-  write('config.json', {
-    timezone: 'Asia/Seoul',
-    platforms: { kmong: { enabled: true, mode: 'observe' }, soomgo: { enabled: true, mode: 'observe' } },
-    payment: { depositRatio: 0.5, milestoneThresholdKRW: 1000000, milestones: [0.3, 0.4, 0.3] },
-    site: { domain: 'portfolio.example.org' },
-  });
-  write('pricing/price-table-20260101.json', { observedAt: '2026-01-01', rows: [
-    { platform: 'soomgo', service: 'landing_page_web', baseKRW: 500000, viable: true },
-    { platform: 'kmong', service: 'landing_page_web', baseKRW: 320000, viable: true },
-    { platform: 'kmong', service: 'excel_macro', baseKRW: 10000, viable: false },
-    { platform: 'kmong', service: 'logo_brand', baseKRW: 90000, viable: true },
-  ] });
-  write('platforms/kmong-state.json', { services: [{ url: 'https://kmong.com/gig/1' }, { url: 'https://elsewhere.example/gig' }] });
-  // Paid jobs with every ranking signal, written straight to items.json; syncPortfolio keeps them.
-  const job = (id, extra) => ({ id, source: 'job', title_ko: '작업 ' + id, title_en: 'Job ' + id, paidAt: '2026-01-0' + (id.length % 9 + 1) + 'T00:00:00Z', permission: 'granted', summary_ko: '요약 ' + id, summary_en: 'Summary ' + id, url: null, media: [], ...extra });
-  write('portfolio/items.json', [
-    job('q-low', { quality: 0.2 }),
-    job('liked', { satisfaction: { rating: 5, liked: true }, client: { fame: 0.3 } }),
-    job('famous', { satisfaction: { rating: 4.8 }, client: { fame: 0.9 } }),
-    job('hidden', { satisfaction: { rating: 3 } }),
-    job('pending', { permission: 'pending' }),
-    job('q-high', { quality: 0.9, volume: { priceKRW: 300000 } }),
-  ]);
-  return dir;
-}
+const { BIZ_REG_NO, PAYOUT_ACCOUNT, PHONE } = PRIVATE;
+const fixture = () => writeSiteFixture(tempDir('fsw-site-test-'));
 
 const files = (dir) => readdirSync(dir).flatMap((n) => (statSync(join(dir, n)).isDirectory() ? files(join(dir, n)).map((f) => n + '/' + f) : [n]));
 
@@ -117,4 +64,32 @@ test('site build from a fixture instance', { skip: !existsSync(process.env.FSW_C
     assert.match(ko, /https:\/\/kmong\.com\/gig\/1/);
     assert.doesNotMatch(ko, /elsewhere\.example/);
   });
+});
+
+test('publish sweeps a changed build before the dry run and deploy, and skips the sweep for a deployed hash', { skip: !existsSync(process.env.FSW_CHROME ?? DEFAULT_CHROME) && 'Chrome not installed' }, async (t) => {
+  const dir = fixture();
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const config = JSON.parse(readFileSync(join(dir, 'config.json'), 'utf8'));
+  writeFileSync(join(dir, 'config.json'), JSON.stringify({ ...config, site: { ...config.site, vercelTeam: 'example-team', project: 'example-site' } }));
+  const out = join(dir, 'dist');
+  const swept = [];
+  const deployed = [];
+  const deploy = async (args) => (deployed.push(args), { url: 'https://never.example', id: 'x' });
+  const failing = async (args) => (swept.push(args), { captures: ['index-320x568.jpg'], problems: ['index.html@320x568: horizontal overflow 2000 > 320 (div)'] });
+  for (const dryRun of [false, true]) {
+    await assert.rejects(publish({ instance: dir, out, dryRun, sweep: failing, deploy }), (err) => err.code === 'FSW_PUBLISH_SWEEP' && /1 sweep problems, first: index\.html@320x568/.test(err.message));
+  }
+  assert.equal(swept.length, 2);
+  assert.equal(swept[0].dist, out);
+  assert.match(swept[0].out, /qa[\\/]site[\\/]\d{8}$/);
+  assert.deepEqual(deployed, []);
+  // A clean sweep reaches the dry-run return; with that hash recorded as deployed, the sweep is never called.
+  const clean = async (args) => (swept.push(args), { captures: ['index-320x568.jpg'], problems: [] });
+  const dry = await publish({ instance: dir, out, dryRun: true, sweep: clean, deploy });
+  assert.equal(dry.changed, true);
+  mkdirSync(join(dir, 'site'), { recursive: true });
+  writeFileSync(join(dir, 'site', 'last-deploy.json'), JSON.stringify({ hash: dry.hash, url: 'https://deployed.example' }));
+  const before = swept.length;
+  const same = await publish({ instance: dir, out, sweep: clean, deploy });
+  assert.deepEqual([same.deployed, swept.length, deployed.length], [false, before, 0]);
 });

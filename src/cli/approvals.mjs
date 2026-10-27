@@ -11,7 +11,7 @@ import { applyEffects } from '../loop/effects.mjs';
 import { loadDescriptor } from '../platforms/registry.mjs';
 import { loadRecipe } from '../work/index.mjs';
 import { caseFromApproval, recordOutcome } from '../learning/outcomes.mjs';
-import { reviewDrift } from '../work/review.mjs';
+import { reviewDrift } from '../core/reviewed.mjs';
 
 // A delivery's review (src/work/review.mjs) as lines: the verdict with its finding count, one line per finding, and
 // for a passed review whether the reviewed bytes changed and which delivery files it never read.
@@ -82,11 +82,6 @@ export async function run(argv, ctx = {}) {
       await applyEffects(effects, { instance, ledger, notify: ctx.notify, loadRecipe });
       log(first + ' sent, as the operator confirmed');
       return 0;
-    }
-    // A passed review covers the bytes it read: a delivery whose reviewed files changed since needs a stated reason.
-    const waiting = args.reject ? null : ledger.outboxByApproval(first);
-    if (waiting?.kind === 'delivery' && waiting.payload.review?.verdict === 'pass' && reviewDrift(waiting.payload.review, waiting.payload.files ?? []).changed && !(args.reason ?? '').trim()) {
-      throw Object.assign(new Error('delivery ' + first + ' changed since its review; approving it needs --reason'), { code: 'FSW_REVIEW_CHANGED' });
     }
     const row = resolve(ledger, first, { approve: !args.reject, editedText: args.text, reason: args.reason });
     // A rejection and an edited approval say what the brain got wrong (src/cli/approvals.mjs:2).

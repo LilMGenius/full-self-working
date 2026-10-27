@@ -10,7 +10,12 @@ const OPENERS = {
   kmong: async () => (await import('./kmong.mjs')).openKmongSurface,
   soomgo: async () => (await import('./soomgo.mjs')).openSoomgoSurface,
   freelancer: async () => (await import('./freelancer.mjs')).openFreelancerSurface,
+  wishket: async () => (await import('./wishket.mjs')).openWishketSurface,
 };
+// Boards read in a browser of their own (wishket's public pages in the project reader's owned headless
+// browser), so no BrowserSkill session is opened for them. freelancer stays out: its login, sign-in, bid gate
+// and reviews run in the operator's session.
+const OWN_READER = new Set(['wishket']);
 const LISTING_OPENERS = {
   kmong: async () => (await import('./kmong.mjs')).openKmongListingSurface,
 };
@@ -38,6 +43,7 @@ async function sessionFor(platform, { session, record, replay, name = platform }
 // {record: file} to write every call of this session to a recording.
 export async function openSurface(platform, opts = {}) {
   if (!OPENERS[platform]) throw new AdapterRefusal('FSW_NO_SURFACE', 'no surface for ' + platform + ' in this build');
+  if (OWN_READER.has(platform)) return (await OPENERS[platform]())({});
   return (await OPENERS[platform]())({ session: await sessionFor(platform, opts) });
 }
 

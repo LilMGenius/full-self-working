@@ -40,6 +40,7 @@ test('fsw price writes rows whose adapter flag says whether this build has a sur
   const r = await price([], { instance, log: () => {} });
   assert.equal(r.exitCode, 0);
   const flags = Object.fromEntries(r.rows.map((x) => [x.platform, x.adapter]));
-  assert.deepEqual([flags.kmong, flags.soomgo, flags.wishket], [true, true, false]);
+  // wishket has its public surface since 088 unit 1.
+  assert.deepEqual([flags.kmong, flags.soomgo, flags.wishket], [true, true, true]);
   assert.match(readFileSync(r.file, 'utf8'), /"adapter": true/);
 });

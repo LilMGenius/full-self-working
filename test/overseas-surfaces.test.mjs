@@ -130,6 +130,52 @@ test('openSurface opens freelancer on the session it is given, as a publicSense 
   assert.deepEqual([s.platform, s.publicSense], ['freelancer', true]);
 });
 
+// 위시켓 (088 unit 1): the public board through the project reader, every write refused by name.
+const wishketProject = (id, over = {}) => ({ id, title: '예약 웹 ' + id, description: '예약 웹을 만들고 싶습니다 ' + id, amountKRW: 12000000, projectType: 'task_based', private: false, field: '랜딩ㆍ소개 페이지', postedOn: '2026-10-21', ...over });
+function fakeReader(projects) {
+  const calls = [];
+  return {
+    calls,
+    listProjects: async (opts) => (calls.push(['list', opts.pages]), { projects, total: projects.length, skipped: 0 }),
+    readProject: async (id) => (calls.push(['read', id]), projects.find((p) => p.id === id)),
+    close: async () => calls.push(['close']),
+  };
+}
+const WISHKET_WRITES = { send: { text: '안녕하세요' }, quote: { amountKRW: 1000000, text: '견적' }, propose: { text: '제안', amountKRW: 1000000 } };
+
+test('openSurface opens wishket with no BrowserSkill session and freelancer still on its session', async () => {
+  assert.equal(hasSurface('wishket'), true);
+  const w = await openSurface('wishket', { session: fakeSession(null) });
+  assert.deepEqual([w.platform, w.publicSense, w.session, (await w.login()).loggedIn], ['wishket', true, undefined, false]);
+  const given = fakeSession(null);
+  const f = await openSurface('freelancer', { session: given });
+  assert.equal(f.session, given, 'freelancer keeps the operator session its login, signIn, propose and reviews use');
+});
+
+test('wishket sense lists open 외주 projects as requests and read gives the description as one inbound message', async () => {
+  const { openWishketSurface } = await import('../src/surface/wishket.mjs');
+  const reader = fakeReader([wishketProject(1), wishketProject(2, { private: true }), wishketProject(3, { projectType: 'term_based' })]);
+  const s = await openWishketSurface({ reader });
+  const rows = await s.sense();
+  assert.deepEqual(rows.map((r) => [r.ref, r.kind, r.service, r.quotable, r.quoteCostKRW, r.unread, r.at]), [['1', 'request', '랜딩ㆍ소개 페이지', true, 0, false, '2026-10-21T00:00:00+09:00'], ['2', 'request', '랜딩ㆍ소개 페이지', false, 0, false, '2026-10-21T00:00:00+09:00']]);
+  const t = await s.read('1', { kind: 'request' });
+  assert.deepEqual([t.platform, t.kind, t.title, t.budget, t.messages], ['wishket', 'request', '예약 웹 1', 12000000, [{ direction: 'in', text: '예약 웹을 만들고 싶습니다 1', at: '2026-10-21T00:00:00+09:00', externalId: 'request' }]]);
+  await assert.rejects(s.read('1', { kind: 'message' }), { code: 'FSW_READ_KIND' });
+  await s.stop();
+  assert.deepEqual(reader.calls, [['list', 2], ['read', 1], ['close']]);
+});
+
+test('every wishket write throws APPLY_UNMAPPED before the project reader is opened, authorized or not', async () => {
+  const { APPLY_UNMAPPED, NOT_TYPED, openWishketSurface } = await import('../src/surface/wishket.mjs');
+  assert.equal(APPLY_UNMAPPED, 'FSW_WISHKET_APPLY_UNMAPPED');
+  let opened = 0;
+  const s = await openWishketSurface({ open: async () => ((opened += 1), fakeReader([])) });
+  for (const [write, args] of Object.entries(WISHKET_WRITES)) await assert.rejects(s[write]('1', { ...args, authorized: { verdict: 'send' } }), { code: APPLY_UNMAPPED });
+  assert.equal(opened, 0, 'no browser was launched for a refused write');
+  assert.deepEqual(NOT_TYPED, [APPLY_UNMAPPED]);
+  await s.stop();
+});
+
 function makeInstance() {
   const dir = tempDir('fsw-overseas-');
   for (const f of ['profile.json', 'business.json']) copyFileSync(join(exampleDir, f), join(dir, f));

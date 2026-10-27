@@ -897,3 +897,25 @@ test('the freelancer surface refusing a bid at its profile steps leaves the row 
   assert.equal(s.ledger.getOutbox(row.id).status, 'planned');
   assert.equal(bidUsage(s.ledger, 'freelancer', NOON).bidUnanswered, 0);
 });
+
+// 088 unit 1: a wishket application refused for its unmapped apply form returns unsent and spends nothing. The
+// descriptor copy maps the form and the operator approved the row, so authorize lets it reach the real surface,
+// which refuses it by name.
+test('a wishket application the surface refuses for its unmapped form returns to approved and counts no spend', async () => {
+  const { APPLY_UNMAPPED, openWishketSurface } = await import('../src/surface/wishket.mjs');
+  assert.ok(PROPOSAL_NOT_SENT.includes(APPLY_UNMAPPED));
+  const s = setup('wishket', (c) => ({ ...c, platforms: { ...c.platforms, wishket: { ...c.platforms.wishket, enabled: true, mode: 'auto' } } }));
+  const descriptor = structuredClone(s.descriptor);
+  descriptor.forms.proposal = { mapped: true, mappedAt: '2026-10-28T00:00:00Z', recording: 'test fixture', readBack: true };
+  const row = plan(s.ledger, { platform: 'wishket', threadId: s.thread('700001', 'request').id, kind: 'proposal', payload: { text: TEXT, amountKRW: 1500000, thread: { kind: 'request', stage: 'pre_order', lastInboundText: '예약 웹 구축', recentOutbound: [] }, decision: decision({ intent: 'quote_request' }) } });
+  setStatus(s.ledger, row.id, { from: 'planned', to: 'awaiting_operator', approvalId: '20261020-wishket-00000001' });
+  resolve(s.ledger, '20261020-wishket-00000001', { approve: true });
+  let opened = 0;
+  const surface = await openWishketSurface({ open: async () => ((opened += 1), { close: async () => {} }) });
+  const out = await s.run(surface, { descriptor });
+  assert.deepEqual(out.map((x) => [x.action, x.code]), [['deferred', APPLY_UNMAPPED]]);
+  assert.equal(s.ledger.getOutbox(row.id).status, 'approved');
+  assert.equal(opened, 0);
+  assert.deepEqual([quotaUsage(s.ledger, 'wishket', NOON), bidUsage(s.ledger, 'wishket', NOON)], [{ quotes: 0, cashKRW: 0 }, { bidMonthKRW: 0, bidUnanswered: 0, unknownCost: [] }]);
+  assert.deepEqual(events(s.ledger, 'send.unobserved'), []);
+});

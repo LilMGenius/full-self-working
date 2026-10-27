@@ -65,13 +65,18 @@ export function planFor(instance, service) {
   // Only still images go into the detail images; a video sample fills the 동영상 slot (renderFor).
   const stills = samples.filter((s) => /\.(?:png|jpe?g)$/i.test(s.file));
   const { gallery, basis } = proofPlan({ service, items: portfolioItems(instance), profile: instance.profile, proofs: cfg.proofs ?? [], samples: stills });
-  const card = (cfg.services?.[service]?.card ?? []).map((ref) => {
+  return { card: cardFor(instance, service, { cfg, samples }), gallery: gallery.map((s) => shotRef(instance, s)), captions: gallery.map((s) => (s.kind === 'sample' ? { project: '작업 예시', note: s.note, sample: true } : { project: s.project, note: s.note })), basis };
+}
+
+// The main card's shots as proofs.json names them for a service now (a matter of taste, not of the ranked
+// portfolio): a capture id, or sample:<id> from the service's samples.json.
+export function cardFor(instance, service, { cfg = loadProofs(instance), samples = loadSamples(instance, service) } = {}) {
+  return (cfg.services?.[service]?.card ?? []).map((ref) => {
     if (!String(ref).startsWith('sample:')) return { kind: 'capture', id: ref };
     const s = samples.find((x) => 'sample:' + x.id === ref);
     if (!s) throw new ListingError('FSW_LISTING_NO_SAMPLE', service + ' card names ' + ref + ', which is not in its samples.json');
     return { kind: 'sample', file: s.file };
   });
-  return { card, gallery: gallery.map((s) => shotRef(instance, s)), captions: gallery.map((s) => (s.kind === 'sample' ? { project: '작업 예시', note: s.note, sample: true } : { project: s.project, note: s.note })), basis };
 }
 
 // The studio name drawn on the images: the company name without its romanised form in brackets.
@@ -96,17 +101,19 @@ async function renderFor(instance, service, listing, plan, { refreshProofs = fal
   return { main: relative(outDir, images.main), detail: images.detail.map((f) => relative(outDir, f)), preview190: relative(outDir, images.preview), ...(video ? { video } : {}) };
 }
 
-// Re-renders the images of a written spec without asking the brain again (a template change). A spec
-// built before plans were recorded renders from the proofs.json service entry it was built from.
+// Re-renders the images of a written spec without asking the brain again (a template change). The gallery
+// stays the one the spec was built from (its basis); the main card takes the shots proofs.json names now,
+// so a redesign that names new cover shots reaches gigs re-rendered on the images-version path. A spec built
+// before plans were recorded renders its gallery from the proofs.json service entry it was built from.
 export async function render(service, { instance, log = console.log, refreshProofs = false } = {}) {
   const file = specFile(instance, service);
   if (!existsSync(file)) throw new ListingError('FSW_LISTING_NO_SPEC', 'no spec for ' + service + '; run fsw listings build ' + service);
   const spec = JSON.parse(readFileSync(file, 'utf8'));
-  const plan = spec.proofPlan ?? loadProofs(instance).services?.[service] ?? { card: [], gallery: [] };
+  const plan = { card: cardFor(instance, service), gallery: (spec.proofPlan ?? loadProofs(instance).services?.[service])?.gallery ?? [] };
   log('listings: rendering ' + service + ' images from its spec');
   const images = await renderFor(instance, service, spec, plan, { refreshProofs });
-  writeJson(file, { ...spec, images, imagesVersion: IMAGES_VERSION, renderedAt: new Date().toISOString() });
-  return { spec: { ...spec, images }, file };
+  writeJson(file, { ...spec, images, proofPlan: plan, imagesVersion: IMAGES_VERSION, renderedAt: new Date().toISOString() });
+  return { spec: { ...spec, images, proofPlan: plan }, file };
 }
 
 // violations and previous carry a review result from outside the gate (kmong's rejection notice) into

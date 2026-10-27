@@ -59,6 +59,15 @@ export async function signInAgain({ id, surface, instance, ledger, now, notify =
   if (!google && (entry?.method !== 'email' || !entry.email || !entry.password)) return null;
   const last = ledger.db.prepare("SELECT at FROM events WHERE kind = 'platform.sign_in' AND platform = ? ORDER BY id DESC LIMIT 1").get(id);
   if (last && now.getTime() - Date.parse(last.at) < SIGN_IN_GAP_MS) return null;
+  // The surface's login check after a sign-in; one that throws is a reading of no sign-in with its cause, so
+  // the attempt is still recorded, counts against the hour and reaches the operator like any failure.
+  const recheck = async () => {
+    try {
+      return await surface.login();
+    } catch (err) {
+      return { loggedIn: null, code: err.code ?? null, detail: 'the login check threw: ' + err.message };
+    }
+  };
   const failed = (payload) => {
     ledger.addEvent({ at: now.toISOString(), kind: 'platform.sign_in', platform: id, payload: { ok: false, method: 'google', ...payload } });
     return notify(instance, { kind: 'login', title: id + ' could not sign in with Google', body: (payload.code ? payload.code + ' ' : '') + payload.reason + '\nSign in to ' + id + ' in Chrome once; fsw tries the Google sign-in again at most once an hour.', dedupeKey: 'sign-in:' + id + ':google' });
@@ -78,9 +87,9 @@ export async function signInAgain({ id, surface, instance, ledger, now, notify =
       throw err;
     }
     if (r?.signedIn === true && r.alreadySignedIn === true) {
-      const back = await surface.login();
+      const back = await recheck();
       if (back?.loggedIn !== true) {
-        await failed({ code: null, reason: 'the sign-in found the account signed in, but the login check reads ' + String(back?.loggedIn ?? null) + (back?.detail ? ': ' + back.detail : '') });
+        await failed({ code: back?.code ?? null, reason: 'the sign-in found the account signed in, but the login check reads ' + String(back?.loggedIn ?? null) + (back?.detail ? ': ' + back.detail : '') });
         return null;
       }
       ledger.addEvent({ at: now.toISOString(), kind: 'platform.login_reread', platform: id, payload: { ok: true, reason: 'signed in already; nothing was pressed' } });
@@ -91,9 +100,9 @@ export async function signInAgain({ id, surface, instance, ledger, now, notify =
       return null;
     }
     // Only the surface's own login check reading true is a sign-in; a page it cannot read is a failure.
-    const back = await surface.login();
+    const back = await recheck();
     if (back?.loggedIn !== true) {
-      await failed({ code: null, reason: 'the Google sign-in finished but the login check reads ' + String(back?.loggedIn ?? null) + (back?.detail ? ': ' + back.detail : '') });
+      await failed({ code: back?.code ?? null, reason: 'the Google sign-in finished but the login check reads ' + String(back?.loggedIn ?? null) + (back?.detail ? ': ' + back.detail : '') });
       return null;
     }
     ledger.addEvent({ at: now.toISOString(), kind: 'platform.sign_in', platform: id, payload: { ok: true, method: 'google', reason: r.reason ?? null } });
@@ -110,9 +119,9 @@ export async function signInAgain({ id, surface, instance, ledger, now, notify =
     throw Object.assign(new Error(message), { code: err.code ?? null });
   }
   if (r?.signedIn === true && r.alreadySignedIn === true) {
-    const back = await surface.login();
+    const back = await recheck();
     if (back?.loggedIn !== true) {
-      ledger.addEvent({ at: now.toISOString(), kind: 'platform.sign_in', platform: id, payload: { ok: false, reason: 'the sign-in found the account signed in, but the login check reads ' + String(back?.loggedIn ?? null) } });
+      ledger.addEvent({ at: now.toISOString(), kind: 'platform.sign_in', platform: id, payload: { ok: false, code: back?.code ?? null, reason: scrub('the sign-in found the account signed in, but the login check reads ' + String(back?.loggedIn ?? null) + (back?.detail ? ': ' + back.detail : '')) } });
       return null;
     }
     ledger.addEvent({ at: now.toISOString(), kind: 'platform.login_reread', platform: id, payload: { ok: true, reason: 'signed in already; nothing was typed' } });
@@ -122,9 +131,9 @@ export async function signInAgain({ id, surface, instance, ledger, now, notify =
     ledger.addEvent({ at: now.toISOString(), kind: 'platform.sign_in', platform: id, payload: { ok: false, reason: scrub(r?.reason) } });
     return null;
   }
-  const back = await surface.login();
+  const back = await recheck();
   const ok = back?.loggedIn === true;
-  ledger.addEvent({ at: now.toISOString(), kind: 'platform.sign_in', platform: id, payload: { ok, reason: ok ? scrub(r?.reason) : 'the sign-in finished but the login check reads ' + String(back?.loggedIn ?? null) } });
+  ledger.addEvent({ at: now.toISOString(), kind: 'platform.sign_in', platform: id, payload: { ok, ...(ok ? {} : { code: back?.code ?? null }), reason: scrub(ok ? r?.reason : 'the sign-in finished but the login check reads ' + String(back?.loggedIn ?? null) + (back?.detail ? ': ' + back.detail : '')) } });
   return ok ? back : null;
 }
 

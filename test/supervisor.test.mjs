@@ -452,6 +452,58 @@ test('an email sign-in that found the account signed in but whose login check st
   assert.deepEqual(kinds, [['platform.sign_in', false]]);
 });
 
+test('a login check that throws after the Google pick is a failed sign-in: recorded with its cause, held for the hour and asked once', async () => {
+  const g = googleSetup(IDENTITY);
+  let picks = 0;
+  let checks = 0;
+  const surface = {
+    publicSense: true,
+    login: async () => {
+      checks += 1;
+      if (checks % 2 === 0) throw Object.assign(new Error('self read timed out'), { code: 'ETIMEDOUT' });
+      return { loggedIn: false };
+    },
+    signIn: async () => ((picks += 1), { signedIn: true }),
+    sense: async () => [],
+    stop: async () => {},
+  };
+  await g.tick(surface, 0);
+  await g.tick(surface, 5);
+  assert.equal(picks, 1);
+  assert.deepEqual(g.signIns().map((e) => [e.ok, e.code]), [[false, 'ETIMEDOUT']]);
+  assert.match(g.signIns()[0].reason, /the login check threw: self read timed out/);
+  assert.equal(g.requests(), 1);
+});
+
+test('an email login check that throws after the form went out counts against the hour and never carries the password', async () => {
+  const instance = makeInstance({ kmong: { enabled: true, mode: 'auto' } });
+  const file = join(tempDir('fsw-logins-'), 'logins.json');
+  const password = 'pw-in-the-check-4410';
+  writeFileSync(file, JSON.stringify({ kmong: { method: 'email', email: 'seller@example.invalid', password } }));
+  instance.config.logins = file;
+  const ledger = openLedger(':memory:');
+  let typed = 0;
+  let checks = 0;
+  const surface = {
+    login: async () => {
+      checks += 1;
+      if (checks === 2) throw Object.assign(new Error('dashboard read failed with "' + password + '"'), { code: 'FSW_TOOL_TIMEOUT' });
+      return { loggedIn: false };
+    },
+    signIn: async () => ((typed += 1), { signedIn: true }),
+    sense: async () => [],
+    stop: async () => {},
+  };
+  const state = { lastRuns: {} };
+  const tick = async (min) => (await runTick({ instance, ledger, now: new Date(Date.parse('2026-10-26T01:00:00Z') + min * 60_000), state, only: ['poll'], openSurface: async () => surface, notify: quiet, persist: false })).jobs[0].platforms[0];
+  await tick(0);
+  await tick(5);
+  assert.equal(typed, 1);
+  const events = ledger.db.prepare("SELECT payload FROM events WHERE kind = 'platform.sign_in'").all().map((e) => JSON.parse(e.payload));
+  assert.deepEqual(events.map((e) => [e.ok, e.code]), [[false, 'FSW_TOOL_TIMEOUT']]);
+  assert.equal(ledger.db.prepare('SELECT payload FROM events').all().some((e) => String(e.payload ?? '').includes(password)), false);
+});
+
 test('a google login without an email in the identity file records the failure and presses nothing', async () => {
   const g = googleSetup({ ...IDENTITY, person: { ...IDENTITY.person, google_login_email: null } });
   let called = 0;

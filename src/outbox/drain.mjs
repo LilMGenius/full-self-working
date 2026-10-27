@@ -180,6 +180,15 @@ export function signalOf(row, receipt, now) {
   return null;
 }
 
+// A read-back replaces the receipt of an interrupted send. One that observed no cost of its own keeps the cost
+// evidence the earlier receipt recorded (the charge, the press and when), so a recorded cost never falls back to
+// the planned one in bidUsage, quotaUsage or the deal; only a read-back that itself observes a cost sets it.
+const COST_FIELDS = ['cashSpentKRW', 'costKRW', 'pressed', 'pressedAt'];
+export function keepCost(earlier, back) {
+  if (back.cashSpentKRW != null || back.costKRW != null) return back;
+  return { ...back, ...Object.fromEntries(COST_FIELDS.filter((k) => back[k] == null && earlier?.[k] != null).map((k) => [k, earlier[k]])) };
+}
+
 // observed: the status and the outbound message in one transaction, so a crash leaves both or neither.
 // null when another drain settled the row first; then nothing is written.
 function observe(ledger, row, receipt, verdict) {
@@ -223,7 +232,7 @@ export async function drain(ledger, { platform, surface, authorize, ctx }) {
   for (const row of ledger.listOutbox({ platform, statuses: ['sending'] }).filter((r) => handles(surface, r.kind))) {
     let back;
     try {
-      back = await readBack(surface, row);
+      back = keepCost(row.receipt, await readBack(surface, row));
     } catch (err) {
       await notify({ kind: 'order', title: platform + ' outbox item ' + row.id + ' could not be read back', body: (err.code ? err.code + ' ' : '') + err.message + '\nIt stays in sending and holds its thread; the next drain reads it again.', dedupeKey: 'outbox-reconcile:' + row.id });
       out.push({ id: row.id, kind: row.kind, action: 'reconcile_failed', reason: err.message });

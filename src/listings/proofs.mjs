@@ -49,13 +49,15 @@ export function proofPlan({ service, items = [], profile = null, proofs = [], sa
 // (src/portfolio/rank.mjs). Here neighbouring items in now whose fame (both known) differs by less than gap from
 // every other item of their run are read in their before order: a one-star change that swaps two close items does
 // not send the gig to kmong review again. Every member must be close, since the basis follows tiers and likes before
-// fame and is not sorted by it. An item that enters or leaves the basis, or a swap on any other key, still counts.
-export function basisChanged(before, now, { fame = {}, gap = 0 } = {}) {
+// fame and is not sorted by it. Items are close only when the keys ranked above fame (above: tier and liked, from
+// aboveFame in src/portfolio/rank.mjs) are equal, so a swap those keys made always counts. An item that enters or
+// leaves the basis, or a swap on any other key, still counts.
+export function basisChanged(before, now, { fame = {}, above = {}, gap = 0 } = {}) {
   const b = before ?? [];
   const n = now ?? [];
   if (JSON.stringify(b) === JSON.stringify(n)) return false;
   if (!(gap > 0) || b.length !== n.length || [...b].sort().join('\n') !== [...n].sort().join('\n')) return true;
-  const close = (x, y) => fame[x] != null && fame[y] != null && Math.abs(fame[x] - fame[y]) < gap;
+  const close = (x, y) => above[x] === above[y] && fame[x] != null && fame[y] != null && Math.abs(fame[x] - fame[y]) < gap;
   const runs = [];
   for (const id of n) {
     if (runs.length && runs.at(-1).every((x) => close(x, id))) runs.at(-1).push(id);

@@ -40,6 +40,9 @@ export function isTierA(item) {
 // An item's fame as the ordering reads it: a client's fame for a paid job (operator-entered), else the item's public
 // reach that day (signals.mjs). The listing refresh reads the same figure to tell a near tie from a real move.
 export const itemFame = (i) => num(i.client?.fame) ?? num(i.reach?.fame);
+// The keys the ordering reads before fame (the tier, then liked inside tier A), as one value: two items whose values
+// differ are ordered by those keys, never by fame, so the listing refresh treats no swap between them as a near tie.
+export const aboveFame = (i) => (isTierA(i) ? 'A' : 'B') + (i?.satisfaction?.liked === true ? ':liked' : '');
 
 const keys = {
   liked: (i) => (i.satisfaction?.liked === true ? 1 : null),

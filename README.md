@@ -35,7 +35,6 @@ You need:
 - Node.js 24 or newer.
 - Google Chrome with BrowserSkill, the browser extension and local service fsw drives Chrome through. The omo plugin for Codex ([LazyCodex](https://github.com/code-yeongyu/lazycodex)) sets it up, and you enable the extension in Chrome once.
 - The [Codex CLI](https://github.com/openai/codex), signed in with `codex login`. By default fsw calls it through [opencodex](https://github.com/lidge-jun/opencodex), a local proxy that also lets codex reach Claude and other providers; `fsw doctor` checks the proxy and says how to call codex directly when you run none.
-- Optional: [jawcode](https://github.com/lidge-jun/jawcode) (`jwc`), signed in to a model provider (run `jwc`, then `/login`), for the recipes that choose it, today the data crawl.
 
 ```
 git clone https://github.com/LilMGenius/full-self-working.git
@@ -57,7 +56,7 @@ One npm package, ajv, which `fsw settings` uses to check a change against the se
 
 ## Why it works this way
 
-fsw drives your own signed-in Chrome on your own machine instead of a hosted browser, lets the model write the words while code sets the price, sends every outbound item through one queue that reads each send back on the page, and has a model from another family review paid work before you approve it. Model turns run through the Codex CLI, and jawcode, a second agent CLI that signs in to many providers, runs the data-crawl recipe. [docs/DESIGN.md](docs/DESIGN.md#decisions) gives the reason and the evidence for each choice.
+fsw drives your own signed-in Chrome on your own machine instead of a hosted browser, lets the model write the words while code sets the price, sends every outbound item through one queue that reads each send back on the page, and has a model from another family review paid work before you approve it. Every model turn runs through the Codex CLI, inside its sandbox. [docs/DESIGN.md](docs/DESIGN.md#decisions) gives the reason and the evidence for each choice.
 
 ## More
 

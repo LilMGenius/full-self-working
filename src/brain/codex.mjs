@@ -32,8 +32,11 @@ export class CodexError extends Error {
 // workspace-write turn read-only (its banner says "sandbox: read-only" and every write is "blocked by
 // policy"; measured 2026-10-25), so a writing turn names the Windows sandbox itself.
 // images: files attached to the prompt (--image), for a turn that may not open files itself.
-export function codexArgs({ schemaFile, outFile, model, effort, cwd, images = [], sandbox = 'read-only', proxyUrl = DEFAULT_PROXY_URL, platform = process.platform, windowsSandbox = process.env.FSW_CODEX_WINDOWS_SANDBOX ?? 'elevated' }) {
+// network: a workspace-write turn may reach the internet while its writes stay sandboxed; a read-only turn
+// never gets the network.
+export function codexArgs({ schemaFile, outFile, model, effort, cwd, images = [], sandbox = 'read-only', network = false, proxyUrl = DEFAULT_PROXY_URL, platform = process.platform, windowsSandbox = process.env.FSW_CODEX_WINDOWS_SANDBOX ?? 'elevated' }) {
   const args = ['exec', '--ephemeral', '--skip-git-repo-check', '-s', sandbox, '--output-schema', schemaFile, '--output-last-message', outFile, '--color', 'never'];
+  if (network && sandbox === 'workspace-write') args.push('-c', 'sandbox_workspace_write.network_access=true');
   if (model) args.push('-m', model);
   if (effort) args.push('-c', `model_reasoning_effort="${effort}"`);
   if (cwd) args.push('-C', cwd);
@@ -48,7 +51,16 @@ export function codexArgs({ schemaFile, outFile, model, effort, cwd, images = []
 
 const tail = (s, n = 1200) => (s.length > n ? s.slice(-n) : s);
 
-export async function runCodex({ prompt, schema, model, effort, cwd, images, sandbox, timeoutMs = 240_000, proxyUrl = process.env.FSW_CODEX_PROXY ?? DEFAULT_PROXY_URL, bin = process.env.FSW_CODEX_BIN ?? 'codex' }) {
+// The sandbox blocks npm's default cache under the user profile (EPERM on AppData\Local\npm-cache, measured
+// 2026-10-28 with codex-cli 0.164.0), so a writing turn gets its own cache in the turn's temp directory,
+// which is writable inside the sandbox, removed with the turn, and never part of the work.
+function turnEnv(sandbox, dir) {
+  if (sandbox !== 'workspace-write') return process.env;
+  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => k.toLowerCase() !== 'npm_config_cache'));
+  return { ...env, npm_config_cache: join(dir, 'npm-cache') };
+}
+
+export async function runCodex({ prompt, schema, model, effort, cwd, images, sandbox, network, timeoutMs = 240_000, proxyUrl = process.env.FSW_CODEX_PROXY ?? DEFAULT_PROXY_URL, bin = process.env.FSW_CODEX_BIN ?? 'codex' }) {
   if (typeof prompt !== 'string' || !prompt.trim()) throw new TypeError('runCodex needs a prompt');
   if (!schema || typeof schema !== 'object') throw new TypeError('runCodex needs a JSON schema object');
   const dir = mkdtempSync(join(tmpdir(), 'fsw-codex-'));
@@ -56,11 +68,11 @@ export async function runCodex({ prompt, schema, model, effort, cwd, images, san
     const schemaFile = join(dir, 'schema.json');
     const outFile = join(dir, 'last.txt');
     writeFileSync(schemaFile, JSON.stringify(schema));
-    const args = codexArgs({ schemaFile, outFile, model, effort, cwd, images, sandbox, proxyUrl: proxyUrl === '' || proxyUrl === 'none' ? null : proxyUrl });
+    const args = codexArgs({ schemaFile, outFile, model, effort, cwd, images, sandbox, network, proxyUrl: proxyUrl === '' || proxyUrl === 'none' ? null : proxyUrl });
     const started = Date.now();
     const { exitCode, stderr, timedOut } = await new Promise((resolve, reject) => {
       // No shell: libuv finds codex.exe on PATH and quotes each argument; the prompt travels on stdin.
-      const child = spawn(bin, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+      const child = spawn(bin, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env: turnEnv(sandbox, dir) });
       let stderrBuf = '';
       let timedOutFlag = false;
       child.stdout.on('data', (d) => (stderrBuf = tail(stderrBuf + d, 8000)));

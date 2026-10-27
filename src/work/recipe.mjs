@@ -24,9 +24,8 @@ export const CHECKS = ['files', 'image', 'sloplint', 'viewports', 'command'];
 export const PAYMENT_LEVELS = ['none', 'deposit', 'full'];
 const CONSTRAINT_KEYS = ['width', 'height', 'minWidth', 'maxWidth', 'minHeight', 'maxHeight'];
 // notes lists the local tools a recipe relies on and how each was installed, so a new machine can be set up.
-const TOP_KEYS = ['service', 'version', 'executor', 'notes', 'hours', 'steps', 'deliverables', 'acceptance', 'payment'];
-// Which coding agent runs the model steps: codex (codex exec, sandboxed) or jwc (jawcode, src/brain/jwc.mjs).
-export const EXECUTORS = ['codex', 'jwc'];
+// network: the model steps may reach the internet (public pages, npm), while their writes stay in codex's sandbox.
+const TOP_KEYS = ['service', 'version', 'network', 'notes', 'hours', 'steps', 'deliverables', 'acceptance', 'payment'];
 const PACKAGES = ['standard', 'deluxe', 'premium'];
 
 // Where each skill namespace lives. agents: ~/.agents/skills/<name>; plugin: the newest version of a
@@ -79,7 +78,7 @@ export function validateRecipe(recipe, { file = 'recipe', services = serviceCata
   else if (deliveryOf(service) === 'operator') err('service', recipe.service + ' is delivered by the operator, so it has no recipe');
   else if (file !== 'recipe' && basename(file, '.json') !== recipe.service) err('service', 'must match the file name ' + basename(file));
   if (!isPosInt(recipe.version)) err('version', 'must be a positive integer');
-  if (recipe.executor !== undefined && !EXECUTORS.includes(recipe.executor)) err('executor', 'must be one of ' + EXECUTORS.join(', '));
+  if (recipe.network !== undefined && typeof recipe.network !== 'boolean') err('network', 'must be true or false');
   if (recipe.notes !== undefined && !(Array.isArray(recipe.notes) && recipe.notes.length && recipe.notes.every(isText))) err('notes', 'must be a non-empty array of strings');
 
   if (!isObj(recipe.hours)) err('hours', 'must be an object with standard, deluxe and premium');

@@ -1,6 +1,6 @@
 // Runs one paid job (docs/DESIGN.md, Work): checks the payment state the recipe and the platform require
 // through the deal's check it is handed, writes jobs/<id>/brief.md, runs one model turn in jobs/<id>/work
-// with the recipe's skill graph through the executor it is handed (codex or jwc), runs the render steps and
+// with the recipe's skill graph through the codex runner it is handed, runs the render steps and
 // the acceptance checks, feeds failed checks back once, and reports run_started, run_accepted or run_failed
 // to the deal; it writes no job status. Carried from src/jobs/run.mjs at 2c77326.
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync, writeSync } from 'node:fs';
@@ -11,7 +11,6 @@ import { loadInstance, repoRoot } from '../core/instance.mjs';
 import { openLedger } from '../core/ledger.mjs';
 import { notifyOperator } from '../core/notify.mjs';
 import { openRenderer as defaultOpenRenderer } from '../render/html2png.mjs';
-import { DEFAULT_JWC_MODEL } from '../brain/jwc.mjs';
 import { matchFiles, runAcceptance } from './accept.mjs';
 import { loadRecipe, resolveSkill, serviceCatalog } from './recipe.mjs';
 import { reviewDeliverables, reviewerFor } from './review.mjs';
@@ -147,7 +146,7 @@ export function buildBrief({ job, thread, messages, quote, recipe, service }) {
 const SLOP_RULES = 'No em dash or horizontal bar, no middle dot between words, no placeholder text (lorem ipsum, TODO, bracketed names), no self-reference as an AI, no hype words, and no number, client name or result the brief does not state. ' +
   'No visible text that describes the page or its images (such as a caption saying a picture is an illustration); descriptions for screen readers go in alt or aria-label.';
 
-export function buildPrompt({ paths, recipe, skills, language, failures, executor = 'codex' }) {
+export function buildPrompt({ paths, recipe, skills, language, failures }) {
   const steps = recipe.steps.filter((s) => s.type === 'invoke-model-skill');
   const lines = failures
     ? [
@@ -187,7 +186,6 @@ export function buildPrompt({ paths, recipe, skills, language, failures, executo
     'Use only fonts whose licence allows embedding and redistribution (SIL OFL and the like); Pretendard is on this machine at ' + join(repoRoot, 'assets', 'fonts', 'PretendardVariable.woff2') + ' with its OFL.txt beside it, copy both into the work when you use it. Never copy, subset or embed an operating system font (Malgun Gothic, Apple SD Gothic Neo, Segoe UI and the like); their licences forbid redistribution.',
     'Answer with JSON: summary (what you made), files (paths relative to the working directory) and openQuestions.',
   );
-  if (executor === 'jwc') lines.push('End your final message with that JSON object in a json code block and nothing after it.');
   return lines.join('\n');
 }
 
@@ -256,16 +254,16 @@ async function renderAndAccept(paths, recipe, { openRenderer, language }) {
 }
 
 // runJob(jobId, ctx) -> {ok, status, reason?, acceptance?, deliverables, turns, minutes, agentMinutes}.
-// ctx.runCodex, ctx.runJwc and ctx.jwcModel are the executor seam (ctx.reviewDeliverables replaces the review
-// of accepted work in tests), ctx.startAllowed(job, recipe) the
-// deal's payment check and ctx.report(signal) the deal's door; src/loop/job.mjs supplies all four. The
-// run writes no job status: it reports run_started, run_accepted or run_failed (003 Work).
-// recipe.executor picks codex (default) or jwc for the model turns.
+// ctx.runCodex is the executor seam (ctx.reviewDeliverables replaces the review of accepted work in tests),
+// ctx.startAllowed(job, recipe) the deal's payment check and ctx.report(signal) the deal's door;
+// src/loop/job.mjs supplies all three. The run writes no job status: it reports run_started, run_accepted
+// or run_failed (003 Work).
+// recipe.network gives the model turns the internet inside codex's write sandbox.
 export async function runJob(jobId, ctx = {}) {
-  for (const k of ['runCodex', 'runJwc', 'startAllowed', 'report']) if (typeof ctx[k] !== 'function') throw new JobError('FSW_JOB_SEAM', 'runJob needs ctx.' + k);
+  for (const k of ['runCodex', 'startAllowed', 'report']) if (typeof ctx[k] !== 'function') throw new JobError('FSW_JOB_SEAM', 'runJob needs ctx.' + k);
   const instance = ctx.instance ?? loadInstance();
   const ledger = ctx.ledger ?? openLedger(instance.paths.ledger);
-  const { runCodex, runJwc, report } = ctx;
+  const { runCodex, report } = ctx;
   const openRenderer = ctx.openRenderer ?? defaultOpenRenderer;
   const notify = ctx.notify ?? notifyOperator;
   try {
@@ -302,14 +300,11 @@ export async function runJob(jobId, ctx = {}) {
       const language = thread?.language ?? job.meta?.language ?? 'ko';
       writeFileSync(paths.brief, buildBrief({ job, thread, messages, quote, recipe, service }));
       await report({ type: 'run_started', platform: job.platform, jobId: job.id, threadId: job.threadId, at: new Date().toISOString(), evidence: { pid: process.pid } });
-      const executor = recipe.executor ?? 'codex';
       const turn = async (failures) => {
-        const prompt = buildPrompt({ paths, recipe, skills, language, failures, executor });
+        const prompt = buildPrompt({ paths, recipe, skills, language, failures });
         const timeoutMs = jobsCfg.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-        const r = executor === 'jwc'
-          ? await runJwc({ prompt, model: jobsCfg.jwc?.model ?? ctx.jwcModel, thinking: jobsCfg.jwc?.thinking, cwd: paths.work, timeoutMs })
-          : await runCodex({ prompt, schema: JOB_RESULT_SCHEMA, model: jobsCfg.model ?? DEFAULT_JOB_MODEL, effort: jobsCfg.effort, cwd: paths.work, sandbox: 'workspace-write', timeoutMs });
-        turns.push({ executor, retry: Boolean(failures), durationMs: r.durationMs, ...r.data });
+        const r = await runCodex({ prompt, schema: JOB_RESULT_SCHEMA, model: jobsCfg.model ?? DEFAULT_JOB_MODEL, effort: jobsCfg.effort, cwd: paths.work, sandbox: 'workspace-write', network: recipe.network === true, timeoutMs });
+        turns.push({ retry: Boolean(failures), durationMs: r.durationMs, ...r.data });
       };
       try {
         await turn(null);
@@ -322,7 +317,7 @@ export async function runJob(jobId, ctx = {}) {
         // run is recorded as verdict error with its cause, so it never turns an accepted run into a failed one or a pass.
         const reviewCfg = jobsCfg.review ?? { enabled: true, model: null };
         if (acceptance.ok && reviewCfg.enabled !== false) {
-          const builderModel = executor === 'jwc' ? jobsCfg.jwc?.model ?? ctx.jwcModel ?? DEFAULT_JWC_MODEL : jobsCfg.model ?? DEFAULT_JOB_MODEL;
+          const builderModel = jobsCfg.model ?? DEFAULT_JOB_MODEL;
           review = await (ctx.reviewDeliverables ?? reviewDeliverables)({ paths, recipe, language, runCodex, builderModel, model: reviewCfg.model ?? reviewerFor(builderModel, { openaiModel: DEFAULT_JOB_MODEL }) })
             .catch((err) => ({ verdict: 'error', findings: [{ severity: 'blocker', file: null, detail: (err.code ? err.code + ' ' : '') + err.message }], at: new Date().toISOString() }));
         }

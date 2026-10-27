@@ -11,7 +11,6 @@ import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { codexArgs } from '../src/brain/codex.mjs';
-import { parseJobAnswer, parseJwcStream } from '../src/brain/jwc.mjs';
 import { deliveryAllowed, startAllowed } from '../src/deal/index.mjs';
 import { openRenderer } from '../src/render/html2png.mjs';
 import { tempDir } from './tmp.mjs';
@@ -176,7 +175,7 @@ function seam(ledger, over = {}) {
   return {
     signals,
     ctx: {
-      ledger, notify: quiet, runCodex: noCodex, runJwc: noCodex, jwcModel: 'test-jwc',
+      ledger, notify: quiet, runCodex: noCodex,
       startAllowed: (job, recipe) => startAllowed(job, ledger, descriptorOf(job), recipe),
       deliveryAllowed: (job, recipe) => deliveryAllowed(job, ledger, descriptorOf(job), recipe),
       report: async (s) => signals.push(s),
@@ -195,7 +194,7 @@ function noStatusWrites(ledger) {
 
 test('runJob without its seam throws FSW_JOB_SEAM before reading anything', async () => {
   await assert.rejects(runJob('j1', {}), { code: 'FSW_JOB_SEAM' });
-  await assert.rejects(runJob('j1', { runCodex: noCodex, runJwc: noCodex, startAllowed: () => ({ ok: true }) }), { code: 'FSW_JOB_SEAM', message: /ctx\.report/ });
+  await assert.rejects(runJob('j1', { runCodex: noCodex, startAllowed: () => ({ ok: true }) }), { code: 'FSW_JOB_SEAM', message: /ctx\.report/ });
 });
 
 test('runJob refuses to start without the payment the recipe and platform require', async () => {
@@ -284,23 +283,25 @@ test('checkJob reports acceptance and the delivery gate it is handed, without a 
   assert.equal((await checkJob(job.id, { instance, ledger })).delivery, null);
 });
 
-test('a recipe with executor jwc runs its turns through runJwc and the seam model, never codex', async () => {
-  const instance = makeInstance();
-  const ledger = openLedger(':memory:');
-  const job = seedJob(ledger, { platform: 'soomgo' });
-  ledger.addPayment({ jobId: job.id, kind: 'deposit', amountKRW: 150000, channel: 'soomgo', evidence: '숨고페이 결제 완료' });
-  const dir = tempDir('fsw-recipes-');
-  writeFileSync(join(dir, 'copywriting.json'), JSON.stringify({ ...loadRecipe('copywriting'), executor: 'jwc' }));
-  const jwc = fakeCodex([{ 'copy/variant-a.md': '# 빵집\n\n매일 아침 굽습니다.\n', 'copy/variant-b.md': '# 빵집\n\n동네 빵입니다.\n' }]);
-  const { ctx } = seam(ledger, { instance, recipeDir: dir, runJwc: jwc });
-  const r = await runJob(job.id, ctx);
-  assert.equal(r.status, 'accepted', JSON.stringify(r.acceptance));
-  assert.equal(jwc.calls.length, 1);
-  assert.equal(jwc.calls[0].cwd, join(instance.paths.jobs, job.id, 'work'));
-  assert.equal(jwc.calls[0].model, 'test-jwc');
-  assert.match(jwc.calls[0].prompt, /json code block/);
-  assert.equal(r.turns[0].executor, 'jwc');
-  assert.deepEqual(validateRecipe({ ...loadRecipe('copywriting'), executor: 'claude' }, { file: 'x.json' }).filter((e) => e.includes('executor')), ['x.json: executor: must be one of codex, jwc']);
+test('a recipe with network true hands runCodex network true, and one without hands false', async () => {
+  const networkTrue = tempDir('fsw-recipes-');
+  writeFileSync(join(networkTrue, 'copywriting.json'), JSON.stringify({ ...loadRecipe('copywriting'), network: true }));
+  const handed = [];
+  for (const recipeDir of [networkTrue, undefined]) {
+    const instance = makeInstance();
+    const ledger = openLedger(':memory:');
+    const job = seedJob(ledger, { platform: 'soomgo' });
+    ledger.addPayment({ jobId: job.id, kind: 'deposit', amountKRW: 150000, channel: 'soomgo', evidence: '숨고페이 결제 완료' });
+    const codex = fakeCodex([{ 'copy/variant-a.md': '# 빵집\n\n매일 아침 굽습니다.\n', 'copy/variant-b.md': '# 빵집\n\n동네 빵입니다.\n' }]);
+    const { ctx } = seam(ledger, { instance, recipeDir, runCodex: codex, reviewDeliverables: async () => ({ verdict: 'pass', findings: [] }) });
+    const r = await runJob(job.id, ctx);
+    assert.equal(r.status, 'accepted', JSON.stringify(r.acceptance));
+    handed.push(codex.calls.map((c) => [c.sandbox, c.network]));
+  }
+  assert.deepEqual(handed, [[['workspace-write', true]], [['workspace-write', false]]]);
+  const errors = (recipe) => validateRecipe(recipe, { file: 'x.json' }).filter((e) => /network|executor/.test(e));
+  assert.deepEqual(errors({ ...loadRecipe('copywriting'), network: 'yes' }), ['x.json: network: must be true or false']);
+  assert.deepEqual(errors({ ...loadRecipe('copywriting'), executor: 'codex' }), ['x.json: executor: unknown key']);
 });
 
 test('startDue starts a paid job once within jobs.maxParallel, blocks an unpaid one and never respawns', async () => {
@@ -373,14 +374,13 @@ test('a writing codex turn on Windows names the sandbox the ignored user config 
   assert.ok(!codexArgs({ ...base, sandbox: 'workspace-write', platform: 'linux' }).some((a) => a.startsWith('windows.')));
 });
 
-
-test('a jwc turn that exits 0 after a model error is a failure, and a stop turn yields its JSON answer', () => {
-  const end = (msg) => ['{"type":"session"}', JSON.stringify({ type: 'agent_end', messages: [{ role: 'user', content: [] }, { role: 'assistant', ...msg }] })].join('\n');
-  assert.throws(() => parseJwcStream(end({ content: [], stopReason: 'error', errorMessage: '404 The model codex-mini-latest does not exist' })), { code: 'FSW_JWC_MODEL', message: /404 The model codex-mini-latest/ });
-  assert.throws(() => parseJwcStream('{"type":"turn_start"}'), { code: 'FSW_JWC_NO_END' });
-  const text = parseJwcStream(end({ stopReason: 'stop', content: [{ type: 'text', text: 'Done.\n```json\n{"summary":"scraper","files":["scraper/index.js"],"openQuestions":[]}\n```' }] }));
-  assert.deepEqual(parseJobAnswer(text), { summary: 'scraper', files: ['scraper/index.js'], openQuestions: [] });
-  assert.throws(() => parseJobAnswer('I wrote the scraper.'), { code: 'FSW_JWC_BAD_JSON' });
+test('codexArgs puts the network flag only on a network workspace-write turn', () => {
+  const base = { schemaFile: 's.json', outFile: 'o.txt', cwd: 'C:/w', proxyUrl: 'http://127.0.0.1:10100/v1', platform: 'win32' };
+  const flag = 'sandbox_workspace_write.network_access=true';
+  const net = codexArgs({ ...base, sandbox: 'workspace-write', network: true });
+  assert.equal(net[net.indexOf(flag) - 1], '-c');
+  assert.ok(!codexArgs({ ...base, sandbox: 'workspace-write' }).includes(flag));
+  assert.ok(!codexArgs({ ...base, sandbox: 'read-only', network: true }).includes(flag));
 });
 
 // U7.7: the review of accepted work runs inside the job slot, before release(), and can neither fail an

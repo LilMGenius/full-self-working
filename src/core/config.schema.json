@@ -573,10 +573,6 @@
         "timeoutMs": null,
         "model": null,
         "effort": null,
-        "jwc": {
-          "model": null,
-          "thinking": null
-        },
         "review": {
           "enabled": true,
           "model": null
@@ -612,32 +608,6 @@
           ],
           "description": "the reasoning effort for job runs",
           "default": null
-        },
-        "jwc": {
-          "type": "object",
-          "description": "the jawcode executor",
-          "default": {
-            "model": null,
-            "thinking": null
-          },
-          "properties": {
-            "model": {
-              "type": [
-                "string",
-                "null"
-              ],
-              "description": "the jawcode model",
-              "default": null
-            },
-            "thinking": {
-              "type": [
-                "string",
-                "null"
-              ],
-              "description": "the jawcode thinking level",
-              "default": null
-            }
-          }
         },
         "review": {
           "type": "object",

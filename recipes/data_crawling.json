@@ -1,7 +1,7 @@
 {
   "service": "data_crawling",
   "version": 1,
-  "executor": "jwc",
+  "network": true,
   "hours": {
     "standard": 4,
     "deluxe": 10,

@@ -402,12 +402,17 @@ const permission = (value) => (ledger, out, s, { job }) => {
   out.effects.push({ type: 'sync_portfolio' });
 };
 
+const RECORDED_BY_RULE = ['quote_observed'];
+
 const RULES = {
-  quote_observed(ledger, out, s, { thread, job }) {
+  quote_observed(ledger, out, s, { thread, job, record }) {
     const ev = s.evidence ?? {};
     const parts = ev.split?.parts ?? [];
     const deposit = parts.length > 1 ? parts[0].amountKRW : null;
     const quote = ledger.addQuote({ threadId: thread.id, platform: s.platform, service: ev.service ?? null, amountKRW: s.amountKRW, depositKRW: deposit, balanceKRW: deposit == null ? null : s.amountKRW - deposit, scope: ev.scope ?? null, deliveryDays: ev.deliveryDays ?? null, costKRW: ev.cashSpentKRW ?? ev.costKRW ?? 0, status: 'sent', at: s.at });
+    // The signal's event names the quote beside the row it came from, the one place both are known
+    // (src/economics/quote-results.mjs links a quote's pricing basis by it).
+    record({ quoteId: quote.id });
     const meta = { quoteId: quote.id, scope: ev.scope ?? null, deliveryDays: ev.deliveryDays ?? null, requestId: thread.kind === 'request' ? thread.externalId : null };
     if (!job) return void move(ledger, out, { id: jobIdFor(s.platform, thread.externalId), status: null }, 'quoted', { threadId: thread.id, platform: s.platform, service: ev.service ?? null, title: catalog[ev.service]?.ko ?? null, priceKRW: s.amountKRW, meta });
     if (OPEN_FOR_ORDER.includes(job.status)) return void move(ledger, out, job, 'quoted', { priceKRW: s.amountKRW, service: ev.service ?? job.service, meta: { ...(job.meta ?? {}), ...meta } });
@@ -495,9 +500,11 @@ export function advance(ledger, signal, ctx = {}) {
     if (!thread) throw new DealError('FSW_DEAL_SIGNAL', signal.type + ' needs a threadId or a job with a thread');
     if (MONEY_TYPES.includes(signal.type)) return money(ledger, out, signal, thread, { instance, descriptor, now });
     const job = job0 ?? findJob(ledger, signal.platform, thread, signal.evidence?.requestId);
-    // outboxId names the observed send a signal came from, so sweep can tell an applied send from a lost one.
-    ledger.addEvent({ kind: 'deal.' + signal.type, platform: signal.platform, ref: job?.id ?? thread.externalId, payload: { jobId: job?.id ?? null, amountKRW: signal.amountKRW ?? null, outboxId: signal.evidence?.outboxId ?? null } });
-    RULES[signal.type](ledger, out, signal, { thread, job, instance, descriptor, now });
+    // outboxId names the observed send a signal came from, so sweep can tell an applied send from a lost one. A rule
+    // that adds a row the event should name (quote_observed, its quote id) writes the event itself, before its moves.
+    const record = (extra = {}) => ledger.addEvent({ kind: 'deal.' + signal.type, platform: signal.platform, ref: job?.id ?? thread.externalId, payload: { jobId: job?.id ?? null, amountKRW: signal.amountKRW ?? null, outboxId: signal.evidence?.outboxId ?? null, ...extra } });
+    if (!RECORDED_BY_RULE.includes(signal.type)) record();
+    RULES[signal.type](ledger, out, signal, { thread, job, instance, descriptor, now, record });
   });
   return { transitions: out.transitions, effects: out.effects };
 }

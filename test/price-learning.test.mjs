@@ -24,6 +24,8 @@ function sent(ledger, { ref, amountKRW = 300000, service = 'detail_page_design',
   setStatus(ledger, row.id, { from: 'sending', to: 'observed', receipt: { observed: true, ...(pipeline ? { pipeline } : {}) } });
   ledger.db.prepare('UPDATE outbox SET updated_at = ? WHERE id = ?').run(rowAt, row.id);
   const q = ledger.addQuote({ threadId: thread.id, platform: 'soomgo', service, amountKRW, costKRW, status, at: quoteAt });
+  // The deal names the quote beside its row (src/deal/advance.mjs); a 2c77326 send was never applied by the deal.
+  if (!pipeline) ledger.addEvent({ kind: 'deal.quote_observed', platform: 'soomgo', ref, payload: { outboxId: row.id, quoteId: q.id } });
   return { thread, row, quote: q };
 }
 const byId = (results) => Object.fromEntries(results.map((r) => [r.source + ':' + r.id, r]));
@@ -264,6 +266,8 @@ test('a quote takes the pricing basis of its own row, never of a later quote on 
     setStatus(ledger, row.id, { from: 'planned', to: 'sending' });
     setStatus(ledger, row.id, { from: 'sending', to: 'observed', receipt: { observed: true } });
     ledger.db.prepare('UPDATE outbox SET updated_at = ? WHERE id = ?').run(at, row.id);
+    // The event shape before the quote id: the deal wrote it in the transaction that added the quote.
+    ledger.addEvent({ kind: 'deal.quote_observed', platform: 'soomgo', ref: 'r-many', payload: { outboxId: row.id } });
     ledger.addQuote({ threadId: thread.id, platform: 'soomgo', service: 'detail_page_design', amountKRW: 300000, costKRW: 990, status: 'expired', at });
   }
   const results = quoteResults(ledger, { asOf: ASOF, expireAfterDays: 14 });
@@ -273,4 +277,45 @@ test('a quote takes the pricing basis of its own row, never of a later quote on 
   // A quote recorded without a row of its own (an outside quote at a hire) leaves its group ambiguous: no basis.
   ledger.addQuote({ threadId: thread.id, platform: 'soomgo', service: 'detail_page_design', amountKRW: 300000, costKRW: 0, status: 'accepted', at: plus(T0, 10 * 60_000) });
   assert.deepEqual(quoteResults(ledger, { asOf: ASOF, expireAfterDays: 14 }).map((q) => q.index), [null, null, null, null, null, null]);
+});
+
+// A quote is linked to its outbox row by the quote id the deal writes on deal.quote_observed. Rows imported from the
+// 2c77326 approval files carry no such event; they pair with their quotes in send order (the row's close time and the
+// quote's own time), never in the order the import wrote them. A row the deal has not applied yet links to nothing.
+function observedRow(ledger, thread, { text, reference, at, pipeline = null }) {
+  const row = plan(ledger, { platform: 'soomgo', threadId: thread.id, kind: 'quote', payload: { text, amountKRW: 300000, service: 'detail_page_design', costKRW: 990, decision: { quote: { amountKRW: 300000, pricing: { reference, complexity: 1 } } } } });
+  setStatus(ledger, row.id, { from: 'planned', to: 'sending' });
+  setStatus(ledger, row.id, { from: 'sending', to: 'observed', receipt: { observed: true, ...(pipeline ? { pipeline } : {}) } });
+  ledger.db.prepare('UPDATE outbox SET updated_at = ? WHERE id = ?').run(at, row.id);
+  return row;
+}
+const quoteAt = (ledger, thread, at, status = 'expired') => ledger.addQuote({ threadId: thread.id, platform: 'soomgo', service: 'detail_page_design', amountKRW: 300000, costKRW: 990, status, at });
+const indexes = (ledger) => quoteResults(ledger, { asOf: ASOF, expireAfterDays: 14 }).map((r) => r.index);
+
+test('imported rows pair with their quotes in send order, whatever order the import wrote them', () => {
+  const ledger = openLedger(':memory:');
+  const thread = ledger.upsertThread({ platform: 'soomgo', externalId: 'imp', kind: 'request' });
+  observedRow(ledger, thread, { text: 'second sent', reference: 600000, at: plus(T0, 2 * 3_600_000), pipeline: 'd605c5d' });
+  observedRow(ledger, thread, { text: 'first sent', reference: 300000, at: plus(T0, 3_600_000), pipeline: 'd605c5d' });
+  quoteAt(ledger, thread, plus(T0, 3_600_000));
+  quoteAt(ledger, thread, plus(T0, 2 * 3_600_000));
+  assert.deepEqual(indexes(ledger), [1, 0.5]);
+});
+
+test('a quote links to its row by the quote id on deal.quote_observed, and a hire quote beside an unapplied row has no basis', () => {
+  const ledger = openLedger(':memory:');
+  const thread = ledger.upsertThread({ platform: 'soomgo', externalId: 'v0', kind: 'request' });
+  const a = observedRow(ledger, thread, { text: 'a', reference: 300000, at: plus(T0, 60_000) });
+  const b = observedRow(ledger, thread, { text: 'b', reference: 600000, at: plus(T0, 120_000) });
+  const q1 = quoteAt(ledger, thread, plus(T0, 60_000));
+  const q2 = quoteAt(ledger, thread, plus(T0, 120_000));
+  // The events say q1 came from b and q2 from a, written in the order a then b.
+  ledger.addEvent({ kind: 'deal.quote_observed', platform: 'soomgo', ref: 'v0', payload: { outboxId: a.id, quoteId: q2.id } });
+  ledger.addEvent({ kind: 'deal.quote_observed', platform: 'soomgo', ref: 'v0', payload: { outboxId: b.id, quoteId: q1.id } });
+  const byQuote = Object.fromEntries(quoteResults(ledger, { asOf: ASOF, expireAfterDays: 14 }).map((r) => [r.id, r.index]));
+  assert.deepEqual([byQuote[q1.id], byQuote[q2.id]], [0.5, 1]);
+  const hire = ledger.upsertThread({ platform: 'soomgo', externalId: 'hire', kind: 'message' });
+  observedRow(ledger, hire, { text: 'not applied yet', reference: 600000, at: plus(T0, 60_000) });
+  const outside = quoteAt(ledger, hire, plus(T0, 90_000), 'accepted');
+  assert.equal(quoteResults(ledger, { asOf: ASOF, expireAfterDays: 14 }).find((r) => r.id === outside.id).index, null);
 });

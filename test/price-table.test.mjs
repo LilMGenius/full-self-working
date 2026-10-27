@@ -82,7 +82,9 @@ function quoteLedger(base, statuses, { reverse = false } = {}) {
     setStatus(ledger, row.id, { from: 'planned', to: 'sending' });
     setStatus(ledger, row.id, { from: 'sending', to: 'observed', receipt: { observed: true } });
     ledger.db.prepare('UPDATE outbox SET updated_at = ? WHERE id = ?').run(at, row.id);
-    ledger.addQuote({ threadId: t.id, platform: 'kmong', service: 'logo_brand', amountKRW: base, costKRW: 0, status, at });
+    const q = ledger.addQuote({ threadId: t.id, platform: 'kmong', service: 'logo_brand', amountKRW: base, costKRW: 0, status, at });
+    // The deal names the quote beside the row it came from (src/deal/advance.mjs).
+    ledger.addEvent({ kind: 'deal.quote_observed', platform: 'kmong', ref: 'k' + i, payload: { outboxId: row.id, quoteId: q.id } });
   }
   return ledger;
 }

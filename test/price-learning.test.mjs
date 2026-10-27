@@ -17,7 +17,7 @@ const T0 = '2026-10-01T03:00:00.000Z';
 const plus = (iso, ms) => new Date(Date.parse(iso) + ms).toISOString();
 
 // A quote fsw sent: its observed outbox row (read back at rowAt) and the quote row the deal recorded at quoteAt.
-function sent(ledger, { ref, amountKRW = 300000, service = 'detail_page_design', status = 'sent', quoteAt = T0, rowAt = T0, pricing = { source: 'guide', guideAvg: 300000, complexity: 1 }, pipeline = null, costKRW = 990 }) {
+function sent(ledger, { ref, amountKRW = 300000, service = 'detail_page_design', status = 'sent', quoteAt = T0, rowAt = T0, pricing = { source: 'price-row', base: 300000, reference: 300000, complexity: 1 }, pipeline = null, costKRW = 990 }) {
   const thread = ledger.upsertThread({ platform: 'soomgo', externalId: ref, kind: 'request' });
   const row = plan(ledger, { platform: 'soomgo', threadId: thread.id, kind: 'quote', payload: { text: 'q ' + ref, amountKRW, service, costKRW, ...(pricing ? { decision: { quote: { amountKRW, pricing } } } : {}) } });
   setStatus(ledger, row.id, { from: 'planned', to: 'sending' });
@@ -37,10 +37,23 @@ test('dayStart is 00:00 Seoul of a day key and refuses anything else', () => {
 
 test('priceIndex divides the amount by complexity and the unlearned reference, and is null without a basis', () => {
   assert.equal(priceIndex(270000, { reference: 300000, complexity: 1 }), 0.9);
-  assert.equal(priceIndex(600000, { guideAvg: 300000, complexity: 2 }), 1);
+  assert.equal(priceIndex(256000, { source: 'price-row', base: 128000, reference: 128000, guideAvg: 300000, complexity: 2 }), 1);
   assert.equal(priceIndex(450000, { base: 300000, complexity: 1.5 }), 1);
   assert.equal(priceIndex(300000, null), null);
   assert.equal(priceIndex(300000, { complexity: 1 }), null);
+});
+
+test('a request quote priced from the guide average says nothing about the tiered row base', () => {
+  // Every soomgo request quote before 2026-10-27 recorded the guide average as its reference.
+  const old = { guideAvg: 300000, guideMin: 35000, guideMax: 1500000, complexity: 1, raw: 300000, clamped: 300000, costFloorKRW: 45000 };
+  assert.equal(priceIndex(300000, old), null);
+  assert.equal(priceIndex(300000, { ...old, reference: 300000 }), null);
+  const ledger = openLedger(':memory:');
+  const lost = Array.from({ length: 5 }, (_, i) => sent(ledger, { ref: 'g' + i, status: 'declined', pricing: old }));
+  const results = quoteResults(ledger, { asOf: new Date(plus(T0, 30 * DAY)), expireAfterDays: 14 });
+  assert.deepEqual(lost.map((x) => results.find((r) => r.id === x.quote.id)).map((r) => [r.result, r.index]), Array(5).fill(['lost', null]));
+  const [held] = learnPriceRows([row({ baseKRW: 128000 })], results, { settings: SETTINGS, descriptors, asOf: new Date(plus(T0, 30 * DAY)) });
+  assert.deepEqual([held.baseKRW, held.learned.cases, held.learned.priced, held.learned.factor], [128000, 5, 0, 1]);
 });
 
 test('every quote ends in one result read from the ledger', () => {
@@ -127,11 +140,11 @@ test('learnPriceRows counts cases without a pricing basis toward the win rate an
 
 test('a request quote applies the row factor inside the guide and records the reference it was priced from', () => {
   const guide = { avgKRW: 300000, minKRW: 100000, maxKRW: 1000000 };
-  const q = quoteForRequest({ guide, complexity: 1.2, row: { costFloorKRW: 50000, learned: { factor: 0.9 } }, descriptor: descriptors.soomgo, config: {}, quoteCostKRW: 990 });
+  const q = quoteForRequest({ guide, complexity: 1.2, row: { baseKRW: 270000, costFloorKRW: 50000, learned: { factor: 0.9, fromKRW: 300000 } }, descriptor: descriptors.soomgo, config: {}, quoteCostKRW: 990 });
   assert.equal(q.amountKRW, 324000);
   assert.deepEqual([q.basis.reference, q.basis.learnedFactor], [300000, 0.9]);
   assert.equal(priceIndex(q.amountKRW, q.basis), 0.9);
-  const plain = quoteForRequest({ guide, complexity: 1.2, row: { costFloorKRW: 50000 }, descriptor: descriptors.soomgo, config: {}, quoteCostKRW: 990 });
+  const plain = quoteForRequest({ guide, complexity: 1.2, row: { baseKRW: 300000, costFloorKRW: 50000 }, descriptor: descriptors.soomgo, config: {}, quoteCostKRW: 990 });
   assert.deepEqual([plain.amountKRW, plain.basis.learnedFactor], [360000, 1]);
 });
 
@@ -152,7 +165,7 @@ test('priceLearningSettings reads the group, learns nothing without it, and refu
 function requote(ledger, ref, { jobStatus = 'ordered', newerStatus = 'accepted', chat = false } = {}) {
   const t = ledger.upsertThread({ platform: 'soomgo', externalId: ref, kind: 'request' });
   const quote = (amountKRW, at, status) => {
-    const row = plan(ledger, { platform: 'soomgo', threadId: t.id, kind: 'quote', payload: { text: 'q ' + ref + amountKRW, amountKRW, service: 'detail_page_design', decision: { quote: { amountKRW, pricing: { source: 'guide', guideAvg: 300000, complexity: 1 } } } } });
+    const row = plan(ledger, { platform: 'soomgo', threadId: t.id, kind: 'quote', payload: { text: 'q ' + ref + amountKRW, amountKRW, service: 'detail_page_design', decision: { quote: { amountKRW, pricing: { source: 'price-row', base: 300000, reference: 300000, complexity: 1 } } } } });
     setStatus(ledger, row.id, { from: 'planned', to: 'sending' });
     setStatus(ledger, row.id, { from: 'sending', to: 'observed', receipt: { observed: true } });
     ledger.db.prepare('UPDATE outbox SET updated_at = ? WHERE id = ?').run(at, row.id);

@@ -65,6 +65,31 @@ test('every sampled platform is priced, rows without a surface are marked and an
   assert.ok(lines.some((l) => /^price fiverr skipped: /.test(l)));
 });
 
+test('a service with five reviews tied to its jobs leaves the first tier; the rest of the platform total ties to none', async () => {
+  const instance = fixture();
+  writeFileSync(join(instance.paths.market, 'summary-20260102.json'), JSON.stringify([
+    { platform: 'soomgo', category: '로고 디자인', n: 30, avgKRW: 100000, minKRW: 40000, maxKRW: 300000 },
+    { platform: 'soomgo', category: '썸네일 제작', n: 30, avgKRW: 60000, minKRW: 20000, maxKRW: 200000 },
+  ]));
+  writeFileSync(join(instance.paths.platforms, 'soomgo-state.json'), JSON.stringify({ reviews: { count: 20 } }));
+  const ledger = openLedger(':memory:');
+  const t = ledger.upsertThread({ platform: 'soomgo', externalId: 'c', kind: 'message' });
+  for (let i = 0; i < 5; i++) {
+    ledger.upsertJob({ id: 'soomgo-j' + i, threadId: t.id, platform: 'soomgo', service: 'logo_brand', status: 'closed' });
+    ledger.addReview({ jobId: 'soomgo-j' + i, platform: 'soomgo', rating: 5, text: 'ok', at: '2026-01-01T00:00:00Z' });
+  }
+  ledger.addReview({ jobId: null, platform: 'soomgo', rating: 5, text: 'no job', at: '2026-01-01T00:00:00Z' });
+  const byService = (rows) => Object.fromEntries(rows.filter((r) => r.platform === 'soomgo').map((r) => [r.service, r]));
+  const tied = byService((await refreshPriceTable(instance, { adapterFor: surfaces, ledger, day: '20260102' })).rows);
+  assert.deepEqual([tied.logo_brand.basis.reviews, tied.thumbnail_banner.basis.reviews], [5, 0]);
+  assert.equal(tied.logo_brand.basis.median, 100000);
+  assert.equal(tied.logo_brand.marketBaseKRW, 90000, 'five reviews of the service price at the median, at fit none');
+  assert.equal(tied.thumbnail_banner.marketBaseKRW, Math.round((20000 + 0.35 * 40000) * 0.9 / 1000) * 1000, 'none of the 20 names the banner service');
+  const none = byService((await refreshPriceTable(fixture2(instance), { adapterFor: surfaces, day: '20260103' })).rows);
+  assert.equal(none.logo_brand.basis.reviews, 0, 'without a ledger no review is tied to a service');
+});
+const fixture2 = (instance) => loadInstance({ dir: instance.dir });
+
 test('the table cannot be built without a surface lookup', async () => {
   await assert.rejects(refreshPriceTable(fixture(), {}), TypeError);
 });

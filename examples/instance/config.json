@@ -138,11 +138,6 @@
     "changeWindowDays": 28,
     "basisFameGap": 0.05
   },
-  "site": {
-    "domain": null,
-    "vercelTeam": null,
-    "project": null
-  },
   "onboarding": {
     "photo": null,
     "identity": null,

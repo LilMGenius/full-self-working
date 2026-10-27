@@ -1,5 +1,5 @@
-// Design tokens of the public surfaces (site/DESIGN.md is the decision record). Data first: the site CSS
-// and the listing images read these values through tokensCss(), so a colour or a type step changes once.
+// Design tokens of the kmong listing images (docs/LISTING-DESIGN.md is the decision record). Data first:
+// the images read these values through tokensCss(), so a colour or a type step changes once.
 export const TOKENS = Object.freeze({
   color: {
     ink: '#121418',

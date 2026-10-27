@@ -4,7 +4,7 @@ import { copyFileSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { exampleDir } from '../src/core/instance.mjs';
-import { checkChrome, checkInstance, checkNode, parseNodeRange, run, runChecks, surfaceProbe } from '../src/cli/doctor.mjs';
+import { checkChrome, checkInstance, checkNode, failed, parseNodeRange, run, runChecks, surfaceProbe } from '../src/cli/doctor.mjs';
 import { tempDir } from './tmp.mjs';
 
 function instance({ filled = true, edit } = {}) {
@@ -35,7 +35,6 @@ const good = {
   proxy: async () => ({ status: 200 }),
   bsk: async () => ({ daemon: true, version: '1.0', browsers: 1 }),
   taskStatus: () => ({ supported: true, status: 0, out: 'state     Running\nlock      pid 12 alive=True\n' }),
-  vercel: () => ({ ok: true, out: 'mina' }),
   openAdapter: async () => ({ login: async () => ({ loggedIn: true, nickname: 'mina' }), stop: async () => {} }),
 };
 const base = (over = {}) => ({ instanceDir: over.dir, node: { version: '26.0.0', engines: '>=24' }, exists: () => true, env: {}, probes: { ...good, ...(over.probes ?? {}) } });
@@ -73,13 +72,12 @@ test('instance: a missing instance, a missing pipeline setting and an unknown pl
 });
 
 test('a healthy machine passes every check and exits 0', async () => {
-  const dir = instance({ edit: (c) => (c.site = { project: 'p', vercelTeam: 't', domain: null }) });
+  const dir = instance();
   const lines = [];
   assert.equal(await run([], { ...base({ dir }), log: (l) => lines.push(l) }), 0);
   const text = lines.join('\n');
   assert.match(text, /ok\s+login kmong\s+signed in as mina/);
   assert.match(text, /ok\s+login soomgo/);
-  assert.match(text, /ok\s+vercel\s+signed in as mina/);
   assert.match(text, /every required check passed/);
 });
 
@@ -101,20 +99,28 @@ test('each broken requirement is a FAIL line with a hint, and the exit code is 1
   assert.match(lines.join('\n'), /FAIL\s+codex cli.*->.*codex login/);
 });
 
-test('a signed-out platform and a failing schema call are FAIL; an unregistered task and signed-out vercel only warn', async () => {
-  const dir = instance({ edit: (c) => (c.site = { project: 'p' }) });
+test('a signed-out platform and a failing schema call are FAIL; an unregistered task only warns', async () => {
+  const dir = instance();
   const probes = {
     codexCall: async () => { throw Object.assign(new Error('codex exec exited with 1'), { code: 'FSW_CODEX_EXIT', stderrTail: 'auth\nunauthorized' }); },
     openAdapter: async (id) => ({ login: async () => ({ loggedIn: id === 'soomgo' }), stop: async () => {} }),
     taskStatus: () => ({ supported: true, status: 0, out: 'task fsw-supervisor not registered' }),
-    vercel: () => ({ ok: false, out: 'No existing credentials' }),
   };
   const checks = await runChecks(base({ dir, probes }));
   assert.match(by(checks, 'codex call').detail, /FSW_CODEX_EXIT.*unauthorized/);
   assert.equal(by(checks, 'login kmong').status, 'FAIL');
   assert.equal(by(checks, 'login soomgo').status, 'ok');
   assert.equal(by(checks, 'schedule').status, 'warn');
-  assert.equal(by(checks, 'vercel').status, 'warn');
+});
+
+// fsw deploys no operator site (docs/DESIGN.md, Decisions); a config written before that still holds the
+// retired site group, which loads and checks like any other key the schema no longer names.
+test('a config that still holds the retired site group passes the instance checks, and doctor has no site check', async () => {
+  const dir = instance({ edit: (c) => (c.site = { domain: null, vercelTeam: null, project: null }) });
+  assert.deepEqual(checkInstance(dir).out.map((c) => c.status), ['ok', 'ok', 'ok', 'ok', 'ok']);
+  const checks = await runChecks(base({ dir }));
+  assert.deepEqual(checks.filter((c) => /vercel|site/.test(c.name)), []);
+  assert.deepEqual(failed(checks), []);
 });
 
 test('FSW_CODEX_PROXY=none skips the proxy check; a platform with no adapter is reported', async () => {

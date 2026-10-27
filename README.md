@@ -7,7 +7,7 @@ Today the whole loop, from the first message to the delivery, runs on kmong and 
 ## A day with fsw
 
 - Every five minutes it reads the inbox and request list of each platform you set to draft or auto, decides each new item, and sends what your rules allow or queues it for you.
-- At 00:00 Seoul time it samples competitors' prices, rebuilds the price table, re-ranks your portfolio and republishes its gallery when it changed.
+- At 00:00 Seoul time it samples competitors' prices, rebuilds the price table, re-ranks your portfolio and redraws the kmong gig images whose top items changed.
 - At 09:00 it writes a digest of the day before and notifies you.
 - A paid job runs through the recipe for its service (a landing page, a logo, a data crawl and so on), passes the recipe's acceptance checks and a review by a model from another family (Claude for work GPT built, GPT for work Claude built), and waits for you to approve the delivery.
 
@@ -35,7 +35,7 @@ You need:
 - Node.js 24 or newer.
 - Google Chrome with BrowserSkill, the browser extension and local service fsw drives Chrome through. The omo plugin for Codex ([LazyCodex](https://github.com/code-yeongyu/lazycodex)) sets it up, and you enable the extension in Chrome once.
 - The [Codex CLI](https://github.com/openai/codex), signed in with `codex login`. By default fsw calls it through [opencodex](https://github.com/lidge-jun/opencodex), a local proxy that also lets codex reach Claude and other providers; `fsw doctor` checks the proxy and says how to call codex directly when you run none.
-- Optional: [jawcode](https://github.com/lidge-jun/jawcode) (`jwc`), signed in to a model provider (run `jwc`, then `/login`), for the recipes that choose it, today the data crawl; and the Vercel CLI to publish your portfolio gallery.
+- Optional: [jawcode](https://github.com/lidge-jun/jawcode) (`jwc`), signed in to a model provider (run `jwc`, then `/login`), for the recipes that choose it, today the data crawl.
 
 ```
 git clone https://github.com/LilMGenius/full-self-working.git

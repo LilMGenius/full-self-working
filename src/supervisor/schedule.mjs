@@ -32,7 +32,6 @@ export const JOBS = [
   { id: 'portfolio', every: 'day', at: '00:00' },
   // Right after the portfolio is ranked: gigs whose top portfolio items changed get new detail images.
   { id: 'listings-refresh', every: 'day', at: '00:00' },
-  { id: 'publish', every: 'day', at: '00:00' },
   { id: 'learn', every: 'day', at: '00:00' },
   // Daily at 09:00 Seoul: the operator digest, ready at the start of the workday.
   { id: 'digest', every: 'day', at: '09:00' },

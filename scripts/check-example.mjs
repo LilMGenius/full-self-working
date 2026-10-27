@@ -94,7 +94,7 @@ export function loadExample() {
 
 export function checkExample(root = repoRoot) {
   const reads = new Map();
-  for (const dir of ['src', 'scripts', 'site', 'bin']) {
+  for (const dir of ['src', 'scripts', 'bin']) {
     let files = [];
     try {
       files = sourceFiles(join(root, dir));

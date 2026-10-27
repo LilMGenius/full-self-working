@@ -15,7 +15,7 @@ const T = {
     todoItems: [
       'Check every approved claim: the outbound gate lets a number about experience through only when it is on this list.',
       'Check claimsNotToMake against what you will not say to a client.',
-      'person.phone and person.email are used by the site and the privacy scan; remove them here if you do not want them stored.',
+      'person.phone fills the platform onboarding forms, and the privacy scan checks it and person.email; remove them here if you do not want them stored.',
       'Fill business.json by hand; it is never drafted from sources.',
     ],
     empty: 'The draft has no verified claim at all. Add more background or check that the sources are readable text.',
@@ -33,7 +33,7 @@ const T = {
     todoItems: [
       '승인된 주장(approvedClaims)을 모두 확인하세요. 경력 관련 숫자는 이 목록에 있을 때만 발송 게이트를 통과합니다.',
       'claimsNotToMake 가 고객에게 하지 않을 말과 맞는지 확인하세요.',
-      'person.phone 과 person.email 은 사이트와 개인정보 검사에 쓰입니다. 저장하고 싶지 않으면 지우세요.',
+      'person.phone 은 플랫폼 가입 양식에 쓰이고, person.email 과 함께 개인정보 검사에 쓰입니다. 저장하고 싶지 않으면 지우세요.',
       'business.json 은 출처에서 만들지 않으므로 직접 채우세요.',
     ],
     empty: '검증된 주장이 하나도 없습니다. 배경 자료를 더 주거나 읽을 수 있는 텍스트인지 확인하세요.',

@@ -81,6 +81,9 @@ export function buildPriceTable({ summary, services, profile, sellerStats, confi
     // byService holds the reviews the ledger ties to each service through its job. The rest of the platform's
     // total names no service: it counts for an operator-delivered service (catalog deliveryOf; work the operator
     // did before fsw kept a ledger) and never for an agent-delivered one, whose first jobs it did not win.
+    // Gap: a review of agent-delivered work the ledger never tied to its job also lands in that rest and credits the
+    // operator-delivered service; counting only reviews older than the ledger, and listing newer untied ones for the
+    // operator to link, closes it.
     const byService = sellerStats[platform].byService ?? {};
     const unattributed = Math.max(0, platformReviews - Object.values(byService).reduce((s, n) => s + n, 0));
     for (const [service, def] of Object.entries(services)) {

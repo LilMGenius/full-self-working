@@ -6,7 +6,7 @@ import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
 import { step } from '../src/loop/index.mjs';
 import { hasSurface, openSurface } from '../src/surface/index.mjs';
-import { FORM_UNMAPPED, openFreelancerSurface } from '../src/surface/freelancer.mjs';
+import { BID_NOT_TYPED, FORM_UNMAPPED, openFreelancerSurface } from '../src/surface/freelancer.mjs';
 import { scriptedSurface } from './helpers/surface.mjs';
 import { readRecording, replaySession } from '../src/surface/recorder.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
@@ -178,6 +178,7 @@ test('a freelancer bid is refused by name before anything is typed: balance, the
   for (const [entries, code, reason] of cases) {
     const { session, surface } = await replayed(entries);
     await assert.rejects(surface.propose('7', { text: 'x', amountKRW: 100000, amount: 80, currency: 'USD', periodDays: 5, authorized: SEND }), (err) => err.code === code && reason.test(err.message));
+    assert.ok(BID_NOT_TYPED.includes(code), code + ' is listed for the drain as not typed');
     assert.equal(session.remaining(), 0, code + ': the gate was read and nothing else was called');
   }
   const { session, surface } = await replayed(gate());

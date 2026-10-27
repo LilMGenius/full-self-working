@@ -5,11 +5,14 @@
 // src/platforms/freelancer.
 import { targetsFor } from '../economics/catalog.mjs';
 import { AdapterRefusal } from '../platforms/kit.mjs';
-import { FORM_UNMAPPED, bidCostKRW, bidRefusal, readBidState } from '../platforms/freelancer/bid.mjs';
+import { BALANCE, FORM_UNMAPPED, NO_BIDS, STEPS, bidCostKRW, bidRefusal, readBidState } from '../platforms/freelancer/bid.mjs';
 import { fetchApi, listProjects, readProject, readReputation, readSelf, signInWithGoogle } from '../platforms/freelancer/projects.mjs';
 import { authorizedSend, readKind, unauthorized } from './shared.mjs';
 
 export { FORM_UNMAPPED };
+// Every refusal propose throws before it types anything, so the drain returns the row instead of reading
+// it as an unobserved send (as kmong's NOT_TYPED).
+export const BID_NOT_TYPED = [BALANCE, STEPS, NO_BIDS, FORM_UNMAPPED];
 
 const unmapped = (what) => {
   throw new AdapterRefusal(FORM_UNMAPPED, 'the freelancer ' + what + ' form is not mapped from a signed-in recording; nothing was typed');

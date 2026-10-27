@@ -7,6 +7,7 @@ import { buildSite } from '../site/build.mjs';
 import { publish } from '../scripts/publish.mjs';
 import { rankPortfolio } from '../src/portfolio/rank.mjs';
 import { DEFAULT_CHROME } from '../src/render/html2png.mjs';
+import { repoRoot } from '../src/core/instance.mjs';
 import { tempDir } from './tmp.mjs';
 import { PRIVATE, writeSiteFixture } from './fixtures/site-instance.mjs';
 
@@ -37,8 +38,11 @@ test('site build from a fixture instance', { skip: !existsSync(process.env.FSW_C
     const items = JSON.parse(readFileSync(join(dir, 'portfolio', 'items.json'), 'utf8'));
     const expected = rankPortfolio(items).map((i) => i.id);
     for (const html of [ko, en]) {
-      const shown = [...html.matchAll(/<li class="work-item" id="work-([^"]+)"/g)].map((m) => m[1]);
+      const shown = [...html.matchAll(/<li class="work-item[^"]*" id="work-([^"]+)"/g)].map((m) => m[1]);
       assert.deepEqual(shown, expected);
+      // Many items: the first two take the wide slots and no other does.
+      const wide = [...html.matchAll(/<li class="work-item([^"]*)" id="work-([^"]+)"/g)].filter((m) => /\bwide\b/.test(m[1])).map((m) => m[2]);
+      assert.deepEqual(wide, expected.slice(0, 2));
     }
     assert.ok(!expected.includes('hidden') && !expected.includes('pending'));
   });
@@ -92,4 +96,41 @@ test('publish sweeps a changed build before the dry run and deploy, and skips th
   const before = swept.length;
   const same = await publish({ instance: dir, out, sweep: clean, deploy });
   assert.deepEqual([same.deployed, swept.length, deployed.length], [false, before, 0]);
+});
+
+// A fixture whose ranked portfolio is empty or holds one paid job: no background projects, and items.json set.
+function sized(items) {
+  const dir = fixture();
+  const profile = JSON.parse(readFileSync(join(dir, 'profile.json'), 'utf8'));
+  writeFileSync(join(dir, 'profile.json'), JSON.stringify({ ...profile, projects: [], serviceFit: {} }));
+  writeFileSync(join(dir, 'portfolio', 'items.json'), JSON.stringify(items));
+  return dir;
+}
+
+test('the gallery carries the empty, one-item and many-item states, and the pages hold no typed colour', { skip: !existsSync(process.env.FSW_CHROME ?? DEFAULT_CHROME) && 'Chrome not installed' }, async (t) => {
+  const one = { id: 'only', source: 'job', title_ko: '하나뿐인 작업', title_en: 'The only job', paidAt: '2026-01-02T00:00:00Z', permission: 'granted', summary_ko: '요약', summary_en: 'Summary', url: null, media: [] };
+  const dirs = [];
+  t.after(() => dirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
+  const build = async (items) => {
+    const dir = sized(items);
+    dirs.push(dir);
+    await buildSite({ instance: dir, out: join(dir, 'dist') });
+    return readFileSync(join(dir, 'dist', 'index.html'), 'utf8');
+  };
+  const empty = await build([]);
+  assert.match(empty, /<section class="wrap work" id="work"/);
+  assert.match(empty, /<div class="work-empty"><p>납품한 작업은 고객이 공개에 동의한 뒤/);
+  assert.doesNotMatch(empty, /class="work-list/);
+  assert.doesNotMatch(empty, /직접 만들었거나 기여한 프로젝트입니다/);
+  const single = await build([one]);
+  assert.match(single, /<ol class="work-list single">/);
+  assert.equal([...single.matchAll(/<li class="work-item/g)].length, 1);
+  for (const f of ['site/assets/site.css', 'site/templates/page.mjs']) assert.doesNotMatch(readFileSync(join(repoRoot, f), 'utf8'), /#[0-9a-fA-F]{3,8}\b/, f + ' types a colour');
+});
+
+test('a share card drawn in a fallback face fails the build with FSW_SITE_FONT', { skip: !existsSync(process.env.FSW_CHROME ?? DEFAULT_CHROME) && 'Chrome not installed' }, async (t) => {
+  const dir = fixture();
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  await assert.rejects(buildSite({ instance: dir, out: join(dir, 'dist'), ogFontFace: '' }), (err) => err.code === 'FSW_SITE_FONT' && /og\.jpg: fallback font/.test(err.message));
+  assert.ok(!existsSync(join(dir, 'dist', 'index.html')), 'a failed build leaves no output');
 });

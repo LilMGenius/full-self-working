@@ -9,7 +9,7 @@
 // 2c77326. A cash quote held only by the day's caps waits as a planned row that asks nobody, and the rows
 // go oldest first, so the first one the day cannot pay holds every newer cash quote (b223ed7).
 import { randomBytes } from 'node:crypto';
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { dayKey } from '../core/clock.mjs';
@@ -97,8 +97,9 @@ function callSurface(surface, row, verdict, approved, descriptor, files) {
 // hold by then, and the approved hash would have been checked against other bytes. Each copy sits in its own
 // numbered folder under its own name, as the platform shows it; a file gone before the copy has none, which hashes
 // as missing. The caller removes the folder once the send settles.
+const SEND_PREFIX = 'fsw-send-';
 function freeze(files) {
-  const dir = mkdtempSync(join(tmpdir(), 'fsw-send-'));
+  const dir = mkdtempSync(join(tmpdir(), SEND_PREFIX));
   try {
     const copies = files.map((f, i) => {
       const to = join(dir, String(i), baseName(f));
@@ -112,8 +113,43 @@ function freeze(files) {
     });
     return { dir, copies, hash: copiesHash(files, copies) };
   } catch (err) {
-    rmSync(dir, { recursive: true, force: true });
+    const left = removeSendDir(dir);
+    if (left) err.message += '; the send folder ' + dir + ' stays for a later drain to remove (' + (left.code ?? left.message) + ')';
     throw err;
+  }
+}
+
+// Removes a send folder, retrying one Windows still reports busy (EBUSY, EPERM while a scanner or an upload holds a
+// copy), and returns the error that outlasted the retries, or null: the caller records it, so a failed removal never
+// takes the place of a send's result.
+function removeSendDir(dir) {
+  try {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    return null;
+  } catch (err) {
+    return err;
+  }
+}
+
+// Send folders a removal left behind (the event send.cleanup_failed names each): a drain removes those older than an
+// hour, which no upload takes, judged by the machine's clock that stamped them. One that still resists is a result
+// line of every drain until it goes.
+const SEND_LEFTOVER_MS = 60 * 60_000;
+function sweepSendLeftovers(out) {
+  const root = tmpdir();
+  for (const name of readdirSync(root)) {
+    if (!name.startsWith(SEND_PREFIX)) continue;
+    const dir = join(root, name);
+    let age;
+    try {
+      age = Date.now() - statSync(dir).mtimeMs;
+    } catch (err) {
+      if (err.code === 'ENOENT') continue;
+      throw err;
+    }
+    if (age < SEND_LEFTOVER_MS) continue;
+    const left = removeSendDir(dir);
+    if (left) out.push({ id: null, kind: 'delivery', action: 'leftover', reason: 'the send folder ' + dir + ' could not be removed: ' + (left.code ?? left.message) });
   }
 }
 
@@ -142,6 +178,7 @@ export async function drain(ledger, { platform, surface, authorize, ctx }) {
   const now = ctx.now ?? new Date();
   const notify = (msg) => (ctx.notify ?? notifyOperator)(ctx.instance, msg);
   const out = [];
+  sweepSendLeftovers(out);
   const moved = (row) => out.push({ id: row.id, kind: row.kind, action: 'moved' });
   const cashQuote = (row) => row.kind === 'quote' && spendsCash(ctx.descriptor, row.payload.thread?.kind);
   // A cash quote that reached sending may have spent its cash although nothing confirmed it (an interrupted
@@ -293,7 +330,9 @@ export async function drain(ledger, { platform, surface, authorize, ctx }) {
         receipt = mayHaveSpent(row, { observed: false, reason: (err.code ? err.code + ' ' : '') + err.message }, now.toISOString());
       }
     } finally {
-      if (frozen) rmSync(frozen.dir, { recursive: true, force: true });
+      // A folder that will not go is recorded and left to the sweep above; the send's result stands.
+      const left = frozen ? removeSendDir(frozen.dir) : null;
+      if (left) ledger.addEvent({ kind: 'send.cleanup_failed', platform, ref: row.payload.threadRef, payload: { outboxId: row.id, dir: frozen.dir, code: left.code ?? null, reason: left.message } });
     }
     if (receipt?.observed === true) {
       if (observe(ledger, row, receipt, verdict)) {

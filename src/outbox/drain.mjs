@@ -20,7 +20,9 @@ import { transaction } from '../core/tx.mjs';
 import { HOLD_RULES, spendsBids, spendsCash } from '../policy/authorize.mjs';
 import { loadFx as defaultLoadFx } from '../economics/fx.mjs';
 import { BID_NOT_TYPED } from '../surface/freelancer.mjs';
+import { NOT_TYPED as FIVERR_NOT_TYPED } from '../surface/fiverr.mjs';
 import { NOT_TYPED as KMONG_NOT_TYPED } from '../surface/kmong.mjs';
+import { NOT_TYPED as UPWORK_NOT_TYPED } from '../surface/upwork.mjs';
 import { NOT_TYPED as WISHKET_NOT_TYPED } from '../surface/wishket.mjs';
 import { baseName, setStatus } from './plan.mjs';
 import { bidUsage, quotaUsage } from './usage.mjs';
@@ -35,10 +37,10 @@ export const handles = (surface, kind) => typeof surface?.[METHOD[kind]] === 'fu
 // (src/supervisor/run.mjs:239). The proposal refusals each surface raises before it types anything, read from
 // the surface that raises them so a new one cannot be missed (kmong's NOT_TYPED: a spent day quota, a missing
 // enterprise profile; freelancer's BID_NOT_TYPED: the balance, the profile steps, no bids left, the unmapped
-// form; wishket's unmapped apply form; upwork short of Connects, whose surface does not exist yet), stop only the proposal rows of this
-// drain: the row goes back to planned or approved, counts as no bid, and a customer reply planned after an
-// older proposal still goes out.
-export const PROPOSAL_NOT_SENT = [...KMONG_NOT_TYPED, ...BID_NOT_TYPED, ...WISHKET_NOT_TYPED, 'FSW_UPWORK_CONNECTS_SHORT'];
+// form; the unmapped forms of wishket, upwork and fiverr), stop only the proposal rows of this drain: the row
+// goes back to planned or approved, counts as no bid, and a customer reply planned after an older proposal
+// still goes out.
+export const PROPOSAL_NOT_SENT = [...KMONG_NOT_TYPED, ...BID_NOT_TYPED, ...WISHKET_NOT_TYPED, ...UPWORK_NOT_TYPED, ...FIVERR_NOT_TYPED];
 export const NOT_SENT = ['FSW_PACING_LIMIT', ...PROPOSAL_NOT_SENT];
 // Refusals that make the item itself moot with nothing sent or charged (kmong's PROJECT_CLOSED, a soomgo
 // request that already has its quota of quotes): the row goes back from sending and on to stale with the

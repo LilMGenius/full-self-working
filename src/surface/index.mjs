@@ -11,6 +11,8 @@ const OPENERS = {
   soomgo: async () => (await import('./soomgo.mjs')).openSoomgoSurface,
   freelancer: async () => (await import('./freelancer.mjs')).openFreelancerSurface,
   wishket: async () => (await import('./wishket.mjs')).openWishketSurface,
+  upwork: async () => (await import('./upwork.mjs')).openUpworkSurface,
+  fiverr: async () => (await import('./fiverr.mjs')).openFiverrSurface,
 };
 // Boards read in a browser of their own (wishket's public pages in the project reader's owned headless
 // browser), so no BrowserSkill session is opened for them. freelancer stays out: its login, sign-in, bid gate

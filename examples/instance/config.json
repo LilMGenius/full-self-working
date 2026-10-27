@@ -40,6 +40,7 @@
       "maxCashPerDay": 0,
       "platformSpendMaxPerDay": null,
       "quoteGate": {
+        "minFit": "some",
         "pace": "even"
       },
       "services": null

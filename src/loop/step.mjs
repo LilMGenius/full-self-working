@@ -7,7 +7,7 @@
 import { createHash } from 'node:crypto';
 import { dayKey } from '../core/clock.mjs';
 import { notifyOperator } from '../core/notify.mjs';
-import { chromeName, pipelineSettings } from '../core/settings.mjs';
+import { chromeName, pipelineSettings, priceLearningSettings } from '../core/settings.mjs';
 import { loadDescriptor } from '../platforms/registry.mjs';
 import { openSurface as defaultOpenSurface } from '../surface/index.mjs';
 import { fullReason, parkEvent, triage } from '../triage/index.mjs';
@@ -18,8 +18,8 @@ import { quotaUsage } from '../outbox/usage.mjs';
 import { advance, jobsOfThread, moneyToSignals, readiness, stageOf, unappliedObserved } from '../deal/index.mjs';
 import { answeredServices, parkKey } from '../economics/catalog.mjs';
 import { latestAllocation, prioritize } from '../economics/priority.mjs';
-import { paceSpent } from '../economics/quote-gate.mjs';
-import { dayStart } from '../economics/quote-results.mjs';
+import { armCounts, gateSettings, judgeQuote, paceSpent } from '../economics/quote-gate.mjs';
+import { dayStart, quoteResults } from '../economics/quote-results.mjs';
 import { loadRecipe } from '../work/index.mjs';
 import { applyEffects } from './effects.mjs';
 import { recordFunnel } from './funnel.mjs';
@@ -157,6 +157,10 @@ export async function step(platform, ctx) {
     }
     // The settings every park of this pass is decided under (22fbb4b): a park holds only while they do.
     const key = parkKey(instance.config, descriptor);
+    // The replayed quote results the value gate reads an arm's outcomes from, computed at most once a pass.
+    let results = null;
+    const learning = () => priceLearningSettings(instance.config);
+    const resultsOnce = () => (results ??= quoteResults(ledger, { asOf: now, expireAfterDays: learning().expireAfterDays }));
     // Open conversations first, then requests by the allocation weight of their service.
     const work = prioritize(inbound, { allocation: latestAllocation(instance), descriptor });
     let opened = 0;
@@ -257,7 +261,10 @@ export async function step(platform, ctx) {
         const view = { ...thread, platform, ref, kind: ib.kind ?? 'message', stage, serviceLabel: ib.service ?? null, requestId: ib.requestId ?? null, customer: thread.customer ?? ib.customer ?? null, quoteCostKRW: thread.quoteCostKRW ?? ib.quoteCostKRW ?? null };
         const r = await (ctx.decide ?? defaultDecide)(view, { instance, descriptor, priceTable, ...(ctx.runCodex ? { runCodex: ctx.runCodex } : {}) });
         const d = r.decision;
-        ledger.upsertThread({ platform, externalId: ref, kind: view.kind, service: d.service ?? undefined, language: d.language ?? undefined, status: d.intent, meta: readMeta({ stage, settled: settled('decide') }) });
+        // A value-gate park this pass decided again is over; the gate below writes a new one if it drops again.
+        const decidedMeta = readMeta({ stage, settled: settled('decide') });
+        if (String(decidedMeta.skipped?.reason).startsWith('gate: ')) delete decidedMeta.skipped;
+        ledger.upsertThread({ platform, externalId: ref, kind: view.kind, service: d.service ?? undefined, language: d.language ?? undefined, status: d.intent, meta: decidedMeta });
         event('brain.decision', ref, { intent: d.intent, service: d.service, confidence: d.confidence, modelCalls: r.modelCalls, needsOperator: d.needsOperator, reply: d.reply !== null });
         // The client's portfolio answer (wp6) lands before a change request in the same message moves the job:
         // a grant only with their own sentence after the delivery, a refusal on every job delivered once. An
@@ -290,6 +297,24 @@ export async function step(platform, ctx) {
         if (d.reply === null || !r.item) {
           bump('threads', 'none');
           continue;
+        }
+        // A quote that costs cash goes out only when the request clears the fit floor and a positive expected
+        // value at the share-blended win chance (src/economics/quote-gate.mjs, docs/DESIGN.md Decisions). Chat quotes
+        // ask no fit and cost nothing, and a bidding board answers with a proposal, so only a paid request quote is
+        // judged. A drop parks under this pass's key, so it holds until the list time or the settings move.
+        if (r.item.kind === 'quote' && spendsCash(descriptor, view.kind)) {
+          const quoteCount = [thread.quoteCount, ib.quoteCount].find(Number.isInteger) ?? null;
+          const judged = judgeQuote({
+            fit: d.fit ?? null, quoteCount, quoteCostKRW: view.quoteCostKRW, amountKRW: d.quote?.amountKRW ?? null, pricing: d.quote?.pricing ?? null,
+            row: r.priceRow, descriptor, arm: armCounts(resultsOnce(), platform, d.service), settings: { minFit: gateSettings(cfg).minFit, minCases: learning().minCases },
+          });
+          event('quote.judged', ref, { ...judged, fit: d.fit ?? null, fitReason: d.fitReason ?? null, service: d.service ?? null, amountKRW: d.quote?.amountKRW ?? null, quoteCount, quoteCostKRW: view.quoteCostKRW });
+          if (judged.verdict === 'drop') {
+            ledger.upsertThread({ platform, externalId: ref, kind: view.kind, meta: readMeta({ skipped: { at: ib.at ?? null, reason: judged.reason, key } }) });
+            event(parkEvent(judged.reason), ref, { reason: judged.reason, service: ib.service ?? null });
+            bump('threads', 'parked');
+            continue;
+          }
         }
         const job = ledger.listJobs({ platform }).filter((j) => j.threadId === row.id).at(-1) ?? null;
         const planned = plan(ledger, { platform, threadId: row.id, jobId: job?.id ?? null, kind: r.item.kind, payload: payloadOf(r, view) });

@@ -36,7 +36,8 @@ export const KMONG_REPLY = '안녕하세요. 랜딩 페이지 제작 가능합�
 export const QUOTE_REPLY = '요청하신 회사 소개 랜딩 페이지를 한 페이지로 만들어 드립니다. 휴대폰과 컴퓨터 화면에 맞춰 만들고 올리는 방법도 함께 안내해 드립니다. 착수금과 잔금으로 나누어 결제하시면 됩니다.';
 const base = { language: 'ko', needsOperator: false, operatorReason: null, confidence: 0.9, claimsUsed: [], statedBudgetKRW: null, service: 'landing_page_web' };
 const KMONG_DECISION = { ...base, intent: 'inquiry', reply: KMONG_REPLY, quote: null };
-const SOOMGO_DECISION = { ...base, intent: 'quote_request', reply: QUOTE_REPLY, quote: { amountKRW: 1, scope: ['회사 소개 랜딩 페이지 1개', '휴대폰과 컴퓨터 화면 대응', '올리는 방법 안내'], deliveryDays: 7, priceType: 'fixed', complexity: 1 } };
+// fit: the value gate (src/economics/quote-gate.mjs) drops a paid request quote whose fit the decision does not judge.
+const SOOMGO_DECISION = { ...base, intent: 'quote_request', reply: QUOTE_REPLY, quote: { amountKRW: 1, scope: ['회사 소개 랜딩 페이지 1개', '휴대폰과 컴퓨터 화면 대응', '올리는 방법 안내'], deliveryDays: 7, priceType: 'fixed', complexity: 1 }, fit: 'strong', fitReason: 'a one-page company landing page is the service as listed' };
 
 export const PRICE_TABLE = [
   { platform: 'soomgo', service: 'landing_page_web', category: '웹 개발', baseKRW: 300000, floorKRW: 100000, ceilingKRW: 1000000, costFloorKRW: 50000, viable: true, basis: { source: 'price-guide', median: 300000, p25: 100000, high: 1000000 } },

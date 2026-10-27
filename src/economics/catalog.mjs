@@ -58,14 +58,15 @@ export function catalogServicesFor(descriptor, label, list = services) {
 }
 
 // The settings a list-time park was decided under: the services the instance answers on the platform,
-// the reply windows, and how the platform's labels map onto the catalog. A park holds only while they do,
+// the reply windows, how the platform's labels map onto the catalog, and the platform's quote gate
+// (platforms.<id>.quoteGate, which a value-gate park was judged under). A park holds only while they do,
 // so an operator who starts answering a service or widens a window gets every item parked under the old
 // settings checked again from its list row, and a park written before parks carried this key is checked
 // once.
 export function parkKey(config, descriptor, list = services) {
   const field = CATEGORY_FIELD[descriptor.id];
   const labels = Object.entries(list).filter(([id]) => !id.startsWith('_')).map(([id, def]) => [id, field ? def[field] ?? null : null]);
-  const basis = [answeredServices(config, descriptor.id, list), config?.pipeline?.replyWindowHours ?? null, descriptor.serviceLabels ?? null, labels];
+  const basis = [answeredServices(config, descriptor.id, list), config?.pipeline?.replyWindowHours ?? null, descriptor.serviceLabels ?? null, labels, config?.platforms?.[descriptor.id]?.quoteGate ?? null];
   return createHash('sha256').update(JSON.stringify(basis)).digest('hex').slice(0, 16);
 }
 

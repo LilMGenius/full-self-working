@@ -418,7 +418,8 @@ test('a buyer request is left unread with no model call while the day budget is 
   for (let i = 0; i < 5; i++) s.ledger.addQuote({ threadId: r0.id, platform: 'soomgo', service: 'landing_page_web', amountKRW: 300000, costKRW: 990, status: 'sent', at: NOON.toISOString() });
   const req = (now) => inbound('soomgo', 'r1', { kind: 'request', service: '웹 개발', quotable: true, quoteCostKRW: 990, at: hoursBefore(now, 1) });
   const thread = (ref) => ({ ...chat('soomgo', ref, '웹 개발\n회사 소개 랜딩 페이지가 필요합니다.'), kind: 'request', quoteCostKRW: 990 });
-  const quote = decision({ intent: 'quote_request', reply: '요청하신 랜딩 페이지를 구성해 드리겠습니다. 결제는 착수금과 잔금으로 나누어 받습니다.', quote: { amountKRW: 1, scope: ['랜딩 페이지 1개'], deliveryDays: 7, priceType: 'fixed', complexity: 1 } });
+  // fit: the value gate drops a paid request quote whose fit the decision does not judge.
+  const quote = decision({ intent: 'quote_request', reply: '요청하신 랜딩 페이지를 구성해 드리겠습니다. 결제는 착수금과 잔금으로 나누어 받습니다.', quote: { amountKRW: 1, scope: ['랜딩 페이지 1개'], deliveryDays: 7, priceType: 'fixed', complexity: 1 }, fit: 'strong', fitReason: 'synthetic' });
   const codex = codexWith(quote);
   const spent = scriptedSurface({ sense: [req(NOON)], threads: thread });
   const r = await s.run('soomgo', spent, { runCodex: codex });
@@ -471,6 +472,57 @@ test('a buyer request waits unread while the day\'s cash runs ahead of the Seoul
     const r = await s.run('soomgo', surface, { runCodex: codex });
     assert.deepEqual([r.threads.pace, reads(surface).length, codex.calls], [undefined, 1, 1]);
   }
+});
+// The value gate (src/economics/quote-gate.mjs) judges a paid quote on a buyer request after the decision and
+// before it is planned. ROW prices a complexity 1 request at 300,000 KRW over a 50,000 cost floor, so with 2
+// quotes on the request the win chance is 1/3 and the value 250,000 / 3 - 990.
+const QUOTE_TEXT = '요청하신 랜딩 페이지를 구성해 드리겠습니다. 결제는 착수금과 잔금으로 나누어 받습니다.';
+const paidQuote = (fit) => decision({ intent: 'quote_request', reply: QUOTE_TEXT, quote: { amountKRW: 1, scope: ['랜딩 페이지 1개'], deliveryDays: 7, priceType: 'fixed', complexity: 1 }, fit, fitReason: fit ? 'synthetic fit ' + fit : null });
+const request = (ref) => inbound('soomgo', ref, { kind: 'request', service: '웹 개발', quotable: true, quoteCostKRW: 990, quoteCount: 2 });
+const requestPage = (ref) => ({ ...chat('soomgo', ref, '웹 개발\n회사 소개 랜딩 페이지가 필요합니다.'), kind: 'request', quoteCostKRW: 990, quoteCount: 2 });
+
+test('a paid quote under the fit floor parks with its gate reason, holds under the same settings, and is judged again once quoteGate.minFit changes', async () => {
+  const s = setup();
+  const codex = codexWith(paidQuote('none'));
+  const tick = async (row = {}) => {
+    const surface = scriptedSurface({ sense: [{ ...request('r1'), ...row }], threads: requestPage, receipts: { quote: [{ observed: true, cashSpentKRW: 990 }] } });
+    const r = await s.run('soomgo', surface, { runCodex: codex });
+    return { r, reads: reads(surface).length };
+  };
+  const first = await tick();
+  assert.deepEqual([first.r.threads.parked, first.r.threads.planned, s.ledger.listOutbox().length, codex.calls], [1, undefined, 0, 1]);
+  assert.deepEqual(s.events('quote.judged').map((e) => [e.ref, e.verdict, e.reason, e.fit, e.quoteCount, e.quoteCostKRW]), [['r1', 'drop', 'gate: fit.low', 'none', 2, 990]]);
+  assert.equal(s.events('thread.skipped').at(-1).reason, 'gate: fit.low');
+  // The same settings: the park holds with no read and no model call.
+  const held = await tick();
+  assert.deepEqual([held.reads, codex.calls], [0, 1]);
+  // A changed gate setting judges it again, and a quote that clears it is planned and sent.
+  s.instance.config.platforms.soomgo.quoteGate = { ...s.instance.config.platforms.soomgo.quoteGate, minFit: 'none' };
+  const rejudged = await tick();
+  assert.deepEqual([rejudged.reads, codex.calls, rejudged.r.threads.planned], [1, 2, 1]);
+  assert.deepEqual(s.events('quote.judged').map((e) => e.verdict), ['drop', 'send']);
+  // The send ended the park: once the list shows the request read, it is not read again at the same list time.
+  const after = await tick({ unread: false });
+  assert.deepEqual([after.reads, codex.calls], [0, 2]);
+});
+
+test('a paid quote with a positive value is planned and its verdict recorded, a negative one parks, and a chat quote is never judged', async () => {
+  const s = setup();
+  const surface = scriptedSurface({ sense: [request('r1')], threads: requestPage });
+  const r = await s.run('soomgo', surface, { runCodex: codexWith(paidQuote('strong')) });
+  assert.equal(r.threads.planned, 1);
+  const [sent] = s.events('quote.judged');
+  assert.deepEqual([sent.verdict, sent.reason, sent.p, sent.p0, sent.marginKRW, sent.fit, sent.fitReason], ['send', 'gate: value.positive', 1 / 3, 1 / 3, 250000, 'strong', 'synthetic fit strong']);
+  assert.equal(Math.round(sent.evKRW), Math.round(250000 / 3 - 990));
+  // A cost floor that leaves 1,000 KRW of margin: 1/3 x 1,000 - 990 is under zero.
+  const thin = setup();
+  const r2 = await thin.run('soomgo', scriptedSurface({ sense: [request('r2')], threads: requestPage }), { runCodex: codexWith(paidQuote('strong')), priceTable: [{ ...ROW, costFloorKRW: 299000 }] });
+  assert.deepEqual([r2.threads.parked, thin.ledger.listOutbox().length, thin.events('thread.skipped').at(-1).reason], [1, 0, 'gate: value.negative']);
+  // A quote in a soomgo chat costs no cash and asks no fit, so the gate leaves it alone.
+  const c = setup();
+  const cs = scriptedSurface({ sense: [inbound('soomgo', 'c1', { service: '웹 개발' })], threads: (ref) => chat('soomgo', ref, '웹 개발 견적 부탁드립니다') });
+  await c.run('soomgo', cs, { runCodex: codexWith(decision({ intent: 'quote_request', reply: QUOTE_TEXT, quote: { amountKRW: 300000, scope: ['랜딩 페이지 1개'], deliveryDays: 7, priceType: 'fixed', complexity: 1 } })) });
+  assert.deepEqual([c.ledger.listOutbox().map((x) => x.kind), c.events('quote.judged').length], [['quote'], 0]);
 });
 test('an expired request whose thread has a quoted job loses the job', async () => {
   const s = setup();

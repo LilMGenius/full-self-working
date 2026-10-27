@@ -48,6 +48,24 @@ function sourceRow(quote, observed) {
 // src/deal/sweep.mjs reads it).
 const sentAt = (quote, row) => (row && row.receipt?.pipeline !== 'd605c5d' ? row.updatedAt : quote.at);
 
+// What the chat list showed customers do with fsw quotes (src/loop/funnel.mjs), as of a cut: the quote ids a
+// customer opened, and those whose customer hired another pro (a later quote.hired_other_cancelled lifts it).
+// The funnel's quote.hired_us is not read here: our own hire is the deal's accepted status (won), which accept()
+// sets from the same row, so counting the event too would win the quote twice.
+export function chatActs(ledger, cut) {
+  const opened = new Set();
+  const hiredOther = new Set();
+  const rows = ledger.db.prepare("SELECT kind, payload, at FROM events WHERE kind IN ('quote.opened', 'quote.hired_other', 'quote.hired_other_cancelled') ORDER BY at, id").all();
+  for (const e of rows) {
+    const id = JSON.parse(e.payload ?? '{}').quoteId;
+    if (id == null || Date.parse(e.at) > cut) continue;
+    if (e.kind === 'quote.opened') opened.add(id);
+    else if (e.kind === 'quote.hired_other') hiredOther.add(id);
+    else hiredOther.delete(id);
+  }
+  return { opened, hiredOther };
+}
+
 // expireAfterDays Infinity reads statuses only (an instance without priceLearning settings).
 export function quoteResults(ledger, { asOf, expireAfterDays }) {
   if (!(asOf instanceof Date) || Number.isNaN(asOf.getTime())) throw new TypeError('quoteResults needs asOf');
@@ -55,18 +73,22 @@ export function quoteResults(ledger, { asOf, expireAfterDays }) {
   const cut = asOf.getTime();
   const observed = ledger.listOutbox({ kinds: ['quote'], statuses: ['observed'] });
   const decided = decidedThreads(ledger);
+  const acts = chatActs(ledger, cut);
   const out = [];
   for (const q of ledger.listQuotes()) {
     const src = sourceRow(q, observed);
     const sent = sentAt(q, src);
     const at = Date.parse(sent);
     if (at > cut) continue;
+    // A customer who hired another pro decided this quote: lost at once, never aged or superseded. Accepted stays
+    // won whatever the chat showed before the hire.
+    const lostToOther = q.status === 'sent' && acts.hiredOther.has(q.id);
     // A quote still sent on a thread whose deal moved on was passed over for another quote of that deal: it is
     // neither won nor lost, and it never ages into expired.
-    const superseded = q.status === 'sent' && decided.has(q.threadId);
-    const aged = q.status === 'sent' && !superseded && cut - at >= expireAfterDays * DAY_MS;
-    const result = q.status === 'accepted' ? 'won' : q.status === 'declined' ? 'lost' : q.status === 'expired' || aged ? 'expired' : superseded ? 'superseded' : 'open';
-    out.push({ source: 'quote', id: q.id, threadId: q.threadId, platform: q.platform, service: q.service ?? src?.payload?.service ?? null, at: sent, amountKRW: q.amountKRW, costKRW: q.costKRW ?? 0, result, aged, index: priceIndex(q.amountKRW, src?.payload?.decision?.quote?.pricing) });
+    const superseded = q.status === 'sent' && !lostToOther && decided.has(q.threadId);
+    const aged = q.status === 'sent' && !lostToOther && !superseded && cut - at >= expireAfterDays * DAY_MS;
+    const result = q.status === 'accepted' ? 'won' : q.status === 'declined' || lostToOther ? 'lost' : q.status === 'expired' || aged ? 'expired' : superseded ? 'superseded' : 'open';
+    out.push({ source: 'quote', id: q.id, threadId: q.threadId, platform: q.platform, service: q.service ?? src?.payload?.service ?? null, at: sent, amountKRW: q.amountKRW, costKRW: q.costKRW ?? 0, result, aged, cause: lostToOther ? 'hired_other' : null, opened: acts.opened.has(q.id), index: priceIndex(q.amountKRW, src?.payload?.decision?.quote?.pricing) });
   }
   // A send the platform refused before the client saw it (the drain's STALE_NOT_SENT): no quote row exists.
   for (const r of ledger.listOutbox({ kinds: ['quote'], statuses: ['stale'] })) {
@@ -74,4 +96,18 @@ export function quoteResults(ledger, { asOf, expireAfterDays }) {
     out.push({ source: 'outbox', id: r.id, threadId: r.threadId, platform: r.platform, service: r.payload?.service ?? null, at: r.createdAt, amountKRW: r.payload?.amountKRW ?? null, costKRW: 0, result: 'refused', aged: false, index: null, code: r.receipt.refused });
   }
   return out.sort((a, b) => Date.parse(a.at) - Date.parse(b.at) || a.source.localeCompare(b.source) || a.id - b.id);
+}
+
+// One platform's quotes sent within the window (days back from now) by what the customer did. Read from the
+// same results the price table learns from, so the funnel and the price never count a quote two ways. noAnswer
+// is every quote still open (opened or not); opensKnown says whether the platform's chat rows report opens at all.
+export function quoteFunnel(ledger, { platform, now, days }) {
+  const since = now.getTime() - days * DAY_MS;
+  const rows = quoteResults(ledger, { asOf: now, expireAfterDays: Infinity }).filter((r) => r.source === 'quote' && r.platform === platform && Date.parse(r.at) >= since);
+  const unlinked = new Set(ledger.db.prepare("SELECT ref, payload, at FROM events WHERE platform = ? AND kind LIKE 'quote.%'").all(platform).filter((e) => Date.parse(e.at) >= since && Date.parse(e.at) <= now.getTime() && JSON.parse(e.payload ?? '{}').quoteId == null && JSON.parse(e.payload ?? '{}').unlinked).map((e) => e.ref));
+  return {
+    days, sent: rows.length, opened: rows.filter((r) => r.opened).length, hiredUs: rows.filter((r) => r.result === 'won').length,
+    hiredOther: rows.filter((r) => r.cause === 'hired_other').length, noAnswer: rows.filter((r) => r.result === 'open').length,
+    unlinked: unlinked.size, opensKnown: ledger.listThreads({ platform }).some((t) => t.meta?.funnel),
+  };
 }

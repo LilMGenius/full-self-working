@@ -20,6 +20,7 @@ import { answeredServices, parkKey } from '../economics/catalog.mjs';
 import { latestAllocation, prioritize } from '../economics/priority.mjs';
 import { loadRecipe } from '../work/index.mjs';
 import { applyEffects } from './effects.mjs';
+import { recordFunnel } from './funnel.mjs';
 import { recordOrderCounters } from './orders.mjs';
 import { permissionSignal } from './permission.mjs';
 import { reviewPosted } from './reviews.mjs';
@@ -136,6 +137,16 @@ export async function step(platform, ctx) {
         result.errors.push({ ref: String(ib.ref), code: err.code ?? null, message: err.message });
         event('thread.error', String(ib.ref), { code: err.code ?? null, message: err.message, stage: 'money' });
       }
+    }
+    // The quote funnel from the same rows, opened or not (U7.Q, src/loop/funnel.mjs): change-only, so an unchanged
+    // poll writes nothing. A funnel write that throws is that pass's error, never the platform's.
+    try {
+      const funnel = recordFunnel(ledger, { platform, inbound, rows, now });
+      result.funnel = funnel.written;
+      effects.push(...funnel.effects);
+    } catch (err) {
+      result.errors.push({ ref: null, code: err.code ?? null, message: err.message });
+      event('thread.error', null, { code: err.code ?? null, message: err.message, stage: 'funnel' });
     }
     // The settings every park of this pass is decided under (22fbb4b): a park holds only while they do.
     const key = parkKey(instance.config, descriptor);

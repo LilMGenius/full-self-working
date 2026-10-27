@@ -9,7 +9,7 @@ import { openLedger, outboxKey } from '../src/core/ledger.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { authorize } from '../src/policy/authorize.mjs';
 import { drain, plan, resolve, setStatus, settleSent, signalOf } from '../src/outbox/index.mjs';
-import { NOT_SENT, handles, keepCost } from '../src/outbox/drain.mjs';
+import { NOT_SENT, PROPOSAL_NOT_SENT, handles, keepCost } from '../src/outbox/drain.mjs';
 import { TRANSITIONS } from '../src/outbox/plan.mjs';
 import { bidUsage, quotaUsage } from '../src/outbox/usage.mjs';
 import { scriptedSurface } from './helpers/surface.mjs';
@@ -864,4 +864,34 @@ test('a read-back that observes no cost keeps the recorded bid cost, so the next
   assert.deepEqual(keepCost({ costKRW: 2500, pressed: true }, { observed: true, externalId: 'b1' }), { observed: true, externalId: 'b1', costKRW: 2500, pressed: true });
   assert.deepEqual(keepCost({ costKRW: 2500 }, { observed: true, cashSpentKRW: 1900 }), { observed: true, cashSpentKRW: 1900 });
   assert.deepEqual(keepCost(null, { observed: false }), { observed: false });
+});
+// The C re-review of wp8, finding 3: every refusal a surface raises before typing returns the row unsent and
+// adds no bid, read from the lists the surfaces export.
+test('a freelancer refusal raised before typing returns the proposal unsent and counts as no bid', async () => {
+  const { BID_NOT_TYPED } = await import('../src/surface/freelancer.mjs');
+  const { NOT_TYPED } = await import('../src/surface/kmong.mjs');
+  for (const code of [...BID_NOT_TYPED, ...NOT_TYPED]) assert.ok(PROPOSAL_NOT_SENT.includes(code), code);
+  for (const code of BID_NOT_TYPED) {
+    const s = bidSetup({ monthlyKRW: 3000, stopAfterUnanswered: 20 });
+    const row = plan(s.ledger, { platform: 'freelancer', threadId: s.thread('p1', 'request').id, kind: 'proposal', payload: bidPayload(0, 0) });
+    const surface = scriptedSurface({ methods: ['propose'], receipts: { propose: [Object.assign(new Error('refused before typing'), { code })] } });
+    const out = await s.run(surface);
+    assert.deepEqual([out.map((x) => [x.action, x.code]), s.ledger.getOutbox(row.id).status], [[['deferred', code]], 'planned'], code);
+    assert.deepEqual(bidUsage(s.ledger, 'freelancer', NOON), { bidMonthKRW: 0, bidUnanswered: 0, unknownCost: [] }, code);
+  }
+});
+
+test('the freelancer surface refusing a bid at its profile steps leaves the row planned, through the recorded bid page', async () => {
+  const { openFreelancerSurface } = await import('../src/surface/freelancer.mjs');
+  const { readRecording, replaySession } = await import('../src/surface/recorder.mjs');
+  const entries = readRecording('test/fixtures/surfaces/freelancer/bidform.jsonl').map((e) => (e.name === 'pageBidGate' ? { ...e, answer: { ...e.answer, unlock: null } } : e));
+  const session = replaySession(entries);
+  const project = { id: 7, type: 'fixed', title: 'Landing page', description: 'Need a page', budget: { minimum: 250, maximum: 750 }, currency: { code: 'USD' }, seo_url: 'python/project-7', status: 'active', frontend_project_status: 'open' };
+  const surface = await openFreelancerSurface({ session, fetchJson: async () => project });
+  const s = bidSetup({ monthlyKRW: 3000, stopAfterUnanswered: 20 });
+  const row = plan(s.ledger, { platform: 'freelancer', threadId: s.thread('7', 'request').id, kind: 'proposal', payload: bidPayload(0, 0) });
+  const out = await s.run(surface);
+  assert.deepEqual(out.map((x) => [x.action, x.code]), [['deferred', 'FSW_FREELANCER_STEPS']]);
+  assert.equal(s.ledger.getOutbox(row.id).status, 'planned');
+  assert.equal(bidUsage(s.ledger, 'freelancer', NOON).bidUnanswered, 0);
 });

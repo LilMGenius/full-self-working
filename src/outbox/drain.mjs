@@ -19,6 +19,8 @@ import { copiesHash } from '../core/reviewed.mjs';
 import { transaction } from '../core/tx.mjs';
 import { HOLD_RULES, spendsBids, spendsCash } from '../policy/authorize.mjs';
 import { loadFx as defaultLoadFx } from '../economics/fx.mjs';
+import { BID_NOT_TYPED } from '../surface/freelancer.mjs';
+import { NOT_TYPED as KMONG_NOT_TYPED } from '../surface/kmong.mjs';
 import { baseName, setStatus } from './plan.mjs';
 import { bidUsage, quotaUsage } from './usage.mjs';
 
@@ -29,11 +31,13 @@ export const handles = (surface, kind) => typeof surface?.[METHOD[kind]] === 'fu
 
 // Refusals a surface raises before it touches the page (the 020 contract for the pacing guard): the row
 // goes back as it was. Pacing stops this platform's drain for the tick, as the pipeline did
-// (src/supervisor/run.mjs:239). The proposal refusals, kmong's (its NOT_TYPED: a spent day quota, a missing
-// enterprise profile) and the bidding boards' (freelancer with no bids left or under its balance, upwork short
-// of Connects; wp8), stop only the proposal rows of this drain, so a customer reply planned after an older
-// proposal still goes out.
-export const PROPOSAL_NOT_SENT = ['FSW_KMONG_QUOTA_SPENT', 'FSW_KMONG_ENTERPRISE_PROFILE', 'FSW_FREELANCER_NO_BIDS', 'FSW_FREELANCER_BALANCE', 'FSW_UPWORK_CONNECTS_SHORT'];
+// (src/supervisor/run.mjs:239). The proposal refusals each surface raises before it types anything, read from
+// the surface that raises them so a new one cannot be missed (kmong's NOT_TYPED: a spent day quota, a missing
+// enterprise profile; freelancer's BID_NOT_TYPED: the balance, the profile steps, no bids left, the unmapped
+// form; upwork short of Connects, whose surface does not exist yet), stop only the proposal rows of this
+// drain: the row goes back to planned or approved, counts as no bid, and a customer reply planned after an
+// older proposal still goes out.
+export const PROPOSAL_NOT_SENT = [...KMONG_NOT_TYPED, ...BID_NOT_TYPED, 'FSW_UPWORK_CONNECTS_SHORT'];
 export const NOT_SENT = ['FSW_PACING_LIMIT', ...PROPOSAL_NOT_SENT];
 // Refusals that make the item itself moot with nothing sent or charged (kmong's PROJECT_CLOSED, a soomgo
 // request that already has its quota of quotes): the row goes back from sending and on to stale with the

@@ -34,3 +34,9 @@ test('listings.basisFameGap is a setting with its default and reason', () => {
   const example = JSON.parse(readFileSync(join(repoRoot, 'examples', 'instance', 'config.json'), 'utf8'));
   assert.equal(example.listings.basisFameGap, 0.05);
 });
+
+test('a chain of small fame gaps cannot hide a lead change larger than the gap', () => {
+  const chain = { A: 0.3, B: 0.34, C: 0.38 };
+  assert.equal(basisChanged(['A', 'B', 'C'], ['C', 'B', 'A'], { fame: chain, gap: 0.05 }), true);
+  assert.equal(basisChanged(['A', 'B', 'C'], ['B', 'A', 'C'], { fame: chain, gap: 0.05 }), false, 'one near swap at the top still collapses');
+});

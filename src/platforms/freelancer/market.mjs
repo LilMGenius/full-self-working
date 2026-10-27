@@ -16,7 +16,7 @@ export const jobsUrl = (names) => API + '/jobs/?' + names.map((n) => 'job_names[
 export const projectsUrl = (jobId, limit) => API + '/projects/active/?jobs[]=' + jobId + '&project_types[]=fixed&limit=' + limit + '&sort_field=time_updated';
 
 // Chrome shows a JSON answer as text in a <pre>; anything else comes back as its title and text.
-function pageBody() {
+export function pageBody() {
   const raw = document.querySelector('pre')?.textContent ?? document.body?.innerText ?? '';
   try {
     return { json: JSON.parse(raw) };

@@ -7,11 +7,16 @@ import { repoRoot } from '../core/instance.mjs';
 
 export const PRETENDARD = join(repoRoot, 'assets', 'fonts', 'PretendardVariable.woff2');
 
-let pretendardCss = null;
-export function pretendardFontFace() {
-  pretendardCss ??= '@font-face{font-family:"Pretendard";font-weight:100 900;font-display:block;src:url(data:font/woff2;base64,' + readFileSync(PRETENDARD).toString('base64') + ') format("woff2");}';
-  return pretendardCss;
+// An @font-face whose source is the font file itself as a data URL, so no capture or print waits on a
+// download it can lose (AGENTS.md webfontRace). Cached per file and family.
+const faces = new Map();
+export function inlineFontFace(file, family = 'Pretendard') {
+  const key = file + '|' + family;
+  if (!faces.has(key)) faces.set(key, '@font-face{font-family:"' + family + '";font-weight:100 900;font-display:block;src:url(data:font/woff2;base64,' + readFileSync(file).toString('base64') + ') format("woff2");}');
+  return faces.get(key);
 }
+
+export const pretendardFontFace = () => inlineFontFace(PRETENDARD, 'Pretendard');
 
 // Embedded fonts of a PDF Chrome printed. Named fonts come from their /BaseFont entries without the
 // six-letter subset tag; Chrome's PDF writer keeps font dictionaries outside compressed object streams,

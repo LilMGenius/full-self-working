@@ -346,7 +346,7 @@ export async function openRenderer({ chrome = process.env.FSW_CHROME ?? DEFAULT_
 
   async function render(opts) {
     const { html, url, width = 1440, height = 900, fullPage = false, out, format = 'jpeg', quality = 82,
-      maxSide = null, clip = null, probe = null, scale = 1 } = opts;
+      maxSide = null, clip = null, probe = null, scale = 1, fontReport = false } = opts;
     if (!out) throw new RenderError('FSW_RENDER_ARGS', 'out is required');
     if (!html === !url) throw new RenderError('FSW_RENDER_ARGS', 'pass exactly one of html or url');
     if (!['jpeg', 'png'].includes(format)) throw new RenderError('FSW_RENDER_ARGS', 'format must be jpeg or png');
@@ -373,6 +373,9 @@ export async function openRenderer({ chrome = process.env.FSW_CHROME ?? DEFAULT_
         if (r.exceptionDetails) throw new RenderError('FSW_RENDER_PROBE', 'probe threw: ' + (r.exceptionDetails.exception?.description ?? r.exceptionDetails.text));
         probed = r.result?.value ?? null;
       }
+      // The renderer's own record of which face drew each text node (CDP CSS.getPlatformFontsForNode), so a
+      // capture proves its font; fonts below is only the loading status the settle script read.
+      const faces = fontReport ? await platformFonts(sessionId) : null;
       const metrics = await cdp.send('Page.getLayoutMetrics', {}, sessionId);
       const content = metrics.cssContentSize ?? metrics.contentSize;
       let region = { x: 0, y: 0, width, height };
@@ -396,6 +399,7 @@ export async function openRenderer({ chrome = process.env.FSW_CHROME ?? DEFAULT_
         bytes: bytes.length,
         contentHeight: Math.ceil(content.height),
         fonts: state.fonts ?? null,
+        platformFonts: faces,
         brokenImages: state.broken ?? [],
         probe: probed,
       };
@@ -511,14 +515,4 @@ export async function openRenderer({ chrome = process.env.FSW_CHROME ?? DEFAULT_
   }
 
   return { render, page, pdf, close, profile, exited: browserExit };
-}
-
-// One-shot render: opens a renderer, captures, closes. Use openRenderer for several captures.
-export async function renderHtml(opts) {
-  const renderer = await openRenderer({ chrome: opts.chrome, timeoutMs: opts.timeoutMs });
-  try {
-    return await renderer.render(opts);
-  } finally {
-    await renderer.close();
-  }
 }

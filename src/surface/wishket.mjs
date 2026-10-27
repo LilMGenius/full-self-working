@@ -20,11 +20,13 @@ const unmapped = (what) => {
 
 // A card shows only the date it was posted, so a project's list time is that Seoul day and stays the same
 // when the client edits it. The card's title, budget and field make its revision (inbound.rev), so an edit to
-// any of them reads the project again (triage needsWork) and stores its body as a new message. An edit to the
-// description alone changes nothing on the card and stays unseen until the card changes; applying is unmapped,
-// so such a project is only observed.
+// any of them reads the project again (triage needsWork), and the body is stored under a hash of its own text,
+// so a changed description lands as a new message whatever the detail page returns. An edit to the description
+// alone changes nothing on the card and stays unseen until the card changes; applying is unmapped, so such a
+// project is only observed, and the apply path rereads the detail before it sends.
 const postedAt = (date) => (date ? date + 'T00:00:00+09:00' : null);
-export const revOf = (p) => createHash('sha256').update(JSON.stringify([p.title ?? null, p.amountKRW ?? null, p.field ?? null])).digest('hex').slice(0, 12);
+const hash = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 12);
+export const revOf = (p) => hash([p.title ?? null, p.amountKRW ?? null, p.field ?? null]);
 
 export const inboundOfProject = (p) => ({
   platform: 'wishket', ref: String(p.id), kind: 'request', at: postedAt(p.postedOn), rev: revOf(p), unread: false, service: p.field, preview: p.title,
@@ -33,7 +35,7 @@ export const inboundOfProject = (p) => ({
 
 export const threadOfProject = (p) => ({
   platform: 'wishket', ref: String(p.id), kind: 'request', stage: 'pre_order', customer: null, title: p.title, language: 'ko', quoteCostKRW: 0, budget: p.amountKRW,
-  messages: [{ direction: 'in', text: p.description, at: postedAt(p.postedOn), externalId: 'request:' + revOf(p) }],
+  messages: [{ direction: 'in', text: p.description, at: postedAt(p.postedOn), externalId: 'request:' + hash(p.description ?? null) }],
   notices: [],
 });
 

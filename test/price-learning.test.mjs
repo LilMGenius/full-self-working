@@ -319,3 +319,12 @@ test('a quote links to its row by the quote id on deal.quote_observed, and a hir
   const outside = quoteAt(ledger, hire, plus(T0, 90_000), 'accepted');
   assert.equal(quoteResults(ledger, { asOf: ASOF, expireAfterDays: 14 }).find((r) => r.id === outside.id).index, null);
 });
+
+// The bounds are whole KRW: 100,000 x 1.15 is 114,999.99... in floating point, which lost the 115,000 step.
+test('the step that lands exactly on a maxMove bound is reachable and never crossed', () => {
+  const at = (maxMove, result, index) => learnPriceRows([row({ baseKRW: 100000, costFloorKRW: 1000, marketCeilingKRW: 1000000 })], cases(result, index, 5), { settings: { ...SETTINGS, maxMove }, descriptors, asOf: ASOF })[0].baseKRW;
+  assert.equal(at(0.15, 'won', 3), 115000);
+  assert.equal(at(0.15, 'lost', 0.1), 85000);
+  assert.equal(at(0.4, 'won', 3), 140000);
+  assert.equal(at(0.4, 'lost', 0.1), 60000);
+});

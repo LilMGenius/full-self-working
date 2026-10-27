@@ -84,3 +84,23 @@ test('the font report reaches pseudo-element content, placeholders and shadow ro
   assert.deepEqual(missed, [], 'a Georgia run the report did not see');
 });
 
+// Windows can report DevToolsActivePort busy while Chrome writes it, or the file can vanish between the check and the
+// read; both are "not ready yet" until the deadline, and any other read error still fails the start.
+test('a DevToolsActivePort read that is busy or gone once waits for the next poll', async () => {
+  const { readActivePort } = await import('../src/render/html2png.mjs');
+  const alive = { exitCode: null };
+  for (const code of ['EBUSY', 'EPERM', 'ENOENT']) {
+    let calls = 0;
+    const read = () => {
+      calls += 1;
+      if (calls === 1) throw Object.assign(new Error(code + ': resource busy or locked'), { code });
+      return '9222\n/devtools/browser/abc\n';
+    };
+    assert.deepEqual(await readActivePort('C:/profile', alive, 2000, { read }), { port: 9222, path: '/devtools/browser/abc' }, code);
+    assert.equal(calls, 2);
+  }
+  const broken = () => { throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }); };
+  await assert.rejects(readActivePort('C:/profile', alive, 2000, { read: broken }), { code: 'EACCES' });
+  const never = () => { throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); };
+  await assert.rejects(readActivePort('C:/profile', alive, 200, { read: never }), { code: 'FSW_RENDER_TIMEOUT' });
+});

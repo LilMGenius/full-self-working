@@ -16,6 +16,11 @@ import { build, listingsDir, loadProofs, openListings, planFor, portfolioItems, 
 const openAdapter = async (ctx) => (ctx.openKmong ?? openListings)();
 const notify = (ctx, msg) => (ctx.notify ?? notifyOperator)(ctx.instance, msg);
 
+// Whether a publish call may have sent the gig to kmong review: a returned record says so in submitted
+// (true also when /my-gigs did not show the gig afterwards); a throw is unknown unless it is the spec check
+// publish makes before it opens the form (FSW_LISTING_BLOCKED), so it counts as sent.
+export const maybeSent = (r, err) => (err ? err.code !== 'FSW_LISTING_BLOCKED' : r?.submitted === true);
+
 // One rejected gig: the case is recorded once per rejection, then the listing is rebuilt with kmong's
 // notice as a violation and resubmitted, or the operator is asked. Returns the row the job reports.
 async function handleRejection(ctx, { p, gig, state, act, observed, adapter }) {
@@ -178,6 +183,9 @@ async function refreshGigs(ctx) {
       if (d.refresh) {
         const moved = basisChanged(c.before, c.now);
         const redesign = c.imagesVersion !== IMAGES_VERSION;
+        let reached = false;
+        let r = null;
+        let failure = null;
         try {
           // A render keeps the spec's packages, and publish's checkListing refuses a package price off the
           // table (src/listings/kmong.mjs), so a spec priced from an older table is drafted again.
@@ -185,15 +193,19 @@ async function refreshGigs(ctx) {
           if (redraft) await (ctx.build ?? build)(c.p.service, { instance, runCodex: ctx.runCodex, log: ctx.log ?? (() => {}) });
           else await (ctx.render ?? render)(c.p.service, { instance, log: ctx.log ?? (() => {}) });
           // A new design changes the main card too; a moved basis alone changes only the detail images.
-          const r = await (ctx.publish ?? publish)(c.p.service, { instance, adapter: a, ledger: ctx.ledger, log: ctx.log ?? (() => {}), replaceImages: redesign ? ['main', 'detail'] : ['detail'] });
+          reached = true;
+          r = await (ctx.publish ?? publish)(c.p.service, { instance, adapter: a, ledger: ctx.ledger, log: ctx.log ?? (() => {}), replaceImages: redesign ? ['main', 'detail'] : ['detail'] });
           row.result = { observed: r.observed, submitted: r.submitted, status: r.status ?? null, reason: r.reason ?? null };
-          if (r.observed && r.submitted) {
-            room -= 1;
-            const at = (ctx.now ?? new Date()).toISOString();
-            writeReview(dir, c.p.service, { ...state, refreshedAt: at, ...(redesign ? { redesignedAt: at, redesignVersion: IMAGES_VERSION } : {}) });
-          }
         } catch (err) {
+          failure = err;
           row.result = { error: (err.code ? err.code + ' ' : '') + err.message };
+        }
+        // Every send kmong may have taken uses the day's room and records its time, read back or not, so the
+        // next candidate waits for tomorrow and the 14-day rule keeps this gig from going to review twice.
+        if (reached && maybeSent(r, failure)) {
+          room -= 1;
+          const at = (ctx.now ?? new Date()).toISOString();
+          writeReview(dir, c.p.service, { ...state, refreshedAt: at, refreshConfirmed: Boolean(r?.observed && r?.submitted), ...(redesign ? { redesignedAt: at, redesignVersion: IMAGES_VERSION } : {}) });
         }
       }
       rows.push(row);

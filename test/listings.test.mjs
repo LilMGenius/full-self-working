@@ -661,3 +661,35 @@ test('a re-render takes the cover the instance names in proofs.json now, not the
   const spec = JSON.parse(readFileSync(join(dir, 'landing_page_web', 'spec.json'), 'utf8'));
   assert.deepEqual(spec.proofPlan, { card: [{ kind: 'sample', file: join(dir, '_samples', 'landing_page_web', 'cover.png') }], gallery: [] });
 });
+
+test('a submit kmong may have taken uses the day\'s room and is recorded, read back or not', async () => {
+  const { listingsRefresh } = await import('../src/listings/watch.mjs');
+  const services = { landing_page_web: 7, data_crawling: 8 };
+  const dir = (s) => join(s.instance.dir, 'listings');
+  const state = (s, service) => JSON.parse(readFileSync(join(dir(s), service, 'review.json'), 'utf8'));
+  // Submitted, but /my-gigs did not show the gig afterwards.
+  const unread = refreshScene({ services });
+  unread.ctx.publish = async (service, opts) => (unread.calls.push(['publish', service, opts.replaceImages]), { observed: false, submitted: true, reason: 'not listed after submit' });
+  await listingsRefresh(unread.ctx);
+  assert.equal(unread.calls.filter((c) => c[0] === 'publish').length, 1, 'the second gig waits for tomorrow');
+  const first = unread.calls.find((c) => c[0] === 'publish')[1];
+  assert.ok(state(unread, first).refreshedAt, 'the attempt time is recorded');
+  // A publish that throws after the submit click: unknown, so it counts too.
+  const thrown = refreshScene({ services });
+  thrown.ctx.publish = async (service) => {
+    thrown.calls.push(['publish', service]);
+    throw new Error('the page closed after submit');
+  };
+  await listingsRefresh(thrown.ctx);
+  assert.equal(thrown.calls.filter((c) => c[0] === 'publish').length, 1);
+  // A refusal known to come before any submit uses no room: the next gig goes.
+  const refused = refreshScene({ services });
+  refused.ctx.publish = async (service) => (refused.calls.push(['publish', service]), { observed: false, submitted: false, reason: 'the form refused the submit' });
+  await listingsRefresh(refused.ctx);
+  assert.equal(refused.calls.filter((c) => c[0] === 'publish').length, 2);
+  const { readReview } = await import('../src/listings/review.mjs');
+  for (const s of Object.keys(services)) assert.equal(readReview(dir(refused), s).refreshedAt, undefined);
+  // The next day the gig already in review is not sent again within the 14-day rule.
+  const next = await listingsRefresh({ ...unread.ctx, now: new Date(Date.now() + 86_400_000) });
+  assert.match(next.rows.find((r) => r.service === first).reason, /refreshed within 14 days/);
+});

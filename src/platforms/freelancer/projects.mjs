@@ -70,12 +70,15 @@ export async function readProject(id, { fetchJson = fetchApi } = {}) {
   return p;
 }
 
-// The API's answer to the self endpoint in the signed-in session: an unauthenticated answer is a sign-out;
-// anything else is null until a signed-in recording maps the marker of a positive answer.
+// The API's answer to the self endpoint in the operator's session, mapped signed in and signed out on
+// 2026-10-27: a success answer whose result carries an integer id is signed in, an unauthenticated
+// error is signed out, and anything else (an HTML error page, a bot wall) is null, which no caller reads
+// as signed in.
 export function selfStatus(body) {
+  if (body?.json?.status === 'success' && Number.isInteger(body.json.result?.id)) return { loggedIn: true, detail: 'the self API answered with the account id' };
   const code = body?.json?.error_code ?? '';
   if (body?.json?.status === 'error' && /NOT_AUTHENTICATED/.test(code)) return { loggedIn: false, detail: 'the self API answered ' + code };
-  return { loggedIn: null, detail: 'the signed-in marker is not mapped yet' };
+  return { loggedIn: null, detail: 'the self API gave no answer to read: ' + (body?.json?.status ?? body?.title ?? 'not JSON') };
 }
 
 export async function readSelf(session) {
@@ -91,5 +94,5 @@ export async function signInWithGoogle(session, { email, google = googleSignIn }
   if (!SIGN_IN_PATH.test(pathOf(url))) return { signedIn: true, alreadySignedIn: true };
   await google(session, { framed: true, email });
   const after = await readSelf(session);
-  return { signedIn: after.loggedIn !== false, reason: after.detail };
+  return { signedIn: after.loggedIn === true, reason: after.detail };
 }

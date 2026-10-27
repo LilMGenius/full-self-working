@@ -84,8 +84,14 @@ export async function signInAgain({ id, surface, instance, ledger, now, notify =
       await failed({ code: null, reason: r?.reason ?? 'still signed out after the Google sign-in' });
       return null;
     }
+    // Only the surface's own login check reading true is a sign-in; a page it cannot read is a failure.
+    const back = await surface.login();
+    if (back?.loggedIn !== true) {
+      await failed({ code: null, reason: 'the Google sign-in finished but the login check reads ' + String(back?.loggedIn ?? null) + (back?.detail ? ': ' + back.detail : '') });
+      return null;
+    }
     ledger.addEvent({ at: now.toISOString(), kind: 'platform.sign_in', platform: id, payload: { ok: true, method: 'google', reason: r.reason ?? null } });
-    return surface.login();
+    return back;
   }
   const login = entry;
   const scrub = (s) => (s == null ? null : String(s).split(login.password).join('[password]'));

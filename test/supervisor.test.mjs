@@ -410,6 +410,16 @@ test('a signed-out platform with a google login signs in once an hour with the i
   assert.deepEqual(g.signIns().map((e) => [e.ok, e.method]), [[false, 'google'], [false, 'google'], [true, 'google']]);
 });
 
+test('a google sign-in whose login check cannot read the account is a failure that asks once', async () => {
+  const g = googleSetup(IDENTITY);
+  const surface = { publicSense: true, login: async () => ({ loggedIn: null, detail: 'the self API gave no answer to read: Error 502' }), signIn: async () => ({ signedIn: true }), sense: async () => [], stop: async () => {} };
+  await g.tick(surface, 0);
+  await g.tick(surface, 61);
+  assert.deepEqual(g.signIns().map((e) => e.ok), [false, false]);
+  assert.match(g.signIns()[0].reason, /login check reads null/);
+  assert.equal(g.requests(), 1);
+});
+
 test('a google login without an email in the identity file records the failure and presses nothing', async () => {
   const g = googleSetup({ ...IDENTITY, person: { ...IDENTITY.person, google_login_email: null } });
   let called = 0;

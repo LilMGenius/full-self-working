@@ -40,3 +40,12 @@ test('a chain of small fame gaps cannot hide a lead change larger than the gap',
   assert.equal(basisChanged(['A', 'B', 'C'], ['C', 'B', 'A'], { fame: chain, gap: 0.05 }), true);
   assert.equal(basisChanged(['A', 'B', 'C'], ['B', 'A', 'C'], { fame: chain, gap: 0.05 }), false, 'one near swap at the top still collapses');
 });
+
+// rankPortfolio orders tier A before tier B and liked before fame, so the basis is not sorted by fame, and an item
+// that is close to one member of a run can be far from another.
+test('a near-tie run holds only items close to every member, in a basis not sorted by fame', () => {
+  // P is tier A (rated 4.6) ahead of Q and R by tier, not by fame.
+  const tiers = { P: 0.3, Q: 0.34, R: 0.26 };
+  assert.equal(basisChanged(['P', 'R', 'Q'], ['P', 'Q', 'R'], { fame: tiers, gap: 0.05 }), true);
+  assert.equal(basisChanged(['P', 'R', 'Q'], ['R', 'P', 'Q'], { fame: tiers, gap: 0.05 }), false, 'P and R are within the gap of each other');
+});

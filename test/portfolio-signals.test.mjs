@@ -279,3 +279,13 @@ test('the npm user and the organizations come from the profile', () => {
   assert.deepEqual(githubOrgs({ person: { githubOrgs: ['Studio', ' acme '] } }), ['studio', 'acme']);
   assert.deepEqual(githubOrgs({ person: {} }), []);
 });
+
+// npm's bare repository shorthand names a GitHub owner, and a GitHub login holds no dot, so gitlab.com/thing is
+// another host: the package falls back to the publisher of its first version.
+test('a bare repository value on another host is no GitHub repository', async () => {
+  const one = { versions: { '1.0.0': { _npmUser: { name: 'maker-npm' } } }, time: { '1.0.0': '2024-01-01T00:00:00.000Z' } };
+  const fetch = withRegistry(stubFetch({ npm: { 'bare-host': 7 } }), { 'bare-host': { maintainers: [{ name: 'someone' }], repository: 'gitlab.com/thing', ...one } });
+  const reach = await readReach([{ id: 'p', source: 'background', url: null, package: 'bare-host', media: [], contribution: false }], { fetch, login: LOGIN, npmUser: 'maker-npm' });
+  assert.deepEqual([reach.p.authored, reach.p.why, reach.p.downloads], [true, null, 7]);
+  assert.equal(fetch.calls.some((u) => u.includes('api.github.com/repos/gitlab.com')), false);
+});

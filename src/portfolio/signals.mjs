@@ -61,10 +61,11 @@ export function npmUser(profile) {
 export const githubOrgs = (profile) => (profile?.person?.githubOrgs ?? []).map((o) => String(o).trim().toLowerCase()).filter(Boolean);
 
 // The GitHub repository an npm record names (repository as a string, a github: shorthand or {url}); null for none or
-// any other host.
+// any other host. A bare owner/name is npm's GitHub shorthand, and a GitHub login holds no dot, so gitlab.com/thing
+// reads as another host.
 function recordRepo(rec) {
   const raw = String(typeof rec?.repository === 'string' ? rec.repository : rec?.repository?.url ?? '');
-  const m = /^(?:github:)?([\w.-]+)\/([\w.-]+?)(?:\.git)?$/.exec(raw) ?? /github\.com[/:]([\w.-]+)\/([\w.-]+?)(?:\.git)?(?:[#?/].*)?$/.exec(raw);
+  const m = /^(?:github:)?([A-Za-z0-9-]+)\/([\w.-]+?)(?:\.git)?$/.exec(raw) ?? /github\.com[/:]([\w.-]+)\/([\w.-]+?)(?:\.git)?(?:[#?/].*)?$/.exec(raw);
   return m ? m[1] + '/' + m[2] : null;
 }
 

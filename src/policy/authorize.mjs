@@ -21,6 +21,25 @@ export const HOLD_RULES = ['mode.observe', 'hours.closed', 'budget.cash'];
 
 export const spendsCash = (descriptor, threadKind) => threadKind === 'request' && descriptor.bidCost?.unit !== 'none';
 
+// platforms.<id>.bidBudget = {monthlyKRW, stopAfterUnanswered} (src/core/config.schema.json). The default
+// refuses every paid bid; a bid that costs nothing passes at monthlyKRW 0. The Seoul month's bid spend plus
+// this bid must stay inside monthlyKRW, and fewer than stopAfterUnanswered sent proposals may be without a
+// reply. Fails closed on an unknown cost or uncounted usage.
+export const BID_BUDGET_DEFAULT = { monthlyKRW: 0, stopAfterUnanswered: 20 };
+
+export function bidBudgetCheck({ budget, usage, costKRW }) {
+  const { monthlyKRW, stopAfterUnanswered } = { ...BID_BUDGET_DEFAULT, ...(budget ?? {}) };
+  if (typeof monthlyKRW !== 'number' || !Number.isInteger(stopAfterUnanswered)) return { ok: false, reason: 'the bid budget is malformed (monthlyKRW, stopAfterUnanswered)' };
+  if (typeof costKRW !== 'number' || !Number.isFinite(costKRW)) return { ok: false, reason: 'the bid cost in KRW is unknown' };
+  if (typeof usage?.bidMonthKRW !== 'number' || typeof usage?.bidUnanswered !== 'number') return { ok: false, reason: 'the bid usage was not counted' };
+  if (usage.bidMonthKRW + costKRW > monthlyKRW) return { ok: false, reason: "the month's bid budget is spent (" + usage.bidMonthKRW + ' + ' + costKRW + ' over ' + monthlyKRW + ' KRW)' };
+  if (usage.bidUnanswered >= stopAfterUnanswered) return { ok: false, reason: usage.bidUnanswered + ' sent proposals have no reply; bids stop at ' + stopAfterUnanswered };
+  return { ok: true };
+}
+
+// A proposal on a platform that charges for bids (bid credits, Connects) is what bidBudgetCheck guards.
+export const spendsBids = (descriptor, kind) => kind === 'proposal' && (descriptor.bidCost?.unit ?? 'none') !== 'none';
+
 // Fails closed: a missing limit or an unknown cost refuses the spend (src/pipeline/thread.mjs:63-71).
 // spent marks a refusal that only the day's caps caused, so a later day's budget can pay it (b223ed7).
 export function cashBudgetCheck({ budget, usage, costKRW }) {
@@ -66,6 +85,11 @@ export function authorize(item, ctx) {
   // on its page, so it is refused, approved or not (wp8).
   const form = descriptor.forms?.[item.kind];
   if (form && form.mapped !== true) return { verdict: 'refuse', violations: [rule('form.unmapped', item.kind + ' form on ' + item.platform + ' is not mapped and read back')], warnings: [], reasons: [rule('form.unmapped', 'form unmapped')] };
+  // A proposal that spends the platform's bids goes out only inside the operator's bid budget, approved or not.
+  if (spendsBids(descriptor, item.kind)) {
+    const bid = bidBudgetCheck({ budget: instance.config?.platforms?.[item.platform]?.bidBudget, usage, costKRW: item.costKRW });
+    if (!bid.ok) return { verdict: 'refuse', violations: [rule('budget.bid', 'a proposal on ' + item.platform + ' spends ' + descriptor.bidCost.unit + ': ' + bid.reason)], warnings: [], reasons: [rule('budget.bid', bid.reason)] };
+  }
   // 1. The gate and its slop lint. A payment request sends no text (the platform form takes the amount).
   const g = item.kind === 'pay_request' ? { violations: [], warnings: [] } : gateOutbound(item, { descriptor, instance, priceRow, lessonsRules });
   const violations = [...g.violations];

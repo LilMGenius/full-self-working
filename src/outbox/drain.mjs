@@ -17,9 +17,9 @@ import { classifyNotice } from '../core/notices.mjs';
 import { notifyOperator } from '../core/notify.mjs';
 import { copiesHash } from '../core/reviewed.mjs';
 import { transaction } from '../core/tx.mjs';
-import { HOLD_RULES, spendsCash } from '../policy/authorize.mjs';
+import { HOLD_RULES, spendsBids, spendsCash } from '../policy/authorize.mjs';
 import { baseName, setStatus } from './plan.mjs';
-import { quotaUsage } from './usage.mjs';
+import { bidUsage, quotaUsage } from './usage.mjs';
 
 const METHOD = { message: 'send', quote: 'quote', pay_request: 'payRequest', delivery: 'send', proposal: 'propose' };
 // A surface drains only the kinds it has a method for; the rest wait for a surface that has one (003:
@@ -220,9 +220,11 @@ export async function drain(ledger, { platform, surface, authorize, ctx }) {
   // Quotes this drain saw go out: the deal writes their quote rows only after the drain returns, so the
   // caps count them here until then.
   const spentHere = { quotes: 0, cashKRW: 0 };
-  const usage = () => {
+  // A proposal that spends bids also gets the month's bid use, read from the outbox rows themselves, which
+  // this drain sets observed as each goes out.
+  const usage = (row) => {
     const u = quotaUsage(ledger, platform, now);
-    return { quotes: u.quotes + spentHere.quotes, cashKRW: u.cashKRW + spentHere.cashKRW };
+    return { quotes: u.quotes + spentHere.quotes, cashKRW: u.cashKRW + spentHere.cashKRW, ...(spendsBids(ctx.descriptor, row.kind) ? bidUsage(ledger, platform, now) : {}) };
   };
   let proposalsStopped = false;
   for (const row of ledger.listOutbox({ platform, statuses: ['planned', 'approved'] }).filter((r) => handles(surface, r.kind))) {
@@ -239,7 +241,7 @@ export async function drain(ledger, { platform, surface, authorize, ctx }) {
       continue;
     }
     const approved = row.status === 'approved';
-    const verdict = authorize(itemOf(row), { ...ctx, now, approved, priceRow: row.payload.priceRow ?? null, usage: usage() });
+    const verdict = authorize(itemOf(row), { ...ctx, now, approved, priceRow: row.payload.priceRow ?? null, usage: usage(row) });
     if (verdict.verdict === 'refuse') {
       const reason = verdict.violations.map((v) => v.rule + ' ' + v.detail).join('; ');
       if (!setStatus(ledger, row.id, { from: row.status, to: 'blocked', verdict, reason })) {

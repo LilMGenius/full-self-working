@@ -3,10 +3,10 @@
 // already loads. recordFunnel keeps a change-only record of those acts: the last state seen sits on the chat
 // thread's meta.funnel, and a quote.* event is written only when a fact changes, so a repeat poll writes nothing
 // (AGENTS.md changeOnlyWhatChanged). It never writes quotes.status or a job: the deal owns those, and our own
-// hire reaches it through the row's status as before (src/deal/signals.mjs).
+// hire reaches it through the row's status as before (src/deal/signals.mjs). Its event kinds are FUNNEL_EVENTS in
+// src/economics/quote-results.mjs, which reads them.
 import { transaction } from '../core/tx.mjs';
 
-export const FUNNEL_EVENTS = ['quote.opened', 'quote.hired_us', 'quote.hired_other', 'quote.hired_other_cancelled', 'quote.other_status'];
 // other_provider_hire_status values the code reads as a hire of another pro: the word soomgo's hire_status uses
 // for a hire. Every value recorded so far is null (test/fixtures/surfaces/soomgo/shapes.json), so this list
 // grows only from a recorded page.
@@ -41,7 +41,11 @@ export function recordFunnel(ledger, { platform, inbound, rows, now }) {
   for (const ib of inbound) {
     if (ib.kind !== 'message' || !ib.quote || !('opened' in ib.quote)) continue;
     const row = rows.get(String(ib.ref));
-    const prev = row.meta?.funnel ?? null;
+    const link = linkOf(ledger, requests, ib, row);
+    // The state belongs to the quote it was seen for: a newer fsw quote on the request starts the record over, so
+    // its open and a hire of another pro are written against it (as first sight, since they may predate this poll).
+    const kept = row.meta?.funnel ?? null;
+    const prev = kept && kept.quoteId === link.quoteId ? kept : null;
     const next = stateOf(ib);
     const changes = [];
     if (next.opened && !prev?.opened) changes.push('quote.opened');
@@ -50,7 +54,6 @@ export function recordFunnel(ledger, { platform, inbound, rows, now }) {
     if (!next.hiredOther && prev?.hiredOther) changes.push('quote.hired_other_cancelled');
     if (next.otherUnknown && next.otherStatus !== (prev?.otherStatus ?? null)) changes.push('quote.other_status');
     if (prev && !changes.length && prev.otherStatus === next.otherStatus) continue;
-    const link = linkOf(ledger, requests, ib, row);
     const { otherUnknown, ...state } = next;
     transaction(ledger, () => {
       for (const kind of changes) ledger.addEvent({ kind, platform, ref: String(ib.ref), at: now.toISOString(), payload: { ...link, firstSeen: prev === null, otherStatus: next.otherStatus, ...(kind === 'quote.other_status' ? { unknown: true } : {}), rowQuote: { priceKRW: ib.quote.priceKRW ?? null, unit: ib.quote.unit ?? null } } });

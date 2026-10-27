@@ -3,7 +3,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openLedger } from '../src/core/ledger.mjs';
-import { FUNNEL_EVENTS, OTHER_HIRED, recordFunnel } from '../src/loop/funnel.mjs';
+import { FUNNEL_EVENTS } from '../src/economics/quote-results.mjs';
+import { OTHER_HIRED, recordFunnel } from '../src/loop/funnel.mjs';
 
 const NOW = new Date('2026-10-27T03:00:00.000Z');
 const later = (min) => new Date(NOW.getTime() + min * 60_000);
@@ -83,4 +84,18 @@ test('rows without an opened field, a kmong chat or a soomgo request, are left a
   assert.equal(s.poll([{ platform: 'soomgo', ref: 'r1', kind: 'request', quote: null }]).written, 0);
   assert.equal(s.events().length, 0);
   assert.ok(FUNNEL_EVENTS.includes('quote.other_status'));
+});
+
+// A chat's funnel state belongs to the quote it is linked to: a newer fsw quote on the same request starts the
+// chat's record over, so its open and a hire of another pro are tied to it rather than to the quote it replaced.
+test('a second quote on the same request starts the chat funnel over, tying the open and the other-pro hire to it', () => {
+  const s = setup();
+  const opened = { priceKRW: 300000, unit: 'total', opened: true };
+  s.poll([chat('c1', { quote: opened, otherProHired: OTHER_HIRED[0] })]);
+  const second = s.ledger.addQuote({ threadId: s.req.id, platform: 'soomgo', service: 'detail_page_design', amountKRW: 260000, costKRW: 4000, status: 'sent', at: '2026-10-27T02:00:00.000Z' });
+  assert.equal(s.poll([chat('c1', { quote: opened, otherProHired: OTHER_HIRED[0] })], later(5)).written, 2);
+  assert.deepEqual(s.events().map((e) => [e.kind, e.quoteId, e.firstSeen]), [['quote.opened', s.quote.id, true], ['quote.hired_other', s.quote.id, true], ['quote.opened', second.id, true], ['quote.hired_other', second.id, true]]);
+  const meta = s.ledger.listThreads({ platform: 'soomgo' }).find((t) => t.externalId === 'c1').meta;
+  assert.deepEqual([meta.funnel.quoteId, meta.funnel.seenAt], [second.id, later(5).toISOString()]);
+  assert.equal(s.poll([chat('c1', { quote: opened, otherProHired: OTHER_HIRED[0] })], later(10)).written, 0);
 });

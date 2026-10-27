@@ -10,11 +10,12 @@
 // wait. --record writes every call to <instance>/qa/surfaces/<platform>/<day>/. Exit 0 when the operation
 // ran, 1 when it failed or was refused, 2 on a usage error.
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { extname, join } from 'node:path';
+import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { dayKey, nextMark } from '../src/core/clock.mjs';
 import { instanceDir } from '../src/core/instance.mjs';
 import { catalog, targetsFor } from '../src/economics/catalog.mjs';
+import { CATEGORY_FIELD } from '../src/economics/pricing.mjs';
 import { readPublished } from '../src/listings/gig.mjs';
 import { recordingPath } from '../src/surface/recorder.mjs';
 import { hasSurface, openSurface } from '../src/surface/index.mjs';
@@ -67,22 +68,37 @@ const lastTick = (dir) => {
   return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')).lastTick?.at ?? null : null;
 };
 
-// The kmong targets of the services with a submitted gig, one per category, each named by its service.
+// The kmong targets of the services with a submitted gig, one per category, each listing every published
+// service in that category, since two services can share one kmong category and each needs its entries.
 export function frontierTargets(dir, list = catalog) {
   const published = new Set(readPublished({ dir }).map((p) => p.service));
   const subset = Object.fromEntries(Object.entries(list).filter(([id]) => published.has(id)));
-  return targetsFor('kmong', subset).map((t) => ({ ...t, service: Object.keys(subset).find((id) => subset[id] === t.def) }));
+  const field = CATEGORY_FIELD.kmong;
+  return targetsFor('kmong', subset).map((t) => ({ ...t, services: Object.keys(subset).filter((id) => subset[id][field] === t.category) }));
 }
 
 const IMAGE_EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'image/avif': 'avif' };
-const extOf = (type, url) => IMAGE_EXT[String(type ?? '').split(';')[0].trim()] ?? (extname(new URL(url).pathname).slice(1).toLowerCase() || 'img');
 
-// Reads each target's top cards and saves their cover images to <instance>/qa/frontier/<day>/
-// <service>-<rank>.<ext>, beside frontier.json (category, rank, gig URL, rating, review count, file; no
-// seller name, since the rows stay in the instance and kmong forbids redistribution). A service already
-// filled today is skipped, so a run the window cut short is finished by the next one. open() is asked
-// before every category load and ends the op once the probe window closes.
-export async function captureFrontier(surface, { dir, day, open = () => true, fetchImage = fetch, perCategory = FRONTIER_PER_CATEGORY } = {}) {
+// Fetches one cover and returns {bytes, ext}; a placeholder, a failed answer or a body the host did not
+// call an image (a block page answers 200 with HTML) throws, so nothing but an image is ever saved.
+async function fetchCover(img, fetchImage) {
+  if (!img) throw new Error('the card showed no cover image');
+  if (img.startsWith('data:')) throw new Error('the card showed only a placeholder, no cover image');
+  const res = await fetchImage(img);
+  if (!res.ok) throw new Error('cover image answered ' + res.status);
+  const type = String(res.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
+  if (!type.startsWith('image/')) throw new Error('cover image answered ' + (type || 'no content type') + ', not an image');
+  return { bytes: Buffer.from(await res.arrayBuffer()), ext: IMAGE_EXT[type] ?? (type.slice(6).replace(/[^a-z0-9]/g, '') || 'img') };
+}
+
+// Reads each category's top cards and saves their cover images to <instance>/qa/frontier/<day>/
+// <service>-<rank>.<ext>, named by the category's first service, beside frontier.json (one entry per
+// service and rank: category, rank, gig URL, rating, review count, file; no seller name, since the rows
+// stay in the instance and kmong forbids redistribution). A category is skipped once every service in it
+// has entries and every entry has a file, so a later run the same day reads again a category the window
+// cut short or a rank whose cover failed. open() is asked before every category load and ends the op once
+// the probe window closes.
+export async function captureFrontier(surface, { dir, day, open = () => true, fetchImage = fetch, perCategory = FRONTIER_PER_CATEGORY, list = catalog } = {}) {
   const folder = join(dir, 'qa', 'frontier', day);
   mkdirSync(folder, { recursive: true });
   const index = join(folder, 'frontier.json');
@@ -93,8 +109,9 @@ export async function captureFrontier(surface, { dir, day, open = () => true, fe
   };
   // stoppedByWindow is a flag, since the printed summary keeps numbers and booleans and drops words.
   const out = { categories: 0, skipped: 0, saved: 0, missing: 0, errors: [], stoppedByWindow: false };
-  for (const target of frontierTargets(dir)) {
-    if (entries.some((e) => e.service === target.service && e.file)) {
+  for (const target of frontierTargets(dir, list)) {
+    const own = (service) => entries.filter((e) => e.service === service);
+    if (target.services.every((s) => own(s).length && own(s).every((e) => e.file))) {
       out.skipped++;
       continue;
     }
@@ -104,24 +121,26 @@ export async function captureFrontier(surface, { dir, day, open = () => true, fe
     }
     const { rows, errors } = await surface.frontier([target], { perCategory });
     out.categories++;
-    for (const e of errors) out.errors.push(target.service + ': ' + e.message);
+    const name = target.services[0];
+    for (const e of errors) out.errors.push(target.category + ': ' + e.message);
     for (const row of rows) {
-      const entry = { service: target.service, category: row.category, rank: row.rank, url: row.url, rating: row.rating, reviews: row.reviews, file: null, error: null };
+      let file = null;
+      let error = null;
       try {
-        if (!row.img) throw new Error('the card showed no cover image');
-        const res = await fetchImage(row.img);
-        if (!res.ok) throw new Error('cover image answered ' + res.status);
-        const file = target.service + '-' + row.rank + '.' + extOf(res.headers.get('content-type'), row.img);
-        writeFileSync(join(folder, file), Buffer.from(await res.arrayBuffer()));
-        entry.file = file;
+        const cover = await fetchCover(row.img, fetchImage);
+        file = name + '-' + row.rank + '.' + cover.ext;
+        writeFileSync(join(folder, file), cover.bytes);
         out.saved++;
       } catch (err) {
-        entry.error = err.message;
+        error = err.message;
         out.missing++;
       }
-      const at = entries.findIndex((e) => e.service === entry.service && e.rank === entry.rank);
-      if (at >= 0) entries[at] = entry;
-      else entries.push(entry);
+      for (const service of target.services) {
+        const entry = { service, category: row.category, rank: row.rank, url: row.url, rating: row.rating, reviews: row.reviews, file, error };
+        const at = entries.findIndex((e) => e.service === service && e.rank === row.rank);
+        if (at >= 0) entries[at] = entry;
+        else entries.push(entry);
+      }
     }
     save();
   }

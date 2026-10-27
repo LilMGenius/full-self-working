@@ -3,10 +3,10 @@
 // name kept. The surface and the image fetch are stubs, so no browser and no network run here.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseCard } from '../src/platforms/kmong/market.mjs';
-import { probe } from '../scripts/probe.mjs';
+import { captureFrontier, frontierTargets, probe } from '../scripts/probe.mjs';
 import { tempDir } from './tmp.mjs';
 
 // A throwaway instance with two published gigs, in two kmong categories, and a live tick at 10:00 Seoul.
@@ -21,13 +21,14 @@ function instance() {
   return dir;
 }
 
-// A surface whose frontier returns three cards per target, each with a seller and a cover URL.
-function surface(calls) {
+// A surface whose frontier returns three cards per target, each with a seller and a cover URL; the rank
+// named by noCover shows no cover.
+function surface(calls, { noCover = null } = {}) {
   return {
     session: { loads: 0 },
     frontier: async (targets, opts) => {
-      calls.push({ categories: targets.map((t) => t.category), services: targets.map((t) => t.service), ...opts });
-      const rows = targets.flatMap((t) => [1, 2, 3].map((rank) => ({ platform: 'kmong', category: t.category, url: 'https://kmong.com/gig/' + rank, rank, title: '제목 ' + rank, seller: '판매자이름' + rank, rating: 4.9, reviews: 10 * rank, img: rank === 3 ? null : 'https://cdn.test/' + t.service + '/' + rank + '.webp' })));
+      calls.push({ categories: targets.map((t) => t.category), services: targets.flatMap((t) => t.services ?? [t.service]), ...opts });
+      const rows = targets.flatMap((t) => [1, 2, 3].map((rank) => ({ platform: 'kmong', category: t.category, url: 'https://kmong.com/gig/' + rank, rank, title: '제목 ' + rank, seller: '판매자이름' + rank, rating: 4.9, reviews: 10 * rank, img: rank === noCover ? null : 'https://cdn.test/' + t.services[0] + '/' + rank + '.webp' })));
       return { rows, errors: [] };
     },
     stop: async () => {},
@@ -77,9 +78,9 @@ test('frontier waits for the probe window, reads the published categories and sa
   assert.doesNotMatch(readFileSync(join(folder, 'frontier.json'), 'utf8'), /판매자이름/);
   assert.ok(existsSync(join(folder, 'logo_brand-1.jpg')));
   assert.equal(readFileSync(join(folder, 'logo_brand-2.jpg'), 'utf8'), 'bytes of https://cdn.test/logo_brand/2.webp');
-  assert.deepEqual(index.filter((e) => !e.file).map((e) => e.error), ['the card showed no cover image', 'the card showed no cover image']);
+  assert.ok(index.every((e) => e.file && !e.error));
   const summary = JSON.parse(lines.at(-1)).result;
-  assert.equal(summary.saved, 4);
+  assert.equal(summary.saved, 6);
   assert.equal(summary.stoppedByWindow, false);
   // A second run the same day reads nothing that is already filled.
   calls.length = 0;
@@ -107,3 +108,76 @@ test('a window that closes mid-run ends the op, and the next run fills only what
   assert.notEqual(calls[0].services[0], first);
 });
 
+
+// An instance whose published gigs are given; logo_brand and a second service share one kmong category.
+function instanceWith(services) {
+  const dir = tempDir('fsw-frontier-');
+  services.forEach((service, i) => {
+    mkdirSync(join(dir, 'listings', service), { recursive: true });
+    writeFileSync(join(dir, 'listings', service, 'publish-20261027.json'), JSON.stringify({ service, gigId: i + 1, submitted: true }));
+  });
+  return dir;
+}
+
+test('only an image body is saved: a block page, a data: placeholder and a failed fetch are errors on their entry', async (t) => {
+  const dir = instanceWith(['logo_brand']);
+  useInstance(t, dir);
+  const covers = { 1: 'https://cdn.test/1.webp', 2: 'data:image/gif;base64,R0lGODlhAQABAAAAACw=', 3: 'https://cdn.test/3.webp' };
+  const s = {
+    session: { loads: 0 },
+    frontier: async (targets) => ({ rows: [1, 2, 3].map((rank) => ({ category: targets[0].category, url: 'https://kmong.com/gig/' + rank, rank, rating: 5, reviews: rank, img: covers[rank] })), errors: [] }),
+    stop: async () => {},
+  };
+  const fetched = [];
+  const fetchImage = async (url) => {
+    fetched.push(url);
+    return url.endsWith('3.webp') ? new Response('<html>blocked</html>', { headers: { 'content-type': 'text/html; charset=utf-8' } }) : image(url);
+  };
+  const lines = [];
+  assert.equal(await probe(['kmong', 'frontier', '--now'], { open: async () => s, log: (l) => lines.push(l), fetchImage }), 0);
+  assert.ok(!fetched.some((u) => u.startsWith('data:')), 'a data: placeholder is never fetched');
+  const day = readdirSync(join(dir, 'qa', 'frontier'))[0];
+  const folder = join(dir, 'qa', 'frontier', day);
+  const index = JSON.parse(readFileSync(join(folder, 'frontier.json'), 'utf8'));
+  assert.deepEqual(index.map((e) => [e.rank, e.file, e.error]), [
+    [1, 'logo_brand-1.jpg', null],
+    [2, null, 'the card showed only a placeholder, no cover image'],
+    [3, null, 'cover image answered text/html, not an image'],
+  ]);
+  assert.deepEqual(readdirSync(folder).sort(), ['frontier.json', 'logo_brand-1.jpg']);
+  const summary = JSON.parse(lines.at(-1)).result;
+  assert.equal(summary.saved, 1);
+  assert.equal(summary.missing, 2);
+});
+
+test('a rank left without a file is read again by a later run the same day', async (t) => {
+  const dir = instanceWith(['logo_brand']);
+  useInstance(t, dir);
+  let fail = true;
+  const fetchImage = async (url) => (fail && url.endsWith('/2.webp') ? new Response('', { status: 503 }) : image(url));
+  const calls = [];
+  const clock = () => new Date('2026-10-27T10:02:00+09:00');
+  const open = async () => surface(calls, { noCover: 3 });
+  assert.equal(await probe(['kmong', 'frontier', '--now'], { now: clock, open, log: () => {}, fetchImage }), 0);
+  fail = false;
+  assert.equal(await probe(['kmong', 'frontier', '--now'], { now: clock, open, log: () => {}, fetchImage }), 0);
+  assert.equal(calls.length, 2, 'the second run read the category again');
+  const index = JSON.parse(readFileSync(join(dir, 'qa', 'frontier', '20261027', 'frontier.json'), 'utf8'));
+  assert.deepEqual(index.map((e) => [e.rank, Boolean(e.file)]), [[1, true], [2, true], [3, false]]);
+});
+
+test('two published services in one kmong category each get entries pointing at one read of it', async (t) => {
+  const list = { logo_brand: { kmongCategory: '로고 디자인', kmongCategoryId: 101 }, logo_extra: { kmongCategory: '로고 디자인', kmongCategoryId: 101 } };
+  const dir = instanceWith(Object.keys(list));
+  useInstance(t, dir);
+  assert.deepEqual(frontierTargets(dir, list).map((x) => x.services), [['logo_brand', 'logo_extra']]);
+  const calls = [];
+  const s = surface(calls, { noCover: 3 });
+  const day = '20261027';
+  const r = await captureFrontier(s, { dir, day, fetchImage: image, list });
+  assert.equal(calls.length, 1);
+  assert.equal(r.saved, 2);
+  const index = JSON.parse(readFileSync(join(dir, 'qa', 'frontier', day, 'frontier.json'), 'utf8'));
+  for (const service of Object.keys(list)) assert.deepEqual(index.filter((e) => e.service === service).map((e) => e.file), ['logo_brand-1.jpg', 'logo_brand-2.jpg', null], service);
+  assert.equal((await captureFrontier(s, { dir, day, fetchImage: image, list })).skipped, 0, 'rank 3 has no cover, so the category is read again');
+});

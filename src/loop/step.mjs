@@ -151,7 +151,7 @@ export async function step(platform, ctx) {
     // The quote funnel from the same rows, opened or not (U7.Q, src/loop/funnel.mjs): change-only, so an unchanged
     // poll writes nothing. A funnel write that throws is that pass's error, never the platform's.
     try {
-      const funnel = recordFunnel(ledger, { platform, inbound, rows, now });
+      const funnel = recordFunnel(ledger, { platform, inbound, rows, now, refundHours: descriptor.bidCost?.unreadRefundHours ?? null });
       result.funnel = funnel.written;
       effects.push(...funnel.effects);
     } catch (err) {

@@ -99,3 +99,28 @@ test('a second quote on the same request starts the chat funnel over, tying the 
   assert.deepEqual([meta.funnel.quoteId, meta.funnel.seenAt], [second.id, later(5).toISOString()]);
   assert.equal(s.poll([chat('c1', { quote: opened, otherProHired: OTHER_HIRED[0] })], later(10)).written, 0);
 });
+
+// soomgo refunds a quote its customer has not opened 48 hours after it went out (bidCost.unreadRefundHours). A poll that
+// shows our quote still unopened once that long has passed is the platform's own word that it went unread: one
+// quote.unread event, the evidence src/economics/quote-results.mjs expires the quote on. Before the window, without a
+// window, or once opened, there is none.
+test('a chat row still showing our quote unopened past the refund window writes quote.unread once', () => {
+  const s = setup();
+  const poll = (minutesAfterQuote, over = {}, refundHours = 48) => {
+    const now = new Date(Date.parse(s.quote.at) + minutesAfterQuote * 60_000);
+    const rows = new Map([['c1', s.ledger.upsertThread({ platform: 'soomgo', externalId: 'c1', kind: 'message' })]]);
+    return recordFunnel(s.ledger, { platform: 'soomgo', inbound: [chat('c1', over)], rows, now, refundHours });
+  };
+  const unread = () => s.events().filter((e) => e.kind === 'quote.unread');
+  poll(47 * 60);
+  poll(49 * 60, {}, null);
+  assert.equal(unread().length, 0, 'inside the window, or with no window, nothing says it went unread');
+  poll(48 * 60);
+  poll(50 * 60);
+  assert.deepEqual(unread().map((e) => [e.ref, e.quoteId, e.requestThreadId]), [['c1', s.quote.id, s.req.id]]);
+  assert.equal('quoteAt' in unread()[0], false);
+  const seen = setup();
+  const rows = new Map([['c2', seen.ledger.upsertThread({ platform: 'soomgo', externalId: 'c2', kind: 'message' })]]);
+  recordFunnel(seen.ledger, { platform: 'soomgo', inbound: [chat('c2', { quote: { priceKRW: 300000, unit: 'total', opened: true } })], rows, now: new Date(Date.parse(seen.quote.at) + 49 * 3_600_000), refundHours: 48 });
+  assert.deepEqual(seen.events().map((e) => e.kind), ['quote.opened']);
+});

@@ -27,13 +27,17 @@ function linkOf(ledger, requests, ib, row) {
   const req = ib.requestId ? requests.get(String(ib.requestId)) ?? null : null;
   const quote = [...(req ? ledger.listQuotes({ threadId: req.id }) : []), ...ledger.listQuotes({ threadId: row.id })].sort((a, b) => a.id - b.id).at(-1) ?? null;
   const unlinked = quote ? null : !ib.requestId ? 'the row names no request' : !req ? 'request ' + ib.requestId + ' is not in the ledger' : 'no fsw quote on request ' + ib.requestId;
-  return { quoteId: quote?.id ?? null, requestThreadId: req?.id ?? null, unlinked };
+  return { quoteId: quote?.id ?? null, requestThreadId: req?.id ?? null, unlinked, quoteAt: quote?.at ?? null };
 }
 
 // inbound: the step's sense rows; rows: their thread rows by ref. Only a chat row whose quote carries an opened
 // field is read (soomgo chats); a request row or another platform's row is left alone. Returns {written,
 // effects}: effects are the operator notices for other-pro statuses no earlier poll recorded.
-export function recordFunnel(ledger, { platform, inbound, rows, now }) {
+// refundHours (descriptor bidCost.unreadRefundHours, soomgo 48): a row that still shows our quote unopened once that
+// long has passed since the quote was recorded is the platform's own word that the customer never read it, so it is
+// written once as quote.unread, the evidence src/economics/quote-results.mjs expires an unread quote on. A quote whose
+// chat no poll saw (one past the first list page) gets no such event and stays open.
+export function recordFunnel(ledger, { platform, inbound, rows, now, refundHours = null }) {
   const requests = new Map(ledger.listThreads({ platform }).filter((t) => t.kind === 'request').map((t) => [t.externalId, t]));
   const knownOther = new Set(ledger.db.prepare("SELECT payload FROM events WHERE kind = 'quote.other_status' AND platform = ?").all(platform).map((e) => JSON.parse(e.payload).otherStatus));
   const effects = [];
@@ -47,16 +51,21 @@ export function recordFunnel(ledger, { platform, inbound, rows, now }) {
     const kept = row.meta?.funnel ?? null;
     const prev = kept && kept.quoteId === link.quoteId ? kept : null;
     const next = stateOf(ib);
+    next.unread = Number.isInteger(refundHours) && link.quoteId != null && ib.quote.opened === false && now.getTime() - Date.parse(link.quoteAt) >= refundHours * 3_600_000;
     const changes = [];
     if (next.opened && !prev?.opened) changes.push('quote.opened');
+    if (next.unread && !prev?.unread) changes.push('quote.unread');
     if (next.hiredUs && !prev?.hiredUs) changes.push('quote.hired_us');
     if (next.hiredOther && !prev?.hiredOther) changes.push('quote.hired_other');
     if (!next.hiredOther && prev?.hiredOther) changes.push('quote.hired_other_cancelled');
     if (next.otherUnknown && next.otherStatus !== (prev?.otherStatus ?? null)) changes.push('quote.other_status');
     if (prev && !changes.length && prev.otherStatus === next.otherStatus) continue;
-    const { otherUnknown, ...state } = next;
+    const { otherUnknown, unread, ...rest } = next;
+    // unread stays on the record once seen, and only then, so a record written before it keeps its shape.
+    const state = { ...rest, ...(unread || prev?.unread ? { unread: true } : {}) };
     transaction(ledger, () => {
-      for (const kind of changes) ledger.addEvent({ kind, platform, ref: String(ib.ref), at: now.toISOString(), payload: { ...link, firstSeen: prev === null, otherStatus: next.otherStatus, ...(kind === 'quote.other_status' ? { unknown: true } : {}), rowQuote: { priceKRW: ib.quote.priceKRW ?? null, unit: ib.quote.unit ?? null } } });
+      const { quoteAt, ...linked } = link;
+      for (const kind of changes) ledger.addEvent({ kind, platform, ref: String(ib.ref), at: now.toISOString(), payload: { ...linked, firstSeen: prev === null, otherStatus: next.otherStatus, ...(kind === 'quote.other_status' ? { unknown: true } : {}), rowQuote: { priceKRW: ib.quote.priceKRW ?? null, unit: ib.quote.unit ?? null } } });
       ledger.upsertThread({ platform, externalId: String(ib.ref), kind: 'message', meta: { ...(ledger.getThread(row.id).meta ?? {}), funnel: { ...state, quoteId: link.quoteId, seenAt: prev?.seenAt ?? now.toISOString() } } });
     });
     if (changes.includes('quote.other_status') && !knownOther.has(next.otherStatus)) {

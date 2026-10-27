@@ -7,7 +7,7 @@ import { listDescriptors, loadDescriptor } from '../platforms/registry.mjs';
 
 export const QUOTE_RESULTS = ['won', 'lost', 'expired', 'refused', 'superseded', 'open'];
 // The events src/loop/funnel.mjs writes from the soomgo chat list.
-export const FUNNEL_EVENTS = ['quote.opened', 'quote.hired_us', 'quote.hired_other', 'quote.hired_other_cancelled', 'quote.other_status'];
+export const FUNNEL_EVENTS = ['quote.opened', 'quote.unread', 'quote.hired_us', 'quote.hired_other', 'quote.hired_other_cancelled', 'quote.other_status'];
 const DAY_MS = 86_400_000;
 const HOUR_MS = 3_600_000;
 
@@ -80,27 +80,33 @@ function sourceRows(ledger, quotes, observed) {
 const sentAt = (quote, row) => (row && row.receipt?.pipeline !== 'd605c5d' ? row.updatedAt : quote.at);
 
 // What the chat list showed customers do with fsw quotes (src/loop/funnel.mjs), as of a cut: the quote ids a
-// customer opened, and those whose customer hired another pro (a later quote.hired_other_cancelled lifts it).
+// customer opened, those a poll saw still unopened past the platform's refund window (quote.unread), and those whose
+// customer hired another pro (a later quote.hired_other_cancelled lifts it).
 // The funnel's quote.hired_us is not read here: our own hire is the deal's accepted status (won), which accept()
 // sets from the same row, so counting the event too would win the quote twice.
 export function chatActs(ledger, cut) {
   const opened = new Set();
+  const unread = new Set();
   const hiredOther = new Set();
-  const rows = ledger.db.prepare("SELECT kind, payload, at FROM events WHERE kind IN ('quote.opened', 'quote.hired_other', 'quote.hired_other_cancelled') ORDER BY at, id").all();
+  const rows = ledger.db.prepare("SELECT kind, payload, at FROM events WHERE kind IN ('quote.opened', 'quote.unread', 'quote.hired_other', 'quote.hired_other_cancelled') ORDER BY at, id").all();
   for (const e of rows) {
     const id = JSON.parse(e.payload ?? '{}').quoteId;
     if (id == null || Date.parse(e.at) > cut) continue;
     if (e.kind === 'quote.opened') opened.add(id);
+    else if (e.kind === 'quote.unread') unread.add(id);
     else if (e.kind === 'quote.hired_other') hiredOther.add(id);
     else hiredOther.delete(id);
   }
-  return { opened, hiredOther };
+  return { opened, unread, hiredOther };
 }
 
 // expireAfterDays Infinity turns the age rule off (an instance without priceLearning settings). A platform that
 // refunds a quote its customer never opened (descriptor bidCost.unreadRefundHours, soomgo 48) has ended that
-// quote whatever the age rule says: one still unopened that long after it went out is expired with cause unread.
-// A platform with no descriptor file (a test's synthetic board) has no refund window.
+// quote whatever the age rule says, but only on evidence that it went unread: a poll that saw its chat still
+// unopened past the window (quote.unread) expires it with cause unread. No opened signal is no such evidence, since
+// the funnel never sees a chat past the list's first page, so a quote nobody observed stays open until the age rule.
+// The cash history's unread refund (견적 보상, parseCashHistory) would be a second source; it names the customer and
+// no quote, so it is not linked yet. A platform with no descriptor file (a test's synthetic board) has no window.
 export function quoteResults(ledger, { asOf, expireAfterDays }) {
   if (!(asOf instanceof Date) || Number.isNaN(asOf.getTime())) throw new TypeError('quoteResults needs asOf');
   if (!(expireAfterDays > 0)) throw new RangeError('expireAfterDays must be positive, got ' + expireAfterDays);
@@ -125,7 +131,7 @@ export function quoteResults(ledger, { asOf, expireAfterDays }) {
     // neither won nor lost, and it never ages into expired.
     const superseded = q.status === 'sent' && !lostToOther && decided.has(q.threadId);
     const pending = q.status === 'sent' && !lostToOther && !superseded;
-    const refundHours = pending && !acts.opened.has(q.id) ? refundWindow(q.platform) : undefined;
+    const refundHours = pending && !acts.opened.has(q.id) && acts.unread.has(q.id) ? refundWindow(q.platform) : undefined;
     const unread = refundHours != null && cut - at >= refundHours * HOUR_MS;
     const aged = pending && (unread || cut - at >= expireAfterDays * DAY_MS);
     const result = q.status === 'accepted' ? 'won' : q.status === 'declined' || lostToOther ? 'lost' : q.status === 'expired' || aged ? 'expired' : superseded ? 'superseded' : 'open';

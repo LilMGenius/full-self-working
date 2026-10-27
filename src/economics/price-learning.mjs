@@ -18,7 +18,7 @@ export function learnedFactor(cases, { step, maxMove }) {
   return f;
 }
 
-// results is quoteResults(...) as of asOf. Every row gets learned {cases, won, lost, expired, refused, open,
+// results is quoteResults(...) as of asOf. Every row gets learned {cases, won, lost, expired, refused, superseded, open,
 // priced, winRate, factor, fromKRW, capped, reason}; a viable row with minCases decided quotes in the
 // lookback gets baseKRW = its base x factor, held between costFloorKRW and marketCeilingKRW, and the matching
 // baseNetKRW. packages, floorKRW and ceilingKRW stay on the market (kmong gigs print packages, and the
@@ -30,7 +30,7 @@ export function learnPriceRows(rows, results, { settings, descriptors, asOf }) {
     const mine = results.filter((r) => r.platform === row.platform && r.service === row.service && Date.parse(r.at) >= since);
     const n = (k) => mine.filter((r) => r.result === k).length;
     const decided = mine.filter((r) => DECIDED.has(r.result));
-    const learned = { cases: decided.length, won: n('won'), lost: n('lost'), expired: n('expired'), refused: n('refused'), open: n('open'), priced: decided.filter((r) => r.index != null).length, winRate: (n('won') + 1) / (decided.length + 2), factor: 1, fromKRW: row.baseKRW, capped: false };
+    const learned = { cases: decided.length, won: n('won'), lost: n('lost'), expired: n('expired'), refused: n('refused'), superseded: n('superseded'), open: n('open'), priced: decided.filter((r) => r.index != null).length, winRate: (n('won') + 1) / (decided.length + 2), factor: 1, fromKRW: row.baseKRW, capped: false };
     if (!row.viable) return { ...row, learned: { ...learned, reason: 'row not viable' } };
     if (decided.length < minCases) return { ...row, learned: { ...learned, reason: decided.length + ' of ' + minCases + ' decided quotes' } };
     const factor = Math.round(learnedFactor(decided, { step, maxMove }) * 10_000) / 10_000;

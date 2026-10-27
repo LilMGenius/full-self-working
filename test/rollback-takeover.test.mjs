@@ -253,3 +253,16 @@ test('after Stop-Process the lock file goes only while it still names the stoppe
   assert.equal(existsSync(lock), false);
   assert.equal(removeLockOf(instance, 4242), false);
 });
+
+// The newest event of a kind is the last one written (docs/DESIGN.md, Ledger): a tick written after a clock step back
+// carries an earlier at, and it is still the newest.
+test('lastTick reads the newest supervisor.tick by write order', () => {
+  const dir = tempDir('fsw-rollback-ticks-');
+  const ledger = openLedger(join(dir, 'ledger.sqlite'));
+  ledger.addEvent({ kind: 'supervisor.tick', at: '2026-10-27T01:05:00.000Z', payload: {} });
+  ledger.addEvent({ kind: 'supervisor.tick', at: '2026-10-27T01:04:00.000Z', payload: {} });
+  ledger.close();
+  const io = realIo(args({ instance: dir }));
+  assert.equal(io.lastTick(null), '2026-10-27T01:04:00.000Z');
+  assert.equal(io.lastTick('2026-10-27T01:00:00.000Z'), '2026-10-27T01:04:00.000Z');
+});

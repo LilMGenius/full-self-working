@@ -63,12 +63,12 @@ export const realIo = (a) => ({
   git: (args) => execFileSync('git', args, { encoding: 'utf8', windowsHide: true }).trim(),
   gitQuiet: (args) => spawnSync('git', args, { encoding: 'utf8', windowsHide: true }),
   writeback: () => spawnSync(process.execPath, [fileURLToPath(new URL('./approvals-writeback.mjs', import.meta.url)), '--instance', a.instance, '--apply'], { encoding: 'utf8', windowsHide: true }),
-  // The newest supervisor.tick, or the newest after since.
+  // The newest supervisor.tick, or the newest after since; newest is the last written (id), as docs/DESIGN.md Ledger says.
   lastTick: (since) => {
     const db = new DatabaseSync(join(a.instance, 'ledger.sqlite'), { readOnly: true });
     try {
       db.exec('PRAGMA busy_timeout = 5000');
-      return (since ? db.prepare("SELECT at FROM events WHERE kind = 'supervisor.tick' AND at > ? ORDER BY at DESC LIMIT 1").get(since) : db.prepare("SELECT at FROM events WHERE kind = 'supervisor.tick' ORDER BY at DESC LIMIT 1").get())?.at ?? null;
+      return (since ? db.prepare("SELECT at FROM events WHERE kind = 'supervisor.tick' AND at > ? ORDER BY id DESC LIMIT 1").get(since) : db.prepare("SELECT at FROM events WHERE kind = 'supervisor.tick' ORDER BY id DESC LIMIT 1").get())?.at ?? null;
     } finally {
       db.close();
     }

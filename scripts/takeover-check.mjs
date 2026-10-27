@@ -194,11 +194,11 @@ export function read(a, now = Date.now(), { commandLine = commandLineOf } = {}) 
     db.exec('PRAGMA busy_timeout = 5000');
     version = db.prepare('PRAGMA user_version').get().user_version;
     takeovers = db.prepare("SELECT at, payload FROM events WHERE kind = 'takeover' ORDER BY id").all().map((r) => ({ at: r.at, ...JSON.parse(r.payload ?? '{}') }));
-    ticks = db.prepare("SELECT at, payload FROM events WHERE kind = 'supervisor.tick' AND at >= ? ORDER BY at").all(new Date(since).toISOString()).map((r) => {
+    ticks = db.prepare("SELECT at, payload FROM events WHERE kind = 'supervisor.tick' AND at >= ? ORDER BY at, id").all(new Date(since).toISOString()).map((r) => {
       const p = JSON.parse(r.payload ?? '{}') ?? {};
       return { at: Date.parse(r.at), code: p.code ?? null, jobs: Array.isArray(p.jobs) ? p.jobs : null };
     });
-    const prior = db.prepare("SELECT at FROM events WHERE kind = 'supervisor.tick' AND at < ? ORDER BY at DESC LIMIT 1").get(new Date(since).toISOString());
+    const prior = db.prepare("SELECT at FROM events WHERE kind = 'supervisor.tick' AND at < ? ORDER BY id DESC LIMIT 1").get(new Date(since).toISOString());
     before = prior ? Date.parse(prior.at) : null;
   } finally {
     db.close();

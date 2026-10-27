@@ -22,7 +22,7 @@ export function tickTimes(instance, since, until) {
   const db = new DatabaseSync(join(instance, 'ledger.sqlite'), { readOnly: true });
   try {
     db.exec('PRAGMA busy_timeout = 5000');
-    return db.prepare("SELECT at FROM events WHERE kind = 'supervisor.tick' AND at >= ? AND at <= ? ORDER BY at").all(new Date(since).toISOString(), new Date(until).toISOString()).map((r) => Date.parse(r.at));
+    return db.prepare("SELECT at FROM events WHERE kind = 'supervisor.tick' AND at >= ? AND at <= ? ORDER BY at, id").all(new Date(since).toISOString(), new Date(until).toISOString()).map((r) => Date.parse(r.at));
   } finally {
     db.close();
   }

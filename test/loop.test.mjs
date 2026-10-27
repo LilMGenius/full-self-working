@@ -524,6 +524,21 @@ test('a paid quote with a positive value is planned and its verdict recorded, a 
   await c.run('soomgo', cs, { runCodex: codexWith(decision({ intent: 'quote_request', reply: QUOTE_TEXT, quote: { amountKRW: 300000, scope: ['랜딩 페이지 1개'], deliveryDays: 7, priceType: 'fixed', complexity: 1 } })) });
   assert.deepEqual([c.ledger.listOutbox().map((x) => x.kind), c.events('quote.judged').length], [['quote'], 0]);
 });
+test('a read request keeps the snapshot it was decided on, rewritten only when its quote count, cost or budget moves', async () => {
+  const s = setup();
+  const codex = codexWith(decision({ intent: 'quote_request', reply: null }));
+  const page = (quoteCount) => (ref) => ({ ...chat('soomgo', ref, '웹 개발\n회사 소개 랜딩 페이지가 필요합니다.'), kind: 'request', quoteCostKRW: 990, quoteCount, budget: { minKRW: 100000, maxKRW: 200000 } });
+  const tick = async (hours, quoteCount) => {
+    const now = new Date(NOON.getTime() + hours * 3_600_000);
+    await s.run('soomgo', scriptedSurface({ sense: [inbound('soomgo', 'r1', { kind: 'request', service: '웹 개발', quotable: true, quoteCostKRW: 990, at: hoursBefore(now, 0.5) })], threads: page(quoteCount) }), { runCodex: codex, now });
+    return s.ledger.listThreads({ platform: 'soomgo' }).find((t) => t.externalId === 'r1').meta.request;
+  };
+  const first = await tick(0, 2);
+  assert.deepEqual(first, { quoteCount: 2, quoteCostKRW: 990, budget: { minKRW: 100000, maxKRW: 200000 }, readAt: NOON.toISOString() });
+  assert.deepEqual(await tick(1, 2), first, 'an unchanged snapshot keeps the time it was first read');
+  assert.deepEqual(await tick(2, 4), { ...first, quoteCount: 4, readAt: new Date(NOON.getTime() + 2 * 3_600_000).toISOString() });
+  assert.equal(codex.calls, 3);
+});
 test('an expired request whose thread has a quoted job loses the job', async () => {
   const s = setup();
   const t = s.ledger.upsertThread({ platform: 'soomgo', externalId: 'r9', kind: 'request' });

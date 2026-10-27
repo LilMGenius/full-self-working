@@ -45,7 +45,7 @@ export function resolve(ledger, approvalId, { approve, editedText, reason } = {}
 // confirmedBy operator and the outbound message is written in the same transaction, as an observed send
 // records it; the caller applies signalOf(row, receipt, now) through the deal, which writes the quote row
 // with the cash the press cost. The cost is --cost, else the press the surface recorded, else the planned
-// cost (settleSent at 7b9524e).
+// cost (settleSent at 7b9524e); a proposal keeps it as the bids it spent, which bidUsage counts.
 export function settleSent(ledger, approvalId, { costKRW = null, now = new Date() } = {}) {
   if (!ID_RE.test(String(approvalId))) throw new RangeError('not an approval id: ' + approvalId);
   if (costKRW != null && !(Number.isInteger(costKRW) && costKRW >= 0)) throw new RangeError('--cost needs a whole KRW amount, got ' + costKRW);
@@ -53,7 +53,7 @@ export function settleSent(ledger, approvalId, { costKRW = null, now = new Date(
   if (!row) throw Object.assign(new Error('no outbox item has approval id ' + approvalId), { code: 'FSW_OUTBOX_NO_APPROVAL' });
   if (row.status !== 'unobserved') throw Object.assign(new Error(approvalId + ' is ' + row.status + '; --sent settles only a send the surface could not observe'), { code: 'FSW_OUTBOX_RESOLVED' });
   const cost = costKRW ?? row.receipt?.costKRW ?? row.payload.costKRW ?? null;
-  const receipt = { ...(row.receipt ?? {}), observed: true, confirmedBy: 'operator', confirmedAt: now.toISOString(), ...(row.kind === 'quote' ? { cashSpentKRW: cost } : {}) };
+  const receipt = { ...(row.receipt ?? {}), observed: true, confirmedBy: 'operator', confirmedAt: now.toISOString(), ...(row.kind === 'quote' || row.kind === 'proposal' ? { cashSpentKRW: cost } : {}) };
   const done = transaction(ledger, () => {
     const moved = setStatus(ledger, row.id, { from: 'unobserved', to: 'observed', receipt, reason: 'the operator confirmed the send' });
     if (moved && row.kind !== 'pay_request') ledger.addMessage({ threadId: row.threadId, direction: 'out', body: row.operator?.finalText ?? row.payload.text ?? '', externalId: null, attachments: [], gate: row.verdict ?? null });

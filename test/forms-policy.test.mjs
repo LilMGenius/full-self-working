@@ -154,3 +154,11 @@ test('a code-priced freelancer proposal meets price.row and budget.below_floor, 
   const k = authorize(itemOf(kmongProposal()), ctx(makeInstance(), loadDescriptor('kmong'), { priceRow: null }));
   assert.deepEqual([k.verdict, rules(k)], ['send', []]);
 });
+test('a bid usage or cost that is not a finite amount of 0 or more refuses the bid', () => {
+  const budget = { monthlyKRW: 5000, stopAfterUnanswered: 20 };
+  for (const usage of [{ bidMonthKRW: NaN, bidUnanswered: NaN }, { bidMonthKRW: Infinity, bidUnanswered: 0 }, { bidMonthKRW: -1, bidUnanswered: 0 }, { bidMonthKRW: 0, bidUnanswered: 1.5 }, { bidMonthKRW: null, bidUnanswered: 0 }]) {
+    assert.deepEqual(bidBudgetCheck({ budget, usage, costKRW: 2000 }), { ok: false, reason: 'the bid usage was not counted' }, JSON.stringify(usage));
+  }
+  for (const costKRW of [NaN, -1, Infinity]) assert.deepEqual(bidBudgetCheck({ budget, usage: { bidMonthKRW: 0, bidUnanswered: 0 }, costKRW }), { ok: false, reason: 'the bid cost in KRW is unknown' });
+  assert.equal(bidBudgetCheck({ budget: { monthlyKRW: NaN, stopAfterUnanswered: 20 }, usage: { bidMonthKRW: 0, bidUnanswered: 0 }, costKRW: 0 }).ok, false);
+});

@@ -733,3 +733,12 @@ test('a claim that does not fit its box even at the smallest size is a violation
   assert.deepEqual(fit.map((v) => v.field), ['images.main'], JSON.stringify(r.violations));
   assert.match(fit[0].detail, /does not fit .* at 28 px/);
 });
+
+test('every detail image carries the AI badge and one carries the AI note panel, since the cover dropped them', () => {
+  const l = listingOf();
+  const pages = detailHtmls({ listing: l, studio: '스튜디오', gallery: [] });
+  assert.ok(pages.length >= 4);
+  for (const [i, p] of pages.entries()) assert.ok(p.includes('>' + LABELS.aiBadge + '<'), 'detail ' + (i + 1) + ' has no AI badge');
+  const notes = pages.filter((p) => p.includes('>' + LABELS.ai + '<') && p.includes('>' + l.imageCopy.aiNote + '<'));
+  assert.equal(notes.length, 1, 'one detail image holds the AI note panel');
+});

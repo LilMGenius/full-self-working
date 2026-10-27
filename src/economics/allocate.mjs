@@ -1,7 +1,8 @@
 // Thompson-sampling allocation over (platform, service) arms (docs/DESIGN.md, Economics).
 // Each arm draws a win rate from Beta(1 + wins, 1 + losses); its score is win rate x the net of the
-// price table's base / expected weighted hours. Scores are normalized into weights, and every enabled
-// arm still under config.yield.exploreUntilLeads leads keeps a floor: config.yield.explorationFloor, cut
+// price table's base less the arm's quote cost per quote, over expected weighted hours. Scores are
+// normalized into weights, and every enabled arm still under config.yield.exploreUntilLeads leads keeps a
+// floor: config.yield.explorationFloor, cut
 // so that all floors together stay within config.yield.explorationShare. Without that cap, twenty young
 // arms at 5 percent each would take the whole mass and every arm would get the same weight.
 import { EconomicsError, requireNumber } from './errors.mjs';
@@ -81,7 +82,13 @@ export function allocate(arms, { priceTable, config, rng = Math.random }) {
     const value = requireNumber(row.baseNetKRW, `price row ${a.platform}/${a.service}.baseNetKRW`, 'FSW_PRICE_ROW_MISSING');
     if (!(a.expectedHours > 0)) throw new EconomicsError('FSW_ARM_INVALID', `arm ${a.platform}/${a.service} has no expected hours`);
     const winRate = beta(1 + a.wins, 1 + a.losses, rng);
-    return { ...out, winRate, valueKRW: value, expectedHours: a.expectedHours, score: (winRate * value) / a.expectedHours, exploring: a.leads < untilLeads };
+    // A quote costs its cash whether it wins or not (soomgo cash), so one quote's expected yield is the win rate
+    // times the net of a win, from the learned base (baseNetKRW), less what a quote costs; never below 0. An arm
+    // with no quotes yet costs 0 per quote (quoteCostPerQuoteKRW, yield.mjs), so a young arm is not charged for
+    // quotes it never sent.
+    const quoteCostKRW = a.quoteCostPerQuoteKRW ?? 0;
+    const expected = Math.max(0, winRate * value - quoteCostKRW);
+    return { ...out, winRate, valueKRW: value, quoteCostKRW, expectedHours: a.expectedHours, score: expected / a.expectedHours, exploring: a.leads < untilLeads };
   });
   const total = results.reduce((s, r) => s + r.score, 0);
   if (total > 0) {

@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { hashTree } from '../src/core/reviewed.mjs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { openLedger, outboxKey } from '../src/core/ledger.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
@@ -623,4 +623,29 @@ test('the drain blocks a delivery whose files changed after its approval and tel
   assert.deepEqual(s.notes.filter((n) => /changed since/.test(n.body)).map((n) => n.dedupeKey), ['outbox-blocked:' + changed.row.id]);
   await s.run(surface);
   assert.equal(s.notes.filter((n) => /changed since/.test(n.body)).length, 1);
+});
+
+// The drain uploads copies taken before the claim: a file rewritten while the surface works (soomgo sets the file
+// input only after it opens the chat and types) still goes out as the bytes the operator approved, and the copies are
+// removed once the send settles, whether the surface returned or threw.
+test('an approved delivery uploads the approved bytes even when its file changes during the send', async () => {
+  const s = setup('soomgo');
+  const sent = reviewedDelivery(s, 'd1', '20261020-soomgo-0000e005');
+  const crashed = reviewedDelivery(s, 'd2', '20261020-soomgo-0000e006');
+  resolve(s.ledger, '20261020-soomgo-0000e005', { approve: true });
+  resolve(s.ledger, '20261020-soomgo-0000e006', { approve: true });
+  const uploaded = [];
+  const send = (ref, args) => {
+    const original = ref === 'd1' ? sent.file : crashed.file;
+    writeFileSync(original, '# 업로드 직전에 바뀐 빵집\n');
+    for (const f of args.files) uploaded.push({ ref, name: basename(f), bytes: readFileSync(f, 'utf8'), path: f, original });
+    return ref === 'd1' ? { observed: true } : new Error('the page crashed during the upload');
+  };
+  const out = await s.run(scriptedSurface({ receipts: { send } }));
+  assert.deepEqual(out.map((x) => [x.id, x.action]).sort(), [[sent.row.id, 'observed'], [crashed.row.id, 'unobserved']].sort());
+  assert.deepEqual(uploaded.map((u) => [u.ref, u.name, u.bytes]).sort(), [['d1', 'a.md', '# 빵집\n'], ['d2', 'a.md', '# 빵집\n']]);
+  for (const u of uploaded) {
+    assert.notEqual(u.path, u.original);
+    assert.equal(existsSync(u.path), false, 'the frozen copy of ' + u.ref + ' is removed once the send settles');
+  }
 });

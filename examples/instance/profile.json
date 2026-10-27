@@ -7,7 +7,8 @@
     "email": "seller@example.com",
     "links": [
       "https://example.com"
-    ]
+    ],
+    "githubOrgs": []
   },
   "headline_ko": "웹과 자동화를 만드는 개발자",
   "headline_en": "Developer who builds web apps and automations",

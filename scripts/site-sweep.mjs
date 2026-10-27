@@ -21,7 +21,8 @@ export const SITE_FAMILY = 'Pretendard';
 
 // The built folder as a static host: a directory serves its index.html, a missing file answers 404 (which the
 // broken-image check reports), and no path outside the folder is served, by name or through a link inside it.
-export function serveDir(root) {
+// open is the seam the tests fail a read through; it defaults to a file stream.
+export function serveDir(root, { open = createReadStream } = {}) {
   const base = resolve(root);
   const realBase = realpathSync(base);
   const inside = (path, top) => path === top || path.startsWith(top + sep);
@@ -37,8 +38,13 @@ export function serveDir(root) {
     if (!existsSync(file)) return void res.writeHead(404).end();
     // A junction or symlink inside the folder may point anywhere; the file it resolves to must lie inside too.
     if (!inside(realpathSync(file), realBase)) return void res.writeHead(403).end();
-    res.writeHead(200, { 'content-type': TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream' });
-    createReadStream(file).pipe(res);
+    // A file removed or locked between the checks above and the read answers 404 instead of ending the sweep.
+    const stream = open(file);
+    stream.once('error', () => (res.headersSent ? res.destroy() : res.writeHead(404).end()));
+    stream.once('open', () => {
+      res.writeHead(200, { 'content-type': TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream' });
+      stream.pipe(res);
+    });
   });
   return new Promise((ok, fail) => {
     server.once('error', fail);

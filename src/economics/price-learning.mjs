@@ -19,8 +19,9 @@ export function learnedFactor(cases, { step, maxMove }) {
 }
 
 // results is quoteResults(...) as of asOf. Every row gets learned {cases, won, lost, expired, refused, superseded, open,
-// priced, winRate, factor, fromKRW, capped, reason}; a viable row with minCases decided quotes in the
-// lookback gets baseKRW = its base x factor, held between costFloorKRW and marketCeilingKRW, and the matching
+// priced, winRate, factor, fromKRW, capped, reason}. Every decided quote counts in the win rate, but only one
+// with a pricing basis (priced) can say where the price stood, so a viable row with minCases priced decided
+// quotes in the lookback gets baseKRW = its base x factor, held between costFloorKRW and marketCeilingKRW, and the matching
 // baseNetKRW. packages, floorKRW and ceilingKRW stay on the market (kmong gigs print packages, and the
 // listing gate pins them to the table).
 export function learnPriceRows(rows, results, { settings, descriptors, asOf }) {
@@ -32,7 +33,7 @@ export function learnPriceRows(rows, results, { settings, descriptors, asOf }) {
     const decided = mine.filter((r) => DECIDED.has(r.result));
     const learned = { cases: decided.length, won: n('won'), lost: n('lost'), expired: n('expired'), refused: n('refused'), superseded: n('superseded'), open: n('open'), priced: decided.filter((r) => r.index != null).length, winRate: (n('won') + 1) / (decided.length + 2), factor: 1, fromKRW: row.baseKRW, capped: false };
     if (!row.viable) return { ...row, learned: { ...learned, reason: 'row not viable' } };
-    if (decided.length < minCases) return { ...row, learned: { ...learned, reason: decided.length + ' of ' + minCases + ' decided quotes' } };
+    if (learned.priced < minCases) return { ...row, learned: { ...learned, reason: learned.priced + ' of ' + minCases + ' priced decided quotes' } };
     const factor = Math.round(learnedFactor(decided, { step, maxMove }) * 10_000) / 10_000;
     const raw = roundTo1000(row.baseKRW * factor);
     const base = Math.min(row.marketCeilingKRW, Math.max(row.costFloorKRW, raw));

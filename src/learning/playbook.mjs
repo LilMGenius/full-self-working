@@ -62,7 +62,9 @@ export function compileGateRules(lessons, cases) {
       rejected.push({ class: l.class, pattern: l.pattern, reason: v.reason });
       continue;
     }
-    rules.push({ id: ruleId(l.class), pattern: l.pattern, flags: 'iu', reason: l.rule, tier: 'floor' });
+    // appliesTo keeps the rule on the platforms its lesson was learned on (src/policy/gate.mjs); evidence names
+    // the cases it was checked against.
+    rules.push({ id: ruleId(l.class), pattern: l.pattern, flags: 'iu', reason: l.rule, tier: 'floor', appliesTo: l.appliesTo?.length ? l.appliesTo : ['all'], evidence: l.evidence ?? [] });
   }
   return { rules, rejected };
 }

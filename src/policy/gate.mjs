@@ -215,8 +215,9 @@ export function gateOutbound(item, ctx = {}) {
     if ((item.thread?.recentOutbound ?? []).some((t) => norm(t) === norm(text)) && text.trim()) add(violations, 'shape.duplicate', 'same text was already sent in this thread');
   }
 
-  // learned
-  for (const rule of lessonsRules ?? []) {
+  // learned: a rule fires only on the platforms its lesson came from (appliesTo); a rule written before
+  // appliesTo existed has none and fires everywhere.
+  for (const rule of (lessonsRules ?? []).filter((r) => !Array.isArray(r.appliesTo) || r.appliesTo.includes('all') || r.appliesTo.includes(item.platform))) {
     let re;
     try {
       re = new RegExp(rule.pattern, rule.flags ?? 'iu');

@@ -26,11 +26,14 @@ export function loadPlaybook(instance, platform) {
   return parts.filter(Boolean).join('\n\n');
 }
 
-export function loadLessons(instance, limit = LESSONS_IN_PROMPT) {
+// The newest lessons for one platform's prompt: a lesson scoped to other platforms (appliesTo) stays out; a
+// lesson without appliesTo, or scoped to all, reaches every platform.
+export function loadLessons(instance, { platform = null, limit = LESSONS_IN_PROMPT } = {}) {
   const file = join(instance.paths.lessons, 'lessons.jsonl');
   if (!existsSync(file)) return [];
   const lines = readFileSync(file, 'utf8').split('\n').filter((l) => l.trim());
-  return lines.map((l) => JSON.parse(l)).sort((a, b) => String(b.updatedAt ?? '').localeCompare(String(a.updatedAt ?? ''))).slice(0, limit);
+  const applies = (l) => !platform || !Array.isArray(l.appliesTo) || l.appliesTo.includes('all') || l.appliesTo.includes(platform);
+  return lines.map((l) => JSON.parse(l)).filter(applies).sort((a, b) => String(b.updatedAt ?? '').localeCompare(String(a.updatedAt ?? ''))).slice(0, limit);
 }
 
 // The payout account is released only where the gate would let it through: a platform that allows

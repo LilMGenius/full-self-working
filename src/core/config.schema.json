@@ -49,7 +49,7 @@
             "null"
           ],
           "minimum": 0,
-          "description": "cash in KRW quotes may spend here in one Seoul day; 0 or null refuses every cash quote",
+          "description": "cash in KRW fsw's own quotes may spend here in one Seoul day, which quoteGate.pace spreads over the day, apart from the platform's own automatic sending that platformSpendMaxPerDay bounds; 0 or null refuses every cash quote",
           "default": null,
           "x-choice": true
         },
@@ -59,8 +59,26 @@
             "null"
           ],
           "minimum": 0,
-          "description": "the most cash in KRW a day the platform's own automatic sending (smart quote campaigns) may budget here; a campaign over it is reported to you once a day, null reports budgets without a limit",
+          "description": "the most cash in KRW a day the platform's own automatic sending (smart quote campaigns) may budget here, apart from fsw's own quotes that maxCashPerDay bounds; a campaign over it is reported to you once a day, null reports budgets without a limit",
           "default": null
+        },
+        "quoteGate": {
+          "type": "object",
+          "description": "how fsw judges a paid quote on a buyer request before it is planned, and how it spends the day's quote cash",
+          "default": {
+            "pace": "even"
+          },
+          "properties": {
+            "pace": {
+              "type": "string",
+              "enum": [
+                "even",
+                "off"
+              ],
+              "description": "even holds a new buyer request unread while the day's quote cash is above maxCashPerDay times the share of the Seoul day gone by; off leaves only the day caps",
+              "default": "even"
+            }
+          }
         },
         "services": {
           "type": [
@@ -290,6 +308,9 @@
           "maxQuotesPerDay": 5,
           "maxCashPerDay": 0,
           "platformSpendMaxPerDay": null,
+          "quoteGate": {
+            "pace": "even"
+          },
           "services": null
         },
         "wishket": {

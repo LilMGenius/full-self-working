@@ -77,7 +77,7 @@ test('a valid set writes the new file and one settings.changed event, and reset 
 test('the list prints each key with its value, default and meaning, map keys per platform', async () => {
   const r = await call(instanceDir(), []);
   assert.equal(r.code, 0);
-  assert.ok(r.out.includes('platforms.soomgo.maxCashPerDay = 0 (default null) cash in KRW quotes may spend here in one Seoul day; 0 or null refuses every cash quote'), r.out.join('\n').slice(0, 2000));
+  assert.ok(r.out.includes('platforms.soomgo.maxCashPerDay = 0 (default null) cash in KRW fsw\'s own quotes may spend here in one Seoul day, which quoteGate.pace spreads over the day, apart from the platform\'s own automatic sending that platformSpendMaxPerDay bounds; 0 or null refuses every cash quote'), r.out.join('\n').slice(0, 2000));
   assert.ok(r.out.some((l) => l.startsWith('market.engines.fiverr = null (default null) ')));
   assert.ok(r.out.some((l) => l.startsWith('platforms.kmong.proposals.maxPerDay = 5 (default 5) ')));
 });

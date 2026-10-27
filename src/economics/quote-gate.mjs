@@ -30,17 +30,23 @@ const finite = (v) => typeof v === 'number' && Number.isFinite(v);
 // weighted by minCases (an instance without price learning judges at the share alone). The margin is what a
 // win nets after fees less the work's cost floor, and the value is p x margin less the quote's cash cost
 // (netKRW of quoteForRequest already subtracts that cost, so it is never the margin here). A quote whose fit is
-// unknown or under the floor, whose request is full, or whose value is unknown or at most zero, drops.
+// unknown or under the floor, whose request is full, or whose value is unknown or at most zero, drops. The value is
+// known only when the chance, the margin and the value are all finite numbers: an arm count that is not a number
+// would make each of them NaN, which no comparison with zero catches.
 export function judgeQuote({ fit, quoteCount, quoteCostKRW, amountKRW, pricing = null, row, descriptor, arm, settings }) {
   const max = descriptor?.bidCost?.maxPerRequest;
   const known = Number.isInteger(quoteCount) && quoteCount >= 0;
   const p0 = known ? 1 / (quoteCount + 1) : Number.isInteger(max) && max > 0 ? 1 / max : null;
   const { won = 0, lost = 0, expired = 0 } = arm ?? {};
   const w = settings?.minCases;
-  const p = p0 == null ? null : Number.isInteger(w) && w > 0 ? (won + w * p0) / (won + lost + expired + w) : p0;
-  const valued = p != null && finite(amountKRW) && amountKRW >= 0 && finite(row?.costFloorKRW) && finite(quoteCostKRW) && pricing?.source !== 'model';
-  const marginKRW = valued ? sellerNet(amountKRW, descriptor).net - row.costFloorKRW : null;
-  const evKRW = valued ? p * marginKRW - quoteCostKRW : null;
+  const chance = p0 == null ? null : Number.isInteger(w) && w > 0 ? (won + w * p0) / (won + lost + expired + w) : p0;
+  const p = finite(chance) ? chance : null;
+  const inputs = p != null && finite(amountKRW) && amountKRW >= 0 && finite(row?.costFloorKRW) && finite(quoteCostKRW) && pricing?.source !== 'model';
+  const margin = inputs ? sellerNet(amountKRW, descriptor).net - row.costFloorKRW : null;
+  const ev = inputs ? p * margin - quoteCostKRW : null;
+  const valued = finite(margin) && finite(ev);
+  const marginKRW = valued ? margin : null;
+  const evKRW = valued ? ev : null;
   const out = (verdict, reason) => ({ verdict, reason, p, p0, marginKRW, evKRW });
   if (fit == null || !(fit in FIT_RANK)) return out('drop', 'gate: fit.unknown');
   if (!fitMeets(fit, settings?.minFit ?? QUOTE_GATE_DEFAULT.minFit)) return out('drop', 'gate: fit.low');

@@ -67,6 +67,20 @@ test('a quote whose value cannot be computed drops as value.unknown and never ca
   }
 });
 
+test('a win chance, margin or value that is not a finite number drops as value.unknown', () => {
+  // An arm count read as NaN makes p and the value NaN, and NaN <= 0 is false, so it must not read as a send.
+  const cases = [
+    { arm: { won: Number.NaN, lost: 0, expired: 0 } },
+    { arm: { won: 0, lost: Number.NaN, expired: 0 }, settings: { ...SETTINGS, minCases: 2 } },
+    { amountKRW: Number.MAX_VALUE, row: { ...ROW, costFloorKRW: -Number.MAX_VALUE } },
+  ];
+  for (const over of cases) {
+    const r = judge(over);
+    assert.deepEqual([r.verdict, r.reason], ['drop', 'gate: value.unknown'], JSON.stringify(over));
+    for (const k of ['p', 'marginKRW', 'evKRW']) assert.ok(r[k] === null || Number.isFinite(r[k]), k + ' ' + r[k]);
+  }
+});
+
 test('fit ranks and the floor check carried from src/projects', () => {
   assert.deepEqual(FIT_RANK, { none: 0, some: 1, strong: 2 });
   assert.deepEqual([fitMeets('strong', 'some'), fitMeets('some', 'some'), fitMeets('none', 'some'), fitMeets(undefined, 'none')], [true, true, false, false]);

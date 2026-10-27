@@ -334,8 +334,15 @@ export async function googleSignIn(session, { button, framed = false, email, tim
   };
   const chooser = await inTab(() => ({ accounts: [...document.querySelectorAll('[data-identifier]')].map((e) => e.getAttribute('data-identifier')), password: !!document.querySelector('input[type=password]') }));
   if (chooser.password || !chooser.accounts.includes(email)) throw new Error('Google asked for a password or does not list ' + email + '; sign in to Google in Chrome first');
-  // The chooser ignores a synthetic click on its row, so the row is clicked through the tree too.
-  if (!(await clickObserved(session, new RegExp(escapeRe(email)), { tabId: tab.tab_id }))) throw new Error('the chooser row for the account was not clickable');
+  // The chooser ignores a synthetic click on its row, so the row is clicked through the tree too. Picking
+  // the row closes the popup, and the engine can then fail its own follow-up on the closed tab with "No tab
+  // with id" (freelancer, 2026-10-27 17:38Z: the account was signed in and the self API answered); the
+  // loop below reads the page that opened the popup to decide.
+  const picked = await clickObserved(session, new RegExp(escapeRe(email)), { tabId: tab.tab_id }).catch((err) => {
+    if (/No tab with id/i.test(err.message)) return true;
+    throw err;
+  });
+  if (!picked) throw new Error('the chooser row for the account was not clickable');
   // A first sign-in to a site shows a consent page with a Continue button before the popup closes.
   const until = Date.now() + timeoutMs;
   while (Date.now() < until) {

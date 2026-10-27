@@ -17,8 +17,9 @@ import { plan, setStatus } from '../outbox/index.mjs';
 import { operatingMode } from '../policy/authorize.mjs';
 import { loadDescriptor } from '../platforms/registry.mjs';
 import { CATEGORIES, detailUrl } from '../platforms/kmong/projects.mjs';
-import { fitMeets, improveProposal, proposalPolicy, proposalsLeft, sendDecision, usedToday } from './draft.mjs';
-import { FIT_RANK, SUB_ROOT, SUB_SERVICES, markProject, needsJudgement, projectThread, rememberJudgement, scoreProject } from './score.mjs';
+import { improveProposal, proposalPolicy, proposalsLeft, sendDecision, usedToday } from './draft.mjs';
+import { SUB_ROOT, SUB_SERVICES, markProject, needsJudgement, projectThread, rememberJudgement, scoreProject } from './score.mjs';
+import { FIT_RANK, fitMeets } from '../economics/quote-gate.mjs';
 
 // Root tabs that hold a sub category whose services the profile fits at minFit or better.
 export function categoriesFor(profile, minFit) {

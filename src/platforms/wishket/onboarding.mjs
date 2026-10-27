@@ -297,7 +297,7 @@ export async function readIdentity(session) {
   });
 }
 
-function pendingIdentity(ledger, now) {
+export function pendingIdentity(ledger, now) {
   try {
     const row = ledger?.db?.prepare("SELECT at, payload FROM events WHERE kind = 'platform.identity_request' AND platform = 'wishket' ORDER BY id DESC LIMIT 1").get();
     return row && now - Date.parse(row.at) < 2 * DAY_MS ? row : null;

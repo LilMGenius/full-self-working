@@ -307,3 +307,14 @@ test('one failed tick right after a handover is a note, and two failed ticks fai
   const two = [...one, failed(10)];
   assert.deepEqual(failuresOf({ ticks: two, now: T0 + 11 * 60_000 }), ['every tick since the handover failed its poll (2 of 2 ticks judged)']);
 });
+
+// The newest event is the last written (docs/DESIGN.md, Ledger): a tick written after a clock step back carries an
+// earlier at and is still the newest before --since.
+test('the CLI reads the tick before --since by write order', () => {
+  const s = scratch();
+  const late = new Date(Date.parse(s.since) - 5 * 60_000).toISOString();
+  const ledger = openLedger(join(s.instance, 'ledger.sqlite'));
+  ledger.addEvent({ at: late, kind: 'supervisor.tick', payload: { jobs: ['poll:ok'], failures: 0, forceMode: null, code: s.a } });
+  ledger.close();
+  assert.equal(cli(s).out.tickBeforeSince, late);
+});

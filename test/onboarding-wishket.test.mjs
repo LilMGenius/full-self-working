@@ -3,9 +3,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
+import { openLedger } from '../src/core/ledger.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
 import {
-  STEPS, careerEntries, desiredSkills, gateTexts, introCopy, isSignedOut, parseStackResult, periodOf, pickPortfolio, planList, portfolioCandidates, prizeEntries, sameCompany, skillCandidates, writePace,
+  STEPS, careerEntries, desiredSkills, gateTexts, introCopy, isSignedOut, parseStackResult, pendingIdentity, periodOf, pickPortfolio, planList, portfolioCandidates, prizeEntries, sameCompany, skillCandidates, writePace,
 } from '../src/platforms/wishket/onboarding.mjs';
 
 const instance = {
@@ -146,3 +147,16 @@ test('planList on a populated page', () => {
   assert.deepEqual(plan.keep.map((x) => x.pk), ['1']);
 });
 
+// The pending 위시켓 identity request is the last one written (docs/DESIGN.md, Ledger), even when a clock step gave it
+// an earlier time than the one before it.
+test('the pending identity request is the newest written, and a request older than two days is none', () => {
+  const ledger = openLedger(':memory:');
+  const now = Date.parse('2026-10-27T12:00:00.000Z');
+  const ago = (h) => new Date(now - h * 3_600_000).toISOString();
+  assert.equal(pendingIdentity(ledger, now), null);
+  ledger.addEvent({ kind: 'platform.identity_request', platform: 'wishket', ref: 'identity', at: ago(1), payload: { file: 'a.png' } });
+  ledger.addEvent({ kind: 'platform.identity_request', platform: 'wishket', ref: 'identity', at: ago(5), payload: { file: 'b.png' } });
+  assert.equal(pendingIdentity(ledger, now).at, ago(5));
+  ledger.addEvent({ kind: 'platform.identity_request', platform: 'wishket', ref: 'identity', at: ago(50), payload: { file: 'c.png' } });
+  assert.equal(pendingIdentity(ledger, now), null);
+});

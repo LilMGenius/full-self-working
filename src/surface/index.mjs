@@ -9,6 +9,7 @@ import { recordSession, replaySession } from './recorder.mjs';
 const OPENERS = {
   kmong: async () => (await import('./kmong.mjs')).openKmongSurface,
   soomgo: async () => (await import('./soomgo.mjs')).openSoomgoSurface,
+  freelancer: async () => (await import('./freelancer.mjs')).openFreelancerSurface,
 };
 const LISTING_OPENERS = {
   kmong: async () => (await import('./kmong.mjs')).openKmongListingSurface,

@@ -114,7 +114,10 @@ export async function step(platform, ctx) {
     // rehearsal on a copy of the instance) never signs in, so it cannot open a second session on the
     // account beside the live supervisor; a platform configured observe still does.
     if (!result.login?.loggedIn && ctx.signInAgain && forceMode !== 'observe') result.login = (await ctx.signInAgain({ id: platform, surface, instance, ledger, now })) ?? result.login;
-    if (!result.login?.loggedIn) {
+    // A board whose lists read signed out (003 publicSense) keeps sensing in observe mode, so it sends
+    // nothing until the operator's session is signed in again.
+    if (!result.login?.loggedIn && surface.publicSense === true) result.mode = mode = 'observe';
+    else if (!result.login?.loggedIn) {
       await (ctx.notify ?? notifyOperator)(instance, { kind: 'login', title: platform + ' needs a login', body: 'Sign in to ' + descriptor.name + ' in ' + chromeName(instance.config) + '; the supervisor reads it again on the next tick.', dedupeKey: 'login:' + platform + ':' + dayKey(now) });
       return { ...result, status: 'failed', error: 'not logged in' };
     }

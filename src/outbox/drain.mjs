@@ -12,6 +12,7 @@ import { randomBytes } from 'node:crypto';
 import { dayKey } from '../core/clock.mjs';
 import { classifyNotice } from '../core/notices.mjs';
 import { notifyOperator } from '../core/notify.mjs';
+import { filesHash } from '../core/reviewed.mjs';
 import { transaction } from '../core/tx.mjs';
 import { HOLD_RULES, spendsCash } from '../policy/authorize.mjs';
 import { baseName, setStatus } from './plan.mjs';
@@ -172,6 +173,18 @@ export async function drain(ledger, { platform, surface, authorize, ctx }) {
       continue;
     }
     const approved = row.status === 'approved';
+    // An approved delivery goes out only as the bytes the operator approved (resolve stamps operator.filesHash); one
+    // whose files changed since, or approved without the stamp, is blocked for the operator.
+    if (approved && row.kind === 'delivery' && row.operator?.filesHash !== filesHash(row.payload.files ?? [])) {
+      const reason = 'the delivery files changed since the operator approved it; nothing was sent: ' + (row.payload.files ?? []).map(baseName).join(', ');
+      if (!setStatus(ledger, row.id, { from: 'approved', to: 'blocked', reason })) {
+        moved(row);
+        continue;
+      }
+      await notify({ kind: 'order', title: platform + ' delivery for job ' + (row.jobId ?? '-') + ' is blocked', body: reason + '\nCheck the files, then plan the delivery again.', dedupeKey: 'outbox-blocked:' + row.id });
+      out.push({ id: row.id, kind: row.kind, action: 'blocked', reason });
+      continue;
+    }
     const verdict = authorize(itemOf(row), { ...ctx, now, approved, priceRow: row.payload.priceRow ?? null, usage: usage() });
     if (verdict.verdict === 'refuse') {
       const reason = verdict.violations.map((v) => v.rule + ' ' + v.detail).join('; ');

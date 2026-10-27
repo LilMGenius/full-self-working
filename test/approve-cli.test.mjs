@@ -108,7 +108,7 @@ test('fsw approve shows a delivery review and approves a non-pass review only wi
 // A delivery is approved against the bytes its review read: a changed file needs --reason, and files added after
 // the review (operator steps) are listed as unreviewed.
 test('fsw approve refuses a passed delivery whose files changed since the review unless --reason, and lists files added after it', async () => {
-  const { hashTree } = await import('../src/work/review.mjs');
+  const { hashTree } = await import('../src/core/reviewed.mjs');
   const { mkdirSync: mk } = await import('node:fs');
   const s = setup();
   const work = join(s.instance.paths.jobs, 'j1', 'work');

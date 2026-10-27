@@ -5,6 +5,7 @@
 // A reject also closes a send the surface could not observe and the operator found not sent, and an
 // approved row the drain has not claimed (an approved cash quote no day can pay); settleSent closes one
 // the operator saw go out (fsw approve <id> --sent, settleSent of src/cli/approvals.mjs at 7b9524e).
+import { filesHash, reviewDrift } from '../core/reviewed.mjs';
 import { transaction } from '../core/tx.mjs';
 import { setStatus } from './plan.mjs';
 
@@ -18,12 +19,17 @@ export function resolve(ledger, approvalId, { approve, editedText, reason } = {}
   const resolved = () => Object.assign(new Error('approval ' + approvalId + ' is already ' + ledger.getOutbox(row.id).status), { code: 'FSW_OUTBOX_RESOLVED' });
   const from = row.status;
   if (from !== 'awaiting_operator' && !(['unobserved', 'approved'].includes(from) && approve === false)) throw resolved();
-  // wp7: a delivery is approved only after a passed review (src/work/review.mjs), or with the operator's stated reason.
-  const review = row.kind === 'delivery' ? row.payload.review?.verdict ?? 'error' : null;
-  if (approve && review !== null && review !== 'pass' && !(reason ?? '').trim()) throw Object.assign(new Error('delivery ' + approvalId + ' has review ' + review + '; approving it needs --reason'), { code: 'FSW_REVIEW_NOT_PASSED' });
+  // wp7: a delivery is approved only after a passed review of the bytes it holds now (src/work/review.mjs,
+  // src/core/reviewed.mjs), or with the operator's stated reason; the approval stamps the hash of its files, which
+  // the drain checks before it sends.
+  const delivery = row.kind === 'delivery';
+  const review = delivery ? row.payload.review?.verdict ?? 'error' : null;
+  const stated = Boolean((reason ?? '').trim());
+  if (approve && delivery && review !== 'pass' && !stated) throw Object.assign(new Error('delivery ' + approvalId + ' has review ' + review + '; approving it needs --reason'), { code: 'FSW_REVIEW_NOT_PASSED' });
+  if (approve && delivery && review === 'pass' && !stated && reviewDrift(row.payload.review, row.payload.files ?? []).changed) throw Object.assign(new Error('delivery ' + approvalId + ' changed since its review; approving it needs --reason'), { code: 'FSW_REVIEW_CHANGED' });
   const edited = typeof editedText === 'string' && editedText.trim() ? editedText.trim() : null;
   const draft = row.payload.text ?? null;
-  const operator = { resolvedAt: new Date().toISOString(), finalText: approve ? edited ?? draft : null, edited: approve && edited !== null && edited !== draft, resolutionReason: reason ?? null };
+  const operator = { resolvedAt: new Date().toISOString(), finalText: approve ? edited ?? draft : null, edited: approve && edited !== null && edited !== draft, resolutionReason: reason ?? null, ...(approve && delivery ? { filesHash: filesHash(row.payload.files ?? []) } : {}) };
   const done = setStatus(ledger, row.id, { from, to: approve ? 'approved' : 'rejected', operator });
   if (!done) throw resolved();
   return done;

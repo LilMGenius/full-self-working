@@ -7,10 +7,10 @@
 // 2026-10-27 with codex-cli 0.164.0), and the Windows sandbox setting that lets it read also lets it write. So the
 // review is shown its input: text files in the prompt, images attached, and a file of any other format (xlsx,
 // pptx, mp4) is named as unread, which turns a pass into error, since nothing reviewed it.
-import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
+import { hashTree } from '../core/reviewed.mjs';
 import { runCodex as defaultRunCodex } from '../brain/codex.mjs';
 import { matchFiles } from './accept.mjs';
 
@@ -33,11 +33,6 @@ export const reviewerFor = (builderModel, { openaiModel }) => {
   return family && family !== 'openai' ? openaiModel : null;
 };
 
-export function hashTree(dir, files) {
-  const h = createHash('sha256');
-  for (const f of [...files].sort()) h.update(f + '\0' + createHash('sha256').update(readFileSync(join(dir, f))).digest('hex') + '\n');
-  return h.digest('hex');
-}
 
 // What the review is shown: TEXT files inline up to REVIEW_LIMITS (a longer one is cut and listed as partial),
 // IMAGE files attached up to the image limit (the deliverables first, then the QA captures), the rest unread.
@@ -83,16 +78,6 @@ function reviewPrompt({ brief, files, language, input }) {
     ...(input.images.length ? ['', '# Attached images', ...input.images.map((f) => f.split(/[\\/]/).pop())] : []),
     ...(input.unread.length ? ['', '# Not shown (a format this review cannot read)', ...input.unread] : []),
   ].join('\n');
-}
-
-// The delivery against its review: changed when a reviewed file is gone or its bytes differ from the reviewed hash
-// (a review without its file list cannot be checked and counts as changed); unreviewed lists the delivery files the
-// review never read, such as files an operator step added after the run.
-export function reviewDrift(review, files) {
-  if (!Array.isArray(review?.reviewed) || !review.work) return { changed: true, unreviewed: [...files] };
-  const seen = new Set(review.reviewed.map((f) => resolve(review.work, f)));
-  const changed = !review.reviewed.every((f) => existsSync(join(review.work, f))) || hashTree(review.work, review.reviewed) !== review.hash;
-  return { changed, unreviewed: files.filter((f) => !seen.has(resolve(f))) };
 }
 
 // paths: jobPaths of the job; recipe: its deliverables. Returns the review record stored on the job.

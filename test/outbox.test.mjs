@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { hashTree } from '../src/core/reviewed.mjs';
 import { join } from 'node:path';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { openLedger, outboxKey } from '../src/core/ledger.mjs';
@@ -41,6 +42,11 @@ function setup(platform = 'kmong', edit) {
 }
 const events = (ledger, kind) => ledger.db.prepare('SELECT * FROM events WHERE kind = ? ORDER BY id').all(kind).map((e) => ({ ...e, payload: JSON.parse(e.payload) }));
 const outMessages = (ledger, threadId) => ledger.threadMessages(threadId).filter((m) => m.direction === 'out');
+// A passed review as src/work/review.mjs records it, for a delivery with no reviewed file of its own.
+const passedReview = () => {
+  const work = tempDir('fsw-outbox-reviewed-');
+  return { verdict: 'pass', findings: [], reviewed: [], work, hash: hashTree(work, []) };
+};
 
 test('plan twice with the same item returns one row; a deposit and a balance of equal amount make two rows', () => {
   const s = setup('soomgo');
@@ -440,7 +446,7 @@ test('read-back after an interrupted send ignores an older bubble with the same 
   assert.equal(outMessages(s.ledger, t.id).length, 0);
   const d = setup('soomgo');
   const dt = d.thread('c1');
-  const del = plan(d.ledger, { platform: 'soomgo', threadId: dt.id, kind: 'delivery', payload: { text: '전달드립니다', files: [], runAt: 'r1', review: { verdict: 'pass', findings: [] } } });
+  const del = plan(d.ledger, { platform: 'soomgo', threadId: dt.id, kind: 'delivery', payload: { text: '전달드립니다', files: [], runAt: 'r1', review: passedReview() } });
   setStatus(d.ledger, del.id, { from: 'planned', to: 'awaiting_operator', approvalId: '20261020-soomgo-0000dd01' });
   resolve(d.ledger, '20261020-soomgo-0000dd01', { approve: true });
   setStatus(d.ledger, del.id, { from: 'approved', to: 'sending' });
@@ -544,7 +550,7 @@ test('resolve refuses a delivery without a passed review unless a reason is give
   };
   const failed = waiting('d1', '20261020-soomgo-0000d001', { verdict: 'fail', findings: [{ severity: 'blocker', file: null, detail: 'x' }] });
   const none = waiting('d2', '20261020-soomgo-0000d002', null);
-  const passed = waiting('d3', '20261020-soomgo-0000d003', { verdict: 'pass', findings: [] });
+  const passed = waiting('d3', '20261020-soomgo-0000d003', passedReview());
   for (const reason of [undefined, '', '   ']) assert.throws(() => resolve(s.ledger, '20261020-soomgo-0000d001', { approve: true, reason }), { code: 'FSW_REVIEW_NOT_PASSED', message: /has review fail; approving it needs --reason/ });
   assert.throws(() => resolve(s.ledger, '20261020-soomgo-0000d002', { approve: true }), { code: 'FSW_REVIEW_NOT_PASSED', message: /has review error/ });
   for (const r of [failed, none]) assert.deepEqual([s.ledger.getOutbox(r.id).status, s.ledger.getOutbox(r.id).operator ?? null], ['awaiting_operator', null]);
@@ -556,4 +562,46 @@ test('resolve refuses a delivery without a passed review unless a reason is give
   const message = plan(s.ledger, { platform: 'soomgo', threadId: s.thread('m1').id, kind: 'message', payload: msgPayload() });
   setStatus(s.ledger, message.id, { from: 'planned', to: 'awaiting_operator', approvalId: '20261020-soomgo-0000d004', reason: 'draft mode' });
   assert.equal(resolve(s.ledger, '20261020-soomgo-0000d004', { approve: true }).status, 'approved');
+});
+
+// Complete mediation for a reviewed delivery: resolve itself refuses a changed one without a reason, and the drain
+// sends only the bytes the operator approved.
+function reviewedDelivery(s, ref, approvalId) {
+  const work = join(tempDir('fsw-outbox-work-'), 'work');
+  mkdirSync(join(work, 'copy'), { recursive: true });
+  const file = join(work, 'copy', 'a.md');
+  writeFileSync(file, '# 빵집\n');
+  const review = { verdict: 'pass', findings: [], reviewed: ['copy/a.md'], work, hash: hashTree(work, ['copy/a.md']) };
+  const row = plan(s.ledger, { platform: 'soomgo', threadId: s.thread(ref).id, kind: 'delivery', payload: { text: '전달드립니다', files: [file], runAt: '2026-10-20T10:00:00Z', review } });
+  setStatus(s.ledger, row.id, { from: 'planned', to: 'awaiting_operator', approvalId, reason: 'delivery' });
+  return { row, file };
+}
+
+test('resolve refuses a passed delivery whose reviewed files changed unless a reason is given', () => {
+  const s = setup('soomgo');
+  const { row, file } = reviewedDelivery(s, 'd1', '20261020-soomgo-0000e001');
+  writeFileSync(file, '# 바뀐 빵집\n');
+  for (const reason of [undefined, ' ']) assert.throws(() => resolve(s.ledger, '20261020-soomgo-0000e001', { approve: true, reason }), { code: 'FSW_REVIEW_CHANGED', message: /changed since its review; approving it needs --reason/ });
+  assert.deepEqual([s.ledger.getOutbox(row.id).status, s.ledger.getOutbox(row.id).operator ?? null], ['awaiting_operator', null]);
+  const done = resolve(s.ledger, '20261020-soomgo-0000e001', { approve: true, reason: 'I changed the title' });
+  assert.equal(done.status, 'approved');
+  assert.match(done.operator.filesHash, /^[0-9a-f]{64}$/);
+});
+
+test('the drain blocks a delivery whose files changed after its approval and tells the operator once', async () => {
+  const s = setup('soomgo');
+  const kept = reviewedDelivery(s, 'd1', '20261020-soomgo-0000e002');
+  const changed = reviewedDelivery(s, 'd2', '20261020-soomgo-0000e003');
+  resolve(s.ledger, '20261020-soomgo-0000e002', { approve: true });
+  resolve(s.ledger, '20261020-soomgo-0000e003', { approve: true });
+  writeFileSync(changed.file, '# 승인 뒤에 바뀐 빵집\n');
+  const surface = scriptedSurface();
+  const out = await s.run(surface);
+  assert.deepEqual(out.map((x) => [x.id, x.action]).sort(), [[kept.row.id, 'observed'], [changed.row.id, 'blocked']].sort());
+  const blocked = s.ledger.getOutbox(changed.row.id);
+  assert.deepEqual([blocked.status, /changed since the operator approved it/.test(blocked.reason)], ['blocked', true]);
+  assert.deepEqual(surface.calls.filter((c) => c.name === 'send').map((c) => c.ref), ['d1']);
+  assert.deepEqual(s.notes.filter((n) => /changed since/.test(n.body)).map((n) => n.dedupeKey), ['outbox-blocked:' + changed.row.id]);
+  await s.run(surface);
+  assert.equal(s.notes.filter((n) => /changed since/.test(n.body)).length, 1);
 });

@@ -6,7 +6,8 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { codexArgs } from '../src/brain/codex.mjs';
-import { REVIEW_SCHEMA, hashTree, modelFamily, reviewDeliverables, reviewDrift, reviewInput, reviewerFor } from '../src/work/review.mjs';
+import { hashTree, reviewDrift } from '../src/core/reviewed.mjs';
+import { REVIEW_SCHEMA, modelFamily, reviewDeliverables, reviewInput, reviewerFor } from '../src/work/review.mjs';
 import { tempDir } from './tmp.mjs';
 
 function job() {

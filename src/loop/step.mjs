@@ -259,11 +259,20 @@ export async function step(platform, ctx) {
         }
         const stage = stageOf({ page: thread.stage ?? ib.stage, kind: ib.kind }, ledger, platform, row.id);
         const view = { ...thread, platform, ref, kind: ib.kind ?? 'message', stage, serviceLabel: ib.service ?? null, requestId: ib.requestId ?? null, customer: thread.customer ?? ib.customer ?? null, quoteCostKRW: thread.quoteCostKRW ?? ib.quoteCostKRW ?? null };
+        const quoteCount = [thread.quoteCount, ib.quoteCount].find(Number.isInteger) ?? null;
         const r = await (ctx.decide ?? defaultDecide)(view, { instance, descriptor, priceTable, ...(ctx.runCodex ? { runCodex: ctx.runCodex } : {}) });
         const d = r.decision;
         // A value-gate park this pass decided again is over; the gate below writes a new one if it drops again.
         const decidedMeta = readMeta({ stage, settled: settled('decide') });
         if (String(decidedMeta.skipped?.reason).startsWith('gate: ')) delete decidedMeta.skipped;
+        // The request as it stood when it was decided, which the value gate judged it on: the quotes already on it,
+        // the cash a quote costs and the budget the buyer stated. It is rewritten only when one of them moves, so
+        // readAt is when that snapshot was first read.
+        if (view.kind === 'request') {
+          const snapshot = { quoteCount, quoteCostKRW: view.quoteCostKRW, budget: thread.budget ?? null };
+          const prev = decidedMeta.request;
+          if (!prev || JSON.stringify([prev.quoteCount, prev.quoteCostKRW, prev.budget]) !== JSON.stringify([snapshot.quoteCount, snapshot.quoteCostKRW, snapshot.budget])) decidedMeta.request = { ...snapshot, readAt: now.toISOString() };
+        }
         ledger.upsertThread({ platform, externalId: ref, kind: view.kind, service: d.service ?? undefined, language: d.language ?? undefined, status: d.intent, meta: decidedMeta });
         event('brain.decision', ref, { intent: d.intent, service: d.service, confidence: d.confidence, modelCalls: r.modelCalls, needsOperator: d.needsOperator, reply: d.reply !== null });
         // The client's portfolio answer (wp6) lands before a change request in the same message moves the job:
@@ -303,7 +312,6 @@ export async function step(platform, ctx) {
         // ask no fit and cost nothing, and a bidding board answers with a proposal, so only a paid request quote is
         // judged. A drop parks under this pass's key, so it holds until the list time or the settings move.
         if (r.item.kind === 'quote' && spendsCash(descriptor, view.kind)) {
-          const quoteCount = [thread.quoteCount, ib.quoteCount].find(Number.isInteger) ?? null;
           const judged = judgeQuote({
             fit: d.fit ?? null, quoteCount, quoteCostKRW: view.quoteCostKRW, amountKRW: d.quote?.amountKRW ?? null, pricing: d.quote?.pricing ?? null,
             row: r.priceRow, descriptor, arm: armCounts(resultsOnce(), platform, d.service), settings: { minFit: gateSettings(cfg).minFit, minCases: learning().minCases },

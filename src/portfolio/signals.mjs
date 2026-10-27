@@ -60,7 +60,8 @@ export function npmUser(profile) {
 // The GitHub organizations the operator creates repositories in (profile.person.githubOrgs), lowercased.
 export const githubOrgs = (profile) => (profile?.person?.githubOrgs ?? []).map((o) => String(o).trim().toLowerCase()).filter(Boolean);
 
-// The GitHub repository an npm record names (repository as a string, a github: shorthand or {url}); null for any other host.
+// The GitHub repository an npm record names (repository as a string, a github: shorthand or {url}); null for none or
+// any other host.
 function recordRepo(rec) {
   const raw = String(typeof rec?.repository === 'string' ? rec.repository : rec?.repository?.url ?? '');
   const m = /^(?:github:)?([\w.-]+)\/([\w.-]+?)(?:\.git)?$/.exec(raw) ?? /github\.com[/:]([\w.-]+)\/([\w.-]+?)(?:\.git)?(?:[#?/].*)?$/.exec(raw);
@@ -78,17 +79,30 @@ async function repoAuthor(fetch, repo, { login, orgs }, errors) {
   return { why, stars: why === null ? gh.stargazers_count ?? null : null };
 }
 
-// A package named without a GitHub URL is the operator's only by its npm record: the operator's npm user among its
-// maintainers, or a repository that passes repoAuthor. A record that does not answer gives no figure.
+// The npm user who published a package's first version (versions[<first>]._npmUser, the first by the record's time
+// map, else the first listed); null when the record names none.
+function firstPublisher(rec) {
+  const listed = Object.keys(rec?.versions ?? {});
+  const time = rec?.time ?? {};
+  const first = [...listed].sort((a, b) => (Date.parse(time[a] ?? '') || Infinity) - (Date.parse(time[b] ?? '') || Infinity) || listed.indexOf(a) - listed.indexOf(b))[0];
+  return first ? String(rec.versions[first]?._npmUser?.name ?? '').toLowerCase() || null : null;
+}
+
+// A package named without a GitHub URL is the operator's only by its npm record. When the record names a GitHub
+// repository, that repository's authorship (repoAuthor) decides alone; maintaining a package is not authoring it.
+// With no repository, or one on another host, the package counts only when the operator's npm user published its
+// first version. A record that does not answer gives no figure.
 async function packageAuthor(fetch, name, ctx, errors) {
   const rec = await readJsonFrom(fetch, 'https://registry.npmjs.org/' + name.replace('/', '%2F'), {}, errors, 'npm registry ' + name);
   if (!rec) return { why: 'npm package ' + name + ': record unread', stars: null };
-  const maintained = ctx.npmUser != null && (rec.maintainers ?? []).some((m) => String(m?.name ?? '').toLowerCase() === ctx.npmUser);
   const repo = recordRepo(rec);
-  const viaRepo = repo ? await repoAuthor(fetch, repo, ctx, errors) : null;
-  if (maintained) return { why: null, stars: viaRepo?.why === null ? viaRepo.stars : null };
-  if (!viaRepo) return { why: 'npm package ' + name + ': no npm maintainer of the operator and no repository', stars: null };
-  return { why: viaRepo.why === null ? null : 'npm package ' + name + ': ' + viaRepo.why, stars: viaRepo.stars };
+  if (repo) {
+    const viaRepo = await repoAuthor(fetch, repo, ctx, errors);
+    return { why: viaRepo.why === null ? null : 'npm package ' + name + ': ' + viaRepo.why, stars: viaRepo.stars };
+  }
+  if (ctx.npmUser == null) return { why: 'npm package ' + name + ': no npmjs.com link in profile.person.links', stars: null };
+  const publisher = firstPublisher(rec);
+  return { why: publisher === ctx.npmUser ? null : 'npm package ' + name + ': first version published by ' + (publisher ?? 'an unknown user'), stars: null };
 }
 
 // {authored, why, stars, downloads, errors} per item that names a repository or a package. Only an item the

@@ -231,26 +231,36 @@ function withRegistry(base, records) {
   return fn;
 }
 
-test('a package without a GitHub URL counts only when the operator maintains it or its repository is the operator\'s', async () => {
-  const base = stubFetch({ repos: { 'maker/tool': { stars: 30 }, 'other/lib': { stars: 900, owner: 'other' } }, npm: { 'someone-elses-pkg': 50000, 'mine-by-maintainer': 120, 'mine-by-repo': 80, '@maker/scoped': 5 } });
+test('a package named without a GitHub URL is the operator\'s only by its GitHub repository, or with none by the publisher of its first version', async () => {
+  const base = stubFetch({ repos: { 'maker/tool': { stars: 30 }, 'other/lib': { stars: 900, owner: 'other' }, 'big/lib': { stars: 4000, owner: 'big', first: 'big' } }, npm: { 'someone-elses-pkg': 50000, 'co-maintained': 50000, 'first-mine': 120, 'first-theirs': 70, 'mine-by-repo': 80, '@maker/scoped': 5, 'on-gitlab': 9, 'gitlab-mine': 11 } });
+  const versions = (publisher, at = '2024-01-01T00:00:00.000Z') => ({ versions: { '1.0.0': { _npmUser: { name: publisher } }, '0.1.0': { _npmUser: { name: publisher } }, '2.0.0': { _npmUser: { name: 'maker-npm' } } }, time: { created: at, '0.1.0': at, '1.0.0': '2024-03-01T00:00:00.000Z', '2.0.0': '2025-01-01T00:00:00.000Z' } });
   const fetch = withRegistry(base, {
-    'someone-elses-pkg': { maintainers: [{ name: 'other' }], repository: { type: 'git', url: 'git+https://github.com/other/lib.git' } },
-    'mine-by-maintainer': { maintainers: [{ name: 'Maker-npm' }] },
-    'mine-by-repo': { maintainers: [{ name: 'someone' }], repository: 'github:maker/tool' },
-    '@maker/scoped': { maintainers: [{ name: 'maker-npm' }] },
+    'someone-elses-pkg': { maintainers: [{ name: 'other' }], repository: { type: 'git', url: 'git+https://github.com/other/lib.git' }, ...versions('other') },
+    'co-maintained': { maintainers: [{ name: 'big' }, { name: 'maker-npm' }], repository: { url: 'https://github.com/big/lib' }, ...versions('maker-npm') },
+    'first-mine': { maintainers: [{ name: 'someone' }], ...versions('Maker-npm') },
+    'first-theirs': { maintainers: [{ name: 'maker-npm' }], ...versions('someone') },
+    'mine-by-repo': { maintainers: [{ name: 'someone' }], repository: 'github:maker/tool', ...versions('someone') },
+    '@maker/scoped': { maintainers: [{ name: 'maker-npm' }], ...versions('maker-npm') },
+    'on-gitlab': { maintainers: [{ name: 'maker-npm' }], repository: { url: 'git+https://gitlab.com/maker/thing.git' }, ...versions('someone') },
+    'gitlab-mine': { maintainers: [{ name: 'someone' }], repository: { url: 'git+https://gitlab.com/maker/other.git' }, ...versions('maker-npm') },
   });
   const pkg = (id, name) => ({ id, source: 'background', url: null, package: name, media: [], contribution: false });
-  const reach = await readReach([pkg('theirs', 'someone-elses-pkg'), pkg('maint', 'mine-by-maintainer'), pkg('repo', 'mine-by-repo'), pkg('scoped', '@maker/scoped'), pkg('gone', 'unpublished')], { fetch, login: LOGIN, npmUser: 'maker-npm' });
-  assert.deepEqual([reach.theirs.authored, reach.theirs.why, reach.theirs.downloads, reach.theirs.stars], [false, 'npm package someone-elses-pkg: owned by other', null, null]);
-  assert.deepEqual([reach.maint.authored, reach.maint.downloads], [true, 120]);
-  assert.deepEqual([reach.repo.authored, reach.repo.stars, reach.repo.downloads], [true, 30, 80]);
-  assert.deepEqual([reach.scoped.authored, reach.scoped.downloads], [true, 5]);
-  assert.deepEqual([reach.gone.authored, reach.gone.why, reach.gone.errors], [false, 'npm package unpublished: record unread', ['npm registry unpublished answered 404']]);
+  const reach = await readReach(['someone-elses-pkg', 'co-maintained', 'first-mine', 'first-theirs', 'mine-by-repo', '@maker/scoped', 'on-gitlab', 'gitlab-mine', 'unpublished'].map((n) => pkg(n, n)), { fetch, login: LOGIN, npmUser: 'maker-npm' });
+  const row = (id) => [reach[id].authored, reach[id].why, reach[id].stars, reach[id].downloads];
+  assert.deepEqual(row('someone-elses-pkg'), [false, 'npm package someone-elses-pkg: owned by other', null, null]);
+  assert.deepEqual(row('co-maintained'), [false, 'npm package co-maintained: owned by big', null, null], 'a co-maintainer of another author\'s repository is not its author');
+  assert.deepEqual(row('first-mine'), [true, null, null, 120]);
+  assert.deepEqual(row('first-theirs'), [false, 'npm package first-theirs: first version published by someone', null, null], 'maintaining a package does not make it the operator\'s');
+  assert.deepEqual(row('mine-by-repo'), [true, null, 30, 80]);
+  assert.deepEqual(row('@maker/scoped'), [true, null, null, 5]);
+  assert.deepEqual(row('on-gitlab'), [false, 'npm package on-gitlab: first version published by someone', null, null]);
+  assert.deepEqual(row('gitlab-mine'), [true, null, null, 11]);
+  assert.deepEqual([reach.unpublished.authored, reach.unpublished.why, reach.unpublished.errors], [false, 'npm package unpublished: record unread', ['npm registry unpublished answered 404']]);
   assert.equal(fetch.calls.some((u) => u === 'https://registry.npmjs.org/@maker%2Fscoped'), true);
   const fame = fameOf(reach);
-  assert.deepEqual([fame.theirs, fame.gone], [null, null]);
-  const nobody = await readReach([pkg('maint', 'mine-by-maintainer')], { fetch, login: LOGIN, npmUser: null });
-  assert.deepEqual([nobody.maint.authored, nobody.maint.why], [false, 'npm package mine-by-maintainer: no npm maintainer of the operator and no repository']);
+  assert.deepEqual([fame['someone-elses-pkg'], fame['co-maintained'], fame.unpublished], [null, null, null]);
+  const nobody = await readReach([pkg('first-mine', 'first-mine')], { fetch, login: LOGIN, npmUser: null });
+  assert.deepEqual([nobody['first-mine'].authored, nobody['first-mine'].why], [false, 'npm package first-mine: no npmjs.com link in profile.person.links']);
 });
 
 test('a repository the operator created in an organization the profile names counts, still only with the operator\'s first commit', async () => {

@@ -1,6 +1,6 @@
 // The viewport sweep every rendered surface is checked at: phones from 320 px, tablets, laptops and a
 // 1920 px desktop, each at a height that device class ships with, plus a short landscape laptop. One list
-// so the site sweep and job acceptance (090) can never drift apart (AGENTS.md executionIsCheap: every
+// so the portfolio quality score and job acceptance (090) can never drift apart (AGENTS.md executionIsCheap: every
 // width from 320 to 1920 at several heights).
 export const VIEWPORTS = Object.freeze([
   { width: 320, height: 568 },

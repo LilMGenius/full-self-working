@@ -8,7 +8,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const MODULES = ['core', 'platforms', 'surface', 'economics', 'policy', 'triage', 'brain', 'outbox', 'deal', 'work', 'render', 'portfolio', 'learning', 'listings', 'projects', 'profile', 'loop', 'supervisor', 'cli', 'site'];
+export const MODULES = ['core', 'platforms', 'surface', 'economics', 'policy', 'triage', 'brain', 'outbox', 'deal', 'work', 'render', 'portfolio', 'learning', 'listings', 'projects', 'profile', 'loop', 'supervisor', 'cli'];
 
 // importer -> what it never imports: a module name, or a repository path for a single file.
 export const FORBIDDEN = {
@@ -32,11 +32,10 @@ export const DEPLOY_ENTRY = 'src/cli/run.mjs';
 const DEPLOY_EXEMPT = { 'src/core/config.mjs': ['ajv'] };
 const posix = (p) => p.split(sep).join('/');
 
-// The module of a repository path, or null for a path outside src/, bin/ and site/.
+// The module of a repository path, or null for a path outside src/ and bin/.
 export function moduleOf(rel) {
   const parts = posix(rel).split('/');
   if (parts[0] === 'bin') return 'cli';
-  if (parts[0] === 'site') return 'site';
   if (parts[0] !== 'src' || parts.length < 3) return null;
   return ALIAS[parts[1]] ?? parts[1];
 }

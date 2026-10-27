@@ -10,11 +10,12 @@ import { JOB_HANDLERS, readState, runSupervisor, runTick } from '../src/supervis
 import { JOBS } from '../src/supervisor/schedule.mjs';
 import { tempDir } from './tmp.mjs';
 
-// The ids and cadences of src/supervisor/schedule.mjs at 9101c1c, the lastRuns keys run/state.json holds.
+// The ids and cadences of src/supervisor/schedule.mjs at 9101c1c, the lastRuns keys run/state.json holds, less
+// publish, retired in writing on 2026-10-27 when the portfolio site left the repository (docs/DESIGN.md, Decisions).
 const LIVE_JOBS = [
   ['hourly', 'hour'], ['poll', 'slot5'], ['orders', 'slot5'], ['projects', 'hour'], ['listings', 'hour'], ['market-hour', 'hour'],
   ['market', 'day 00:00'], ['price', 'day 00:00'], ['allocation', 'day 00:00'], ['portfolio', 'day 00:00'], ['listings-refresh', 'day 00:00'],
-  ['publish', 'day 00:00'], ['learn', 'day 00:00'], ['digest', 'day 09:00'],
+  ['learn', 'day 00:00'], ['digest', 'day 09:00'],
 ];
 
 function makeInstance(edit = (c) => c) {
@@ -29,11 +30,11 @@ function makeInstance(edit = (c) => c) {
 const noModel = async () => { throw new Error('the model is not called on an instance with no cases'); };
 const quiet = async () => ({ written: false });
 
-test('JOBS holds the 14 live ids in the b6b952d order with the same cadences', () => {
+test('JOBS holds the 13 live ids in the b6b952d order with the same cadences', () => {
   assert.deepEqual(JOBS.map((j) => [j.id, j.every + (j.at ? ' ' + j.at : '')]), LIVE_JOBS);
 });
 
-test('every JOBS id has a handler, and a forced observe tick on a fresh state runs each one and leaves only publish due', async () => {
+test('every JOBS id has a handler, and a forced observe tick on a fresh state runs each one and leaves none due', async () => {
   assert.deepEqual(Object.keys(JOB_HANDLERS).sort(), JOBS.map((j) => j.id).sort());
   const instance = makeInstance();
   const ledger = openLedger(':memory:');
@@ -43,9 +44,8 @@ test('every JOBS id has a handler, and a forced observe tick on a fresh state ru
   for (const j of s.jobs) assert.ok(['ok', 'partial', 'skipped', 'failed'].includes(j.status) && j.status !== 'not wired', j.job + ' ' + j.status);
   // price has no market summary on a fresh instance and says so by name; it is the only failed job.
   assert.deepEqual(s.jobs.filter((j) => j.status === 'failed').map((j) => [j.job, j.code]), [['price', 'FSW_MARKET_NO_SUMMARY']]);
-  assert.deepEqual(Object.keys(state.lastRuns).sort(), JOBS.map((j) => j.id).filter((id) => id !== 'publish').sort());
+  assert.deepEqual(Object.keys(state.lastRuns).sort(), JOBS.map((j) => j.id).sort());
   assert.equal(Object.keys(state.lastRuns).length, 13);
-  assert.equal(s.jobs.find((j) => j.job === 'publish').detail, 'FSW_FORCE_MODE=observe skips the site deploy');
 });
 
 // The daemon with every side effect replaced; codeState and the clock are scripted per tick.

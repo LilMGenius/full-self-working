@@ -1,5 +1,5 @@
-// The only ordering of portfolio items (docs/DESIGN.md, Portfolio); the site and every listing
-// generator import it. Pure: no I/O, input items are not mutated.
+// The only ordering of portfolio items (docs/DESIGN.md, Portfolio); every listing generator imports
+// it. Pure: no I/O, input items are not mutated.
 //
 // Eligible: a background project, or a paid job (paidAt set) whose client granted portfolio use.
 // Never shown: any item rated below 4 of 5 or marked disliked. The founder's order: satisfaction, fame,

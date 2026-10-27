@@ -1,5 +1,5 @@
 // The design tokens are one source: tokensCss emits one custom property per token, and the values are
-// the ones site/DESIGN.md records, so the decision record and the code cannot drift apart.
+// the ones docs/LISTING-DESIGN.md records, so the decision record and the code cannot drift apart.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { repoRoot } from '../src/core/instance.mjs';
 import { TOKENS, tokensCss } from '../src/render/tokens.mjs';
 
-const design = readFileSync(join(repoRoot, 'site', 'DESIGN.md'), 'utf8');
+const design = readFileSync(join(repoRoot, 'docs', 'LISTING-DESIGN.md'), 'utf8');
 const props = (css) => css.replace(/^:root\{|\}$/g, '').split(';').map((d) => d.split(':')[0]);
 
 test('tokensCss emits one :root custom property per token, named by group and kebab-case key', () => {
@@ -22,7 +22,7 @@ test('tokensCss emits one :root custom property per token, named by group and ke
   assert.equal(tokensCss({ color: { a: '#000' }, font: { family: 'X', weights: { body: 400 } } }), ':root{--color-a:#000;--font-family:X;--font-body:400}');
 });
 
-test('the colour table, type steps, spacing steps and weights of site/DESIGN.md are the token values', () => {
+test('the colour table, type steps, spacing steps and weights of docs/LISTING-DESIGN.md are the token values', () => {
   const table = Object.fromEntries([...design.matchAll(/^\| (\w+) \| (#[0-9A-F]{6}) \|/gm)].map((m) => [m[1], m[2]]));
   assert.deepEqual(table, TOKENS.color);
   const steps = (label) => design.match(new RegExp(label + '[^:]*: ([\\d, ]+)'))[1].split(',').map((s) => s.trim() + 'px');

@@ -53,11 +53,6 @@ const defaultProbes = {
     const r = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', join(repoRoot, 'scripts', 'task.ps1'), '-Status'], { encoding: 'utf8', windowsHide: true });
     return { supported: true, status: r.status, out: String(r.stdout) + String(r.stderr) };
   },
-  vercel: () => {
-    // vercel is a .cmd shim on Windows, which only cmd.exe starts; the arguments are fixed text.
-    const r = process.platform === 'win32' ? spawnSync('cmd.exe', ['/d', '/s', '/c', 'vercel whoami'], { encoding: 'utf8', windowsHide: true }) : spawnSync('vercel', ['whoami'], { encoding: 'utf8' });
-    return { ok: !r.error && r.status === 0, out: String(r.stdout || r.stderr || r.error?.message).trim().split(/\r?\n/).pop() };
-  },
   openAdapter: (id) => surfaceProbe(id),
 };
 
@@ -213,13 +208,6 @@ export async function runChecks(ctx = {}) {
     const lock = /^lock\s+(.*)$/m.exec(task.out)?.[1] ?? 'unknown';
     const state = /^state\s+(.*)$/m.exec(task.out)?.[1] ?? 'unknown';
     push(result('ok', 'schedule', `task ${state}; lock: ${lock}`));
-  }
-
-  const site = instance?.config.site;
-  if (!site?.project) push(result('skip', 'vercel', 'config.site.project is empty, so no site is published'));
-  else {
-    const v = probes.vercel();
-    push(v.ok ? result('ok', 'vercel', `signed in as ${v.out}`) : result('warn', 'vercel', `not signed in: ${v.out}`, 'run: vercel login (only needed to publish the portfolio site)'));
   }
   return out;
 }

@@ -703,41 +703,6 @@
         }
       }
     },
-    "site": {
-      "type": "object",
-      "description": "the public portfolio site",
-      "default": {
-        "domain": null,
-        "vercelTeam": null,
-        "project": null
-      },
-      "properties": {
-        "domain": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "the domain the site answers on",
-          "default": null
-        },
-        "vercelTeam": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "the Vercel team that hosts it",
-          "default": null
-        },
-        "project": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "the Vercel project name",
-          "default": null
-        }
-      }
-    },
     "onboarding": {
       "type": "object",
       "description": "answers the onboarding steps type into each platform profile",

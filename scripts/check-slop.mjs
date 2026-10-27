@@ -1,14 +1,14 @@
 #!/usr/bin/env node
-// Lints tracked customer-facing sources (examples, playbooks, recipes, site) with the slop gate.
+// Lints tracked customer-facing sources (examples, playbooks, recipes) with the slop gate.
 // Floor findings fail the check; reflex findings are listed as warnings.
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { lintText } from '../src/policy/slop.mjs';
 
-const ROOTS = ['examples/', 'playbooks/', 'recipes/', 'site/'];
+const ROOTS = ['examples/', 'playbooks/', 'recipes/'];
 const files = execFileSync('git', ['ls-files', '-z', ...ROOTS], { encoding: 'utf8' })
   .split('\0')
-  .filter((f) => f && /\.(md|json|html)$/.test(f) && !f.startsWith('site/dist/') && existsSync(f));
+  .filter((f) => f && /\.(md|json|html)$/.test(f) && existsSync(f));
 
 let floor = 0;
 let reflex = 0;

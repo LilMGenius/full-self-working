@@ -386,14 +386,6 @@ export const JOB_HANDLERS = {
     const shown = syncPortfolio(ctx.instance, ctx.ledger, { signals, media: captured.media });
     return { status: 'ok', shown: shown.length, withFame: shown.filter((i) => i.reach?.fame != null).length, missingMedia: captured.missing.length };
   },
-  async publish(ctx) {
-    // A forced observe pass is read-only, and a deploy is an outbound action; keepDue leaves the period
-    // open so the first unforced tick still deploys today.
-    if (ctx.forceMode === 'observe') return { status: 'skipped', detail: 'FSW_FORCE_MODE=observe skips the site deploy', keepDue: true };
-    const r = spawnSync(process.execPath, [join(repoRoot, 'scripts', 'publish.mjs')], { cwd: repoRoot, encoding: 'utf8', windowsHide: true, timeout: 15 * 60_000 });
-    const tail = (r.stdout + r.stderr).trim().split('\n').slice(-5).join('\n');
-    return { status: r.status === 0 ? 'ok' : 'failed', exitCode: r.status, detail: tail };
-  },
   // Cases into lessons, then the playbook and learned gate rules (src/cli/learn.mjs:6-16 at 2c77326 folded in).
   async learn(ctx) {
     const [{ writeLessons }, { refreshPlaybook }] = await Promise.all([import('../learning/lessons.mjs'), import('../learning/playbook.mjs')]);

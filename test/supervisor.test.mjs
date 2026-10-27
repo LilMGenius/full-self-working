@@ -241,12 +241,16 @@ test('a platform that fails its poll STUCK_POLLS ticks in a row is reported to t
   assert.equal(state.pollFailures.kmong, 0);
 });
 
-test('a deploy skipped by a forced observe pass stays due for the next unforced tick', async () => {
+test('a job a forced observe pass skips with keepDue stays due for the next unforced tick', async () => {
   const instance = makeInstance();
   const state = { lastRuns: {} };
-  const s = await runTick({ instance, ledger: openLedger(':memory:'), now: new Date('2026-10-25T02:03:00Z'), state, only: ['publish'], forceMode: 'observe', persist: false });
-  assert.equal(s.jobs[0].status, 'skipped');
-  assert.equal(state.lastRuns.publish, undefined);
+  const handlers = { 'listings-refresh': async (ctx) => (ctx.forceMode === 'observe' ? { status: 'skipped', detail: 'observe mode', keepDue: true } : { status: 'ok' }) };
+  const tick = (forceMode) => runTick({ instance, ledger: openLedger(':memory:'), now: new Date('2026-10-25T02:03:00Z'), state, only: ['listings-refresh'], handlers, forceMode, persist: false });
+  assert.equal((await tick('observe')).jobs[0].status, 'skipped');
+  assert.equal(state.lastRuns['listings-refresh'], undefined);
+  const second = await tick(null);
+  assert.equal(second.jobs[0].status, 'ok');
+  assert.equal(state.lastRuns['listings-refresh'], second.jobs[0].period);
 });
 
 test('the orders job re-plans a lost deposit request and starts a paid job', async () => {

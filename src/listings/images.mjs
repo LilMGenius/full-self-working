@@ -1,5 +1,5 @@
 // Listing images for 크몽 gigs, rendered from HTML with the owned headless Chrome (src/render/html2png.mjs).
-// One series for every gig, on the design tokens site/DESIGN.md records (src/render/tokens.mjs): an ink
+// One series for every gig, on the design tokens docs/LISTING-DESIGN.md records (src/render/tokens.mjs): an ink
 // main card that carries one oversized Korean claim and a real screen of shipped work, and detail images in
 // alternating paper and ink sections. Pretendard is inlined (src/render/fonts.mjs) and every render proves
 // it drew the text. All words come from the gated listing copy and the fixed labels below; no URL, domain,

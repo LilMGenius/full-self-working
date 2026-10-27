@@ -9,7 +9,9 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadInstance } from '../src/core/instance.mjs';
+import { dayKey } from '../src/core/clock.mjs';
 import { buildSite } from '../site/build.mjs';
+import { sweep } from './site-sweep.mjs';
 
 // On Windows vercel is a .cmd shim, which only a shell can start; the arguments are this script's own
 // config values, quoted into one command line so no argument list is concatenated unescaped.
@@ -96,22 +98,29 @@ async function verify(urls, hash) {
   }
 }
 
-export async function publish({ instance: instanceDir, force = false, dryRun = false, log = () => {} } = {}) {
+// sweep and deploy are seams for the tests; they default to the site sweep and the vercel deploy above. out moves
+// the build away from site/dist, so a test never writes the checkout's own build folder.
+export async function publish({ instance: instanceDir, force = false, dryRun = false, log = () => {}, out, sweep: sweepSite = sweep, deploy: deploySite = deploy } = {}) {
   const instance = loadInstance({ dir: instanceDir, allowExampleConfig: true });
   const site = instance.config.site ?? {};
   if (!site.vercelTeam || !site.project) throw new PublishError('FSW_PUBLISH_CONFIG', 'config.site needs vercelTeam and project');
-  const built = await buildSite({ instance: instance.dir, log });
+  const built = await buildSite({ instance: instance.dir, ...(out ? { out } : {}), log });
   const recordPath = join(instance.dir, 'site', 'last-deploy.json');
   const last = readLastDeploy(recordPath);
   if (!force && last?.hash === built.hash) {
     log('publish: content hash ' + built.hash.slice(0, 12) + ' already deployed at ' + last.url + ', nothing to do');
     return { deployed: false, hash: built.hash, url: last.url };
   }
+  // The built output, at every viewport, before anything deploys (AGENTS.md executionIsCheap). A site whose hash
+  // is already deployed was swept when it changed, so the return above skips it; a dry run still shows the problems.
+  const swept = await sweepSite({ dist: built.out, out: join(instance.dir, 'qa', 'site', dayKey()) });
+  if (swept.problems.length) throw new PublishError('FSW_PUBLISH_SWEEP', swept.problems.length + ' sweep problems, first: ' + swept.problems[0]);
+  log('publish: swept ' + swept.captures.length + ' captures with no problem');
   if (dryRun) {
     log('publish: content changed (' + (last?.hash?.slice(0, 12) ?? 'never deployed') + ' to ' + built.hash.slice(0, 12) + '), dry run stops here');
     return { deployed: false, hash: built.hash, url: null, changed: true };
   }
-  const { url, id, productionUrl } = deploy({ dir: built.out, team: site.vercelTeam, project: site.project });
+  const { url, id, productionUrl } = await deploySite({ dir: built.out, team: site.vercelTeam, project: site.project });
   await verify([url, ...(site.domain ? ['https://' + site.domain] : [])], built.hash);
   const record = { hash: built.hash, url, deploymentId: id, productionUrl, domain: site.domain ?? null, project: site.project, team: site.vercelTeam, deployedAt: new Date().toISOString(), priceTable: built.priceTable };
   writeLastDeploy(recordPath, record);

@@ -192,6 +192,21 @@ test('a reread wishket project with an edited description stores the new body, a
   ledger.close();
 });
 
+test('a wishket card parked, edited and read, then restored is read again in observe and auto mode', async () => {
+  const { inboundOfProject } = await import('../src/surface/wishket.mjs');
+  const { needsWork } = await import('../src/triage/index.mjs');
+  const { withRecords } = await import('../src/loop/step.mjs');
+  const a = inboundOfProject(wishketProject(1));
+  const b = inboundOfProject(wishketProject(1, { title: '예약 웹 수정' }));
+  for (const mode of ['observe', 'auto']) {
+    let meta = withRecords({}, { skipped: { at: a.at, rev: a.rev, reason: 'catalog: x', key: null } });
+    meta = withRecords(meta, { settled: { at: b.at, rev: b.rev, by: mode, key: null } });
+    const row = { lastInboundAt: a.at, meta };
+    assert.equal(needsWork(b, row, null, mode), false, mode + ': the read revision waits');
+    assert.equal(needsWork(a, row, null, mode), true, mode + ': the restored card is read again');
+  }
+});
+
 test('every wishket write throws APPLY_UNMAPPED before the project reader is opened, authorized or not', async () => {
   const { APPLY_UNMAPPED, NOT_TYPED, openWishketSurface } = await import('../src/surface/wishket.mjs');
   assert.equal(APPLY_UNMAPPED, 'FSW_WISHKET_APPLY_UNMAPPED');

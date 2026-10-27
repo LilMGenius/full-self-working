@@ -34,6 +34,18 @@ export const MAX_THREADS_PER_PLATFORM = 10;
 const msgText = (m) => String(m.text ?? m.body ?? '');
 const msgExternalId = (m) => String(m.externalId ?? m.id ?? createHash('sha1').update((m.at ?? '') + '\n' + msgText(m)).digest('hex').slice(0, 16));
 
+// A park (meta.skipped) and a read (meta.settled) each remember the list revision they covered. Writing one
+// under a revision drops the other when it covered a different one, so a card edited and then restored is
+// judged by its newest record rather than an older park that happens to match again.
+export const withRecords = (meta, extra) => {
+  const out = { ...meta, ...extra };
+  for (const [field, other] of [['settled', 'skipped'], ['skipped', 'settled']]) {
+    const rec = extra[field];
+    if (rec && (rec.rev ?? null) !== null && out[other] && (out[other].rev ?? null) !== rec.rev) delete out[other];
+  }
+  return out;
+};
+
 // The outbox payload of one decision (field chains in 030 section 4).
 // gate: the value gate's send verdict on a paid request quote (judgeQuote below), which authorize requires before
 // such a quote leaves unapproved.
@@ -187,7 +199,7 @@ export async function step(platform, ctx) {
       if (t.action === 'park') {
         // Parked from its list row with the list time and the settings key it was parked under; it waits for
         // a newer message or a settings change.
-        ledger.upsertThread({ platform, externalId: ref, kind: ib.kind ?? 'message', meta: { ...(ledger.getThread(row.id).meta ?? {}), skipped: { at: ib.at ?? null, rev: ib.rev ?? null, reason: t.reason, key } } });
+        ledger.upsertThread({ platform, externalId: ref, kind: ib.kind ?? 'message', meta: withRecords(ledger.getThread(row.id).meta ?? {}, { skipped: { at: ib.at ?? null, rev: ib.rev ?? null, reason: t.reason, key } }) });
         // An item parked while it was still waiting for the read share was never read; the park says so,
         // and the supply report lists it, instead of a silent stale or expired park.
         event(parkEvent(t.reason), ref, { reason: t.reason, service: ib.service ?? null, ...(ledger.getThread(row.id).meta?.paced ? { paced: true } : {}) });
@@ -246,7 +258,7 @@ export async function step(platform, ctx) {
         // time a platform notice moved past the newest stored message is not decided again every tick; a
         // night read holds only for observe ticks.
         const settled = (by) => ({ at: ib.at ?? null, rev: ib.rev ?? null, by, key });
-        const readMeta = (extra) => ({ ...(ledger.getThread(row.id).meta ?? {}), ...extra });
+        const readMeta = (extra) => withRecords(ledger.getThread(row.id).meta ?? {}, extra);
         if (t.action === 'observe') {
           event('thread.observed', ref, { unread: false, messages: (thread.messages ?? []).length, reason: t.reason, service: ib.service ?? null });
           ledger.upsertThread({ platform, externalId: ref, kind: ib.kind ?? 'message', meta: readMeta({ settled: settled('observe') }) });

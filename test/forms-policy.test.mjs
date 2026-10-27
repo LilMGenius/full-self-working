@@ -153,14 +153,15 @@ test('a code-priced freelancer proposal meets price.row and budget.below_floor, 
   const clean = authorize(pricedProposal(), ctx(i, mappedFreelancer(), { usage: FREE_BIDS, priceRow: ROW }));
   assert.deepEqual([clean.verdict, rules(clean)], ['send', []]);
   // A request proposal the model left without a quote has no code-set amount: on a USD board it has no dollar
-  // amount to state and is refused, and on a KRW board it goes to the operator.
+  // amount to state and is refused, and on a KRW board the gate finds no amount and it goes to the operator.
   const unpriced = authorize(item(proposalRow('freelancer', { costKRW: 0, amountKRW: null, amount: null })), ctx(i, mappedFreelancer(), { usage: FREE_BIDS, priceRow: ROW }));
   assert.deepEqual([unpriced.verdict, rules(unpriced)], ['refuse', ['price.terms']]);
   assert.match(unpriced.reasons[0].detail, /has no amount to state/);
   const wishket = structuredClone(loadDescriptor('wishket'));
   wishket.forms.proposal = { mapped: true, mappedAt: '2026-10-28T00:00:00Z', recording: 'test fixture', readBack: true };
   const krw = authorize(itemOf(proposalRow('wishket', { amountKRW: null }), wishket), ctx(i, wishket, { priceRow: ROW }));
-  assert.ok(krw.reasons.some((r) => r.rule === 'price.row' && r.detail === 'proposal without a code-set amount'), JSON.stringify(krw.reasons));
+  assert.equal(krw.verdict, 'operator');
+  assert.ok(krw.violations.some((v) => v.rule === 'price.missing'), JSON.stringify(krw.violations));
   // kmong's planner sets decision.quote null on a project thread: no price row is asked of it, in auto mode.
   const k = authorize(item(kmongProposal()), ctx(makeInstance(), loadDescriptor('kmong'), { priceRow: null }));
   assert.deepEqual([k.verdict, rules(k)], ['send', []]);
@@ -195,4 +196,20 @@ test('a proposal whose stated amount, currency or rate disagrees with its KRW pr
   refused(authorize(itemOf({ ...k, payload: { ...k.payload, amount: 1 } }, kmong), ctx(makeInstance(), kmong, { approved: true })), /states 1 KRW against its price of 1500000 KRW/);
   // With no descriptor to say the board's currency, a proposal without one is refused rather than taken as KRW.
   refused(authorize(itemOf(k), ctx(makeInstance(), kmong, { approved: true })), /names no currency/);
+});
+
+// A request proposal meets the price row's floor and ceiling as a quote does (the C review of wp8, finding 3).
+test('a request proposal outside its price row floor or ceiling is gated like a quote, and kmong project proposals are not', () => {
+  const i = withBidBudget();
+  const hourly = (amountKRW) => item(proposalRow('freelancer', { costKRW: 0, ...usd(amountKRW), decision: decision({ language: 'en', reply: EN, quote: { amountKRW, scope: ['landing page'], deliveryDays: 7, priceType: 'hourly', complexity: 1 } }) }));
+  for (const amountKRW of [1, 99000, 1001000]) {
+    const asked = authorize(hourly(amountKRW), ctx(i, mappedFreelancer(), { usage: FREE_BIDS, priceRow: ROW }));
+    assert.equal(asked.verdict, 'operator', String(amountKRW));
+    assert.ok(asked.violations.some((v) => v.rule === 'price.range' && v.detail === amountKRW + ' KRW is outside [100000, 1000000]'), JSON.stringify(asked.violations));
+    assert.equal(authorize(hourly(amountKRW), ctx(i, mappedFreelancer(), { usage: FREE_BIDS, priceRow: ROW, approved: true })).verdict, 'refuse');
+  }
+  assert.deepEqual(rules(authorize(hourly(100000), ctx(i, mappedFreelancer(), { usage: FREE_BIDS, priceRow: ROW }))), []);
+  const kmong = loadDescriptor('kmong');
+  const k = authorize(item(kmongProposal()), ctx(makeInstance(), kmong, { priceRow: { ...ROW, ceilingKRW: 1000000 } }));
+  assert.deepEqual([k.verdict, k.violations], ['send', []]);
 });

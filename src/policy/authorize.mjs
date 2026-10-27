@@ -149,7 +149,6 @@ export function authorize(item, ctx) {
   const priced = item.kind === 'quote' || (item.kind === 'proposal' && (Boolean(d?.quote) || item.thread?.kind === 'request'));
   if (priced) {
     if (!approved && (!priceRow || priceRow.viable === false)) operator.push(rule('price.row', item.kind + ' without a viable price row for ' + (d?.service ?? 'unknown service')));
-    if (!approved && item.kind === 'proposal' && typeof item.amountKRW !== 'number') operator.push(rule('price.row', 'proposal without a code-set amount'));
     // A customer who states a budget under the service's cost floor gets no cash quote: the floor would
     // quote several times what they named (a 30,000 KRW homepage request quoted 300,000 KRW, rejected by
     // the main session at 22:15 on 2026-10-25).

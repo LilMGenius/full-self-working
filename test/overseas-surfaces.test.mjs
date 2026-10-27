@@ -66,13 +66,14 @@ test('every freelancer write refuses by name before anything reaches the session
   assert.deepEqual(session.calls, []);
 });
 
-test('freelancer login reads the self API in the session: unauthenticated is false, anything else null until mapped', async () => {
+test('freelancer login reads the self API in the session: an account id is true, unauthenticated false, anything else null', async () => {
   const out = await openFreelancerSurface({ session: fakeSession({ json: { status: 'error', error_code: 'RestExceptionCodes.NOT_AUTHENTICATED' } }), targets: TARGETS });
   assert.equal((await out.login()).loggedIn, false);
   const other = fakeSession({ json: { status: 'success', result: { id: 1 } } });
   const s = await openFreelancerSurface({ session: other, targets: TARGETS });
-  assert.equal((await s.login()).loggedIn, null);
+  assert.equal((await s.login()).loggedIn, true);
   assert.deepEqual(other.calls[0], ['navigate', 'https://www.freelancer.com/api/users/0.1/self/']);
+  for (const body of [{ title: 'Error 502', text: '<html>Bad gateway</html>' }, { json: { status: 'success', result: {} } }]) assert.equal((await (await openFreelancerSurface({ session: fakeSession(body), targets: TARGETS })).login()).loggedIn, null);
 });
 
 test('freelancer signIn presses the framed Google button on the login page, and a login page that redirects away presses nothing', async () => {
@@ -80,13 +81,16 @@ test('freelancer signIn presses the framed Google button on the login page, and 
   const google = async (_s, opts) => pressed.push(opts);
   const page = (loginLands, self) => ({ calls: [], navigate: async (url) => (url.endsWith('/login') ? loginLands : url), evaluate: async () => self, stop: async () => {} });
   const signedOut = await openFreelancerSurface({ session: page('https://www.freelancer.com/login', { json: { status: 'success', result: { id: 1 } } }), targets: TARGETS, google });
-  assert.deepEqual(await signedOut.signIn({ email: 'operator@example.invalid' }), { signedIn: true, reason: 'the signed-in marker is not mapped yet' });
+  assert.deepEqual(await signedOut.signIn({ email: 'operator@example.invalid' }), { signedIn: true, reason: 'the self API answered with the account id' });
   assert.deepEqual(pressed, [{ framed: true, email: 'operator@example.invalid' }]);
   const stillOut = await openFreelancerSurface({ session: page('https://www.freelancer.com/login', { json: { status: 'error', error_code: 'RestExceptionCodes.NOT_AUTHENTICATED' } }), targets: TARGETS, google });
   assert.equal((await stillOut.signIn({ email: 'operator@example.invalid' })).signedIn, false);
+  // An HTML error page from the self API after the pick is no sign-in (wp8 review): nothing reads it as one.
+  const errorPage = await openFreelancerSurface({ session: page('https://www.freelancer.com/login', { title: 'Error 502', text: '<html>Bad gateway</html>' }), targets: TARGETS, google });
+  assert.equal((await errorPage.signIn({ email: 'operator@example.invalid' })).signedIn, false);
   const already = await openFreelancerSurface({ session: page('https://www.freelancer.com/dashboard', null), targets: TARGETS, google });
   assert.deepEqual(await already.signIn({ email: 'operator@example.invalid' }), { signedIn: true, alreadySignedIn: true });
-  assert.equal(pressed.length, 2);
+  assert.equal(pressed.length, 3);
 });
 
 test('googleSignIn reads the opener page when the chooser tab closes under the engine after the pick', async () => {

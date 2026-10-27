@@ -41,6 +41,15 @@ test('wishket forbids identifying details, and an identity rule other than allow
   assert.throws(() => validateDescriptor(odd, 'wishket'), (e) => e.code === 'FSW_DESCRIPTOR_INVALID' && e.path === 'contactPolicy.identity');
 });
 
+test('soomgo refunds a quote unread after 48 hours, and a refund window that is not a positive whole hour is refused', () => {
+  assert.equal(loadDescriptor('soomgo').bidCost.unreadRefundHours, 48);
+  for (const v of [0, -1, 1.5, '48']) {
+    const odd = structuredClone(loadDescriptor('soomgo'));
+    odd.bidCost.unreadRefundHours = v;
+    assert.throws(() => validateDescriptor(odd, 'soomgo'), (e) => e.code === 'FSW_DESCRIPTOR_INVALID' && e.path === 'bidCost.unreadRefundHours', JSON.stringify(v));
+  }
+});
+
 test('a descriptor missing a required path throws FSW_DESCRIPTOR_INVALID naming it', () => {
   const broken = structuredClone(loadDescriptor('kmong'));
   delete broken.pacing.minGapMs;

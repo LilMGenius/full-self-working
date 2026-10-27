@@ -3,10 +3,13 @@
 // basis is known.
 // Nothing here writes; the same ledger state and the same day give the same list, which the price table
 // (price-learning.mjs) and the allocation (yield.mjs) both read, so neither counts a quote its own way.
+import { listDescriptors, loadDescriptor } from '../platforms/registry.mjs';
+
 export const QUOTE_RESULTS = ['won', 'lost', 'expired', 'refused', 'superseded', 'open'];
 // The events src/loop/funnel.mjs writes from the soomgo chat list.
 export const FUNNEL_EVENTS = ['quote.opened', 'quote.hired_us', 'quote.hired_other', 'quote.hired_other_cancelled', 'quote.other_status'];
 const DAY_MS = 86_400_000;
+const HOUR_MS = 3_600_000;
 
 // Threads whose deal already moved past its quotes: one holding an accepted quote, and the thread of a job
 // past lead and quoted together with the request thread a soomgo chat job names (meta.requestThreadId, set
@@ -94,7 +97,10 @@ export function chatActs(ledger, cut) {
   return { opened, hiredOther };
 }
 
-// expireAfterDays Infinity reads statuses only (an instance without priceLearning settings).
+// expireAfterDays Infinity turns the age rule off (an instance without priceLearning settings). A platform that
+// refunds a quote its customer never opened (descriptor bidCost.unreadRefundHours, soomgo 48) has ended that
+// quote whatever the age rule says: one still unopened that long after it went out is expired with cause unread.
+// A platform with no descriptor file (a test's synthetic board) has no refund window.
 export function quoteResults(ledger, { asOf, expireAfterDays }) {
   if (!(asOf instanceof Date) || Number.isNaN(asOf.getTime())) throw new TypeError('quoteResults needs asOf');
   if (!(expireAfterDays > 0)) throw new RangeError('expireAfterDays must be positive, got ' + expireAfterDays);
@@ -104,6 +110,8 @@ export function quoteResults(ledger, { asOf, expireAfterDays }) {
   const acts = chatActs(ledger, cut);
   const quotes = ledger.listQuotes();
   const sources = sourceRows(ledger, quotes, observed);
+  const described = new Set(listDescriptors());
+  const refundWindow = (platform) => (described.has(platform) ? loadDescriptor(platform).bidCost?.unreadRefundHours : undefined);
   const out = [];
   for (const q of quotes) {
     const src = sources.get(q.id) ?? null;
@@ -116,9 +124,12 @@ export function quoteResults(ledger, { asOf, expireAfterDays }) {
     // A quote still sent on a thread whose deal moved on was passed over for another quote of that deal: it is
     // neither won nor lost, and it never ages into expired.
     const superseded = q.status === 'sent' && !lostToOther && decided.has(q.threadId);
-    const aged = q.status === 'sent' && !lostToOther && !superseded && cut - at >= expireAfterDays * DAY_MS;
+    const pending = q.status === 'sent' && !lostToOther && !superseded;
+    const refundHours = pending && !acts.opened.has(q.id) ? refundWindow(q.platform) : undefined;
+    const unread = refundHours != null && cut - at >= refundHours * HOUR_MS;
+    const aged = pending && (unread || cut - at >= expireAfterDays * DAY_MS);
     const result = q.status === 'accepted' ? 'won' : q.status === 'declined' || lostToOther ? 'lost' : q.status === 'expired' || aged ? 'expired' : superseded ? 'superseded' : 'open';
-    out.push({ source: 'quote', id: q.id, threadId: q.threadId, platform: q.platform, service: q.service ?? src?.payload?.service ?? null, at: sent, amountKRW: q.amountKRW, costKRW: q.costKRW ?? 0, result, aged, cause: lostToOther ? 'hired_other' : null, opened: acts.opened.has(q.id), index: priceIndex(q.amountKRW, src?.payload?.decision?.quote?.pricing) });
+    out.push({ source: 'quote', id: q.id, threadId: q.threadId, platform: q.platform, service: q.service ?? src?.payload?.service ?? null, at: sent, amountKRW: q.amountKRW, costKRW: q.costKRW ?? 0, result, aged, cause: lostToOther ? 'hired_other' : unread ? 'unread' : null, opened: acts.opened.has(q.id), index: priceIndex(q.amountKRW, src?.payload?.decision?.quote?.pricing) });
   }
   // A send the platform refused before the client saw it (the drain's STALE_NOT_SENT): no quote row exists.
   for (const r of ledger.listOutbox({ kinds: ['quote'], statuses: ['stale'] })) {

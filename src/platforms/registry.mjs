@@ -67,6 +67,10 @@ export function validateDescriptor(d, id = d?.id) {
   // The most quotes one request takes; a request at it parks before any read or model call (src/triage).
   const perRequest = d.bidCost.maxPerRequest;
   if (perRequest !== undefined && !(Number.isInteger(perRequest) && perRequest > 0)) throw invalid(id, 'bidCost.maxPerRequest', 'unexpected value ' + JSON.stringify(perRequest));
+  // Hours after which the platform refunds a quote its customer never opened; such a quote resolves as expired
+  // with cause unread (src/economics/quote-results.mjs).
+  const refund = d.bidCost.unreadRefundHours;
+  if (refund !== undefined && !(Number.isInteger(refund) && refund > 0)) throw invalid(id, 'bidCost.unreadRefundHours', 'unexpected value ' + JSON.stringify(refund));
   const cadence = d.market?.cadence;
   if (cadence !== undefined && !MARKET_CADENCES.includes(cadence)) throw invalid(id, 'market.cadence', 'unexpected value ' + JSON.stringify(cadence));
   // identity "forbidden" makes the gate block the operator's names (src/policy/gate.mjs identityNames).

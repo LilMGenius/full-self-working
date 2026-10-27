@@ -742,3 +742,24 @@ test('every detail image carries the AI badge and one carries the AI note panel,
   const notes = pages.filter((p) => p.includes('>' + LABELS.ai + '<') && p.includes('>' + l.imageCopy.aiNote + '<'));
   assert.equal(notes.length, 1, 'one detail image holds the AI note panel');
 });
+
+// ---- U7.5 round 3: a card layout per service, inside the design tokens ----
+
+test('the main card takes a frame and a ground from its layout, and refuses one it does not know', () => {
+  const l = listingOf();
+  assert.match(mainHtml({ listing: l }), /class="card stage ink"/);
+  assert.match(mainHtml({ listing: l, layout: { frame: 'split', ground: 'paper' } }), /class="card split paper"/);
+  assert.match(mainHtml({ listing: l, layout: { frame: 'wide' } }), /class="card wide ink"/);
+  assert.throws(() => mainHtml({ listing: l, layout: { frame: 'tilted' } }), { code: 'FSW_LISTING_LAYOUT' });
+  assert.throws(() => mainHtml({ listing: l, layout: { ground: 'gold' } }), { code: 'FSW_LISTING_LAYOUT' });
+});
+
+test('render draws the card layout proofs.json names for the service and records it on the spec', async () => {
+  const { render } = await import('../src/listings/gig.mjs');
+  const instance = publishedInstance();
+  const dir = join(instance.dir, 'listings');
+  writeFileSync(join(dir, 'proofs.json'), JSON.stringify({ proofs: [], services: { landing_page_web: { card: [], layout: { frame: 'wide', ground: 'paper' } } } }));
+  await render('landing_page_web', { instance, log: () => {} });
+  const spec = JSON.parse(readFileSync(join(dir, 'landing_page_web', 'spec.json'), 'utf8'));
+  assert.deepEqual(spec.images.layout, { frame: 'wide', ground: 'paper' });
+});

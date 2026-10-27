@@ -70,48 +70,86 @@ const page = (body, css, { width, height }, fontFace = pretendardFontFace()) => 
 
 // ---- main card 652x488 ----
 
-const MAIN_CSS = '.card{position:relative;width:652px;height:488px;overflow:hidden;background:var(--color-ink);color:var(--color-on-ink)}' +
-  '.claim{position:absolute;left:40px;right:40px;top:30px;height:178px}' +
+// Ink or paper ground: the field the claim sits on. Every colour is a token; paper swaps the ink field for
+// paper with ink type and the light-ground accent, and its proof stage is a sheet with a hairline.
+const GROUND_CSS = '.card.ink{background:var(--color-ink);color:var(--color-on-ink)}' +
+  '.ink h1 em,.ink .scope li:before{color:var(--color-accent-on-ink)}.ink .rule,.ink .scope li:before{background:var(--color-accent-on-ink)}.ink .sub{color:var(--color-on-ink-muted)}.ink .stage{background:var(--color-paper)}' +
+  '.card.paper{background:var(--color-paper);color:var(--color-text)}' +
+  '.paper h1 em{color:var(--color-accent)}.paper .rule,.paper .scope li:before{background:var(--color-accent)}.paper .sub{color:var(--color-muted)}.paper .stage{background:var(--color-sheet);border:1px solid var(--color-line)}';
+
+// The frames a main card is laid out in, each with the box a whole sample may take on its stage:
+// stage, the claim above a proof stage at the lower right; wide, the claim and a scope row above a proof
+// band across the card; split, the claim and scope at the left of a full-height proof panel. The service's
+// layout is instance data (listings/proofs.json services.<id>.layout), so each service keeps a character of
+// its own inside one system.
+export const CARD_FRAMES = {
+  stage: { sampleBox: { width: 396, height: 206 }, css:
+    '.stage .claim{left:40px;right:40px;top:30px;height:178px}' +
+    '.stage .foot{left:40px;bottom:30px;width:172px}' +
+    '.stage .stage{left:228px;top:222px;right:0;bottom:0;border-radius:var(--radius-lg) 0 0 0}' +
+    '.stage .screen{left:22px;top:22px;width:480px;height:300px}.stage .screen.with-phone{left:100px}.stage .screen.phone{left:20px;top:40px;width:112px;height:184px}' },
+  wide: { sampleBox: { width: 588, height: 232 }, css:
+    '.wide .claim{left:36px;right:36px;top:24px;height:112px}' +
+    '.wide .foot{left:36px;right:36px;top:146px}.wide .rule,.wide .sub{display:none}' +
+    '.wide .scope{margin-top:0;flex-direction:row;gap:22px}' +
+    '.wide .stage{left:24px;top:190px;right:0;bottom:0;border-radius:var(--radius-lg) 0 0 0}' +
+    '.wide .screen{left:22px;top:22px;width:620px;height:300px}.wide .screen.with-phone{left:110px}.wide .screen.phone{left:20px;top:30px;width:120px;height:200px}' },
+  split: { sampleBox: { width: 324, height: 408 }, css:
+    '.split .claim{left:36px;top:32px;width:228px;height:196px}' +
+    '.split .foot{left:36px;bottom:30px;width:228px}' +
+    '.split .stage{left:288px;top:0;right:0;bottom:0}' +
+    '.split .screen{left:22px;top:46px;width:520px;height:440px}.split .screen.with-phone{left:110px}.split .screen.phone{left:20px;top:80px;width:120px;height:200px}' },
+};
+export const CARD_GROUNDS = ['ink', 'paper'];
+
+const MAIN_CSS = '.card{position:relative;width:652px;height:488px;overflow:hidden}' +
+  '.claim,.foot,.stage{position:absolute}' +
   'h1{display:inline-block;white-space:nowrap;font-weight:var(--font-display);line-height:1.04;letter-spacing:-.045em;font-size:var(--type-10)}' +
   // The second line of the claim carries the one accent, so the claim reads in two beats at grid size.
-  'h1 em{font-style:normal;color:var(--color-accent-on-ink)}' +
-  '.foot{position:absolute;left:40px;bottom:30px;width:172px}' +
-  '.rule{width:56px;height:6px;background:var(--color-accent-on-ink)}' +
-  '.sub{margin-top:14px;font-size:var(--type-3);line-height:1.4;font-weight:var(--font-strong);color:var(--color-on-ink-muted);letter-spacing:-.01em}' +
+  'h1 em{font-style:normal}' +
+  '.rule{width:56px;height:6px}' +
+  '.sub{margin-top:14px;font-size:var(--type-3);line-height:1.4;font-weight:var(--font-strong);letter-spacing:-.01em}' +
   // The gig's scope, two or three concrete items, as the leading covers name theirs.
   '.scope{margin-top:14px;display:flex;flex-direction:column;gap:7px}' +
   '.scope li{list-style:none;display:flex;align-items:center;gap:9px;font-size:var(--type-4);line-height:1.2;font-weight:var(--font-display);letter-spacing:-.02em;white-space:nowrap}' +
-  '.scope li:before{content:"";flex:none;width:7px;height:7px;background:var(--color-accent-on-ink)}' +
-  // The proof sits on a paper stage that bleeds off the card's right and bottom edges, so a dark screen
-  // still stands apart from the ink field and the card reads in two tones at grid size.
-  '.stage{position:absolute;left:228px;top:222px;right:0;bottom:0;background:var(--color-paper);border-radius:var(--radius-lg) 0 0 0;overflow:hidden}' +
-  // One real screen, cropped by the stage's right and bottom edges, never tilted.
-  '.screen{position:absolute;left:22px;top:22px;width:480px;height:300px;border-radius:var(--radius-md);border-color:var(--color-line)}' +
-  '.screen.with-phone{left:100px}' +
-  '.screen.phone{left:20px;top:40px;width:112px;height:184px;border:3px solid var(--color-ink);z-index:1}' +
-  // A sample is shown whole, since cropping it would hide what was made.
-  // The sample tag sits above the sample, so it covers none of what was made.
+  '.scope li:before{content:"";flex:none;width:7px;height:7px}' +
+  // The proof sits on a stage of the other tone that bleeds off the card's edges, so a screen stands apart
+  // from the field and the card reads in two tones at grid size.
+  '.stage{overflow:hidden}' +
+  // One real screen, cropped by the stage's edges, never tilted.
+  '.screen{position:absolute;border-radius:var(--radius-md);border-color:var(--color-line)}' +
+  '.screen.phone{border:3px solid var(--color-ink);z-index:1}' +
+  // A sample is shown whole, since cropping it would hide what was made; its tag sits above it.
   '.sample{position:absolute;left:20px;top:46px;border-radius:var(--radius-md);border-color:var(--color-line)}' +
   '.stage > .tag{position:absolute;left:20px;top:14px}' +
   // Without a screen, the deliverables take its place as a file list.
   '.files{padding:26px 30px;color:var(--color-text)}' +
   '.files h2{font-size:var(--type-2);font-weight:var(--font-strong);color:var(--color-muted)}' +
   '.files div{display:flex;gap:14px;align-items:baseline;margin-top:12px;font-size:var(--type-4);font-weight:var(--font-strong);letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
-  '.files b{font-size:var(--type-2);color:var(--color-accent)}';
+  '.files b{font-size:var(--type-2);color:var(--color-accent)}' +
+  GROUND_CSS + Object.values(CARD_FRAMES).map((f) => f.css).join('');
 
-// The box a whole sample may take on the stage, and its size at the sample's aspect ratio.
-const SAMPLE_BOX = { width: 396, height: 206 };
-const fitBox = ({ width, height }) => {
-  const k = Math.min(SAMPLE_BOX.width / width, SAMPLE_BOX.height / height);
+// A layout from instance data: frame and ground default to stage on ink, and any other value is refused.
+export function cardLayout(layout = {}) {
+  const frame = layout?.frame ?? 'stage';
+  const ground = layout?.ground ?? 'ink';
+  if (!CARD_FRAMES[frame] || !CARD_GROUNDS.includes(ground)) throw Object.assign(new Error('unknown card layout ' + JSON.stringify(layout) + '; frames ' + Object.keys(CARD_FRAMES).join(', ') + ', grounds ' + CARD_GROUNDS.join(', ')), { code: 'FSW_LISTING_LAYOUT' });
+  return { frame, ground };
+}
+
+// The size of a whole sample inside a frame's sample box, at the sample's aspect ratio.
+const fitBox = ({ width, height }, box) => {
+  const k = Math.min(box.width / width, box.height / height);
   return { width: Math.round(width * k), height: Math.round(height * k) };
 };
 
-export function mainHtml({ listing, cardShots = [], fontFace }) {
+export function mainHtml({ listing, cardShots = [], fontFace, layout }) {
+  const { frame, ground } = cardLayout(layout);
   const c = listing.imageCopy.card;
   const [first, second] = cardShots;
   let visual;
   if (first?.sample) {
-    const box = fitBox(first);
+    const box = fitBox(first, CARD_FRAMES[frame].sampleBox);
     visual = '<div class="stage"><div class="sample frame whole" style="width:' + box.width + 'px;height:' + box.height + 'px"><img src="' + first.src + '" alt=""></div><span class="tag">' + esc(LABELS.sample) + '</span></div>';
   } else if (first) {
     const phone = [first, second].find((s) => s && s.width < 600);
@@ -122,7 +160,7 @@ export function mainHtml({ listing, cardShots = [], fontFace }) {
     visual = '<div class="stage files"><h2>' + esc(LABELS.included) + '</h2>' + listing.imageCopy.included.slice(0, 3).map((t, i) => '<div><b>' + two(i) + '</b>' + esc(t) + '</div>').join('') + '</div>';
   }
   const claim = c.headline.map((line, i) => (i === c.headline.length - 1 && i > 0 ? '<em>' + esc(line) + '</em>' : esc(line))).join('<br>');
-  const body = '<div class="card"><div class="claim"><h1 data-fit data-max="112">' + claim + '</h1></div>' +
+  const body = '<div class="card ' + frame + ' ' + ground + '"><div class="claim"><h1 data-fit data-max="112">' + claim + '</h1></div>' +
     '<div class="foot"><div class="rule"></div><p class="sub">' + esc(c.subline) + '</p><ul class="scope">' + (c.tags ?? []).slice(0, 3).map((t) => '<li>' + esc(t) + '</li>').join('') + '</ul></div>' + visual + '</div>';
   return page(body, MAIN_CSS, MAIN_SIZE, fontFace);
 }
@@ -257,7 +295,8 @@ export async function captureProofs(proofs, dir, { renderer, refresh = false } =
 // Renders main.png and detail-N.jpg into outDir and returns their paths, a 190 px preview of the main card
 // (the width a search grid shows it at), the images version, and the slot and font violations. Every render
 // asks the renderer which face drew each text node, so a fallback face fails the images.
-export async function renderListingImages({ listing, studio, outDir, proofs = [], plan = { card: [], gallery: [] }, proofDir, refreshProofs = false, fontFace }) {
+export async function renderListingImages({ listing, studio, outDir, proofs = [], plan = { card: [], gallery: [] }, proofDir, refreshProofs = false, fontFace, layout }) {
+  const cardLayoutUsed = cardLayout(layout);
   mkdirSync(outDir, { recursive: true });
   const renderer = await openRenderer();
   try {
@@ -275,7 +314,7 @@ export async function renderListingImages({ listing, studio, outDir, proofs = []
       for (const text of r.probe ?? []) fonts.push({ field: 'images.' + name, rule: 'image.text_fit', detail: 'the heading does not fit its box even at ' + FIT_FLOOR_PX + ' px: ' + text });
       return r;
     };
-    const mainPage = mainHtml({ listing, studio, cardShots: shots(plan.card), fontFace });
+    const mainPage = mainHtml({ listing, studio, cardShots: shots(plan.card), fontFace, layout: cardLayoutUsed });
     const main = join(outDir, 'main.png');
     proved('main', await renderer.render({ html: mainPage, ...MAIN_SIZE, out: main, format: 'png', fontReport: true, probe: FIT_PROBE }));
     const preview = join(outDir, 'main-190.png');
@@ -287,8 +326,9 @@ export async function renderListingImages({ listing, studio, outDir, proofs = []
       proved('detail.' + i, await renderer.render({ html, width: DETAIL_WIDTH, height: 200, fullPage: true, out, format: 'jpeg', quality: 90, scale: DETAIL_SCALE, fontReport: true, probe: FIT_PROBE }));
       detail.push(out);
     }
-    return { main, detail, preview, version: IMAGES_VERSION, violations: [...checkImages({ main, detail }), ...fonts] };
+    return { main, detail, preview, layout: cardLayoutUsed, version: IMAGES_VERSION, violations: [...checkImages({ main, detail }), ...fonts] };
   } finally {
     await renderer.close();
   }
 }
+

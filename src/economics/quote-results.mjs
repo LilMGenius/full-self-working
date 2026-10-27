@@ -36,11 +36,25 @@ export function priceIndex(amountKRW, pricing) {
   return amountKRW > 0 && ref > 0 && cx > 0 ? amountKRW / (cx * ref) : null;
 }
 
-// The observed outbox row a quote came from: same thread and amount, the newest one. The quotes table keeps
-// no outbox id, and an imported row's createdAt can follow its quote by milliseconds, so no time order is
-// assumed.
-function sourceRow(quote, observed) {
-  return observed.filter((r) => r.threadId === quote.threadId && r.payload?.amountKRW === quote.amountKRW).at(-1) ?? null;
+// The observed outbox row each quote came from, by quote id. The quotes table keeps no outbox id, so the quotes and
+// the observed rows of one thread and amount pair one to one in the order the deal recorded them: a row by its
+// deal.quote_observed event (written in the transaction that adds the quote, src/deal/advance.mjs) when every row of
+// the group has one, else by row id (rows the 2c77326 pipeline sent have no event). A group whose quote and row counts
+// differ links none, so a quote never borrows another quote's pricing basis; it then has no basis and ages from its
+// own time.
+function sourceRows(ledger, quotes, observed) {
+  const order = new Map(ledger.db.prepare("SELECT id, payload FROM events WHERE kind = 'deal.quote_observed' ORDER BY id").all().map((e) => [JSON.parse(e.payload ?? '{}').outboxId, e.id]));
+  const key = (threadId, amountKRW) => threadId + ':' + amountKRW;
+  const rows = Map.groupBy(observed, (r) => key(r.threadId, r.payload?.amountKRW));
+  const out = new Map();
+  for (const [k, qs] of Map.groupBy(quotes, (q) => key(q.threadId, q.amountKRW))) {
+    const rs = rows.get(k) ?? [];
+    if (rs.length !== qs.length) continue;
+    const byEvent = rs.every((r) => order.has(r.id));
+    const sorted = [...rs].sort((a, b) => (byEvent ? order.get(a.id) - order.get(b.id) : a.id - b.id));
+    [...qs].sort((a, b) => a.id - b.id).forEach((q, i) => out.set(q.id, sorted[i]));
+  }
+  return out;
 }
 
 // When a quote went out, which its age runs from. v0's drain moved its row to observed when it read the send
@@ -76,9 +90,11 @@ export function quoteResults(ledger, { asOf, expireAfterDays }) {
   const observed = ledger.listOutbox({ kinds: ['quote'], statuses: ['observed'] });
   const decided = decidedThreads(ledger);
   const acts = chatActs(ledger, cut);
+  const quotes = ledger.listQuotes();
+  const sources = sourceRows(ledger, quotes, observed);
   const out = [];
-  for (const q of ledger.listQuotes()) {
-    const src = sourceRow(q, observed);
+  for (const q of quotes) {
+    const src = sources.get(q.id) ?? null;
     const sent = sentAt(q, src);
     const at = Date.parse(sent);
     if (at > cut) continue;

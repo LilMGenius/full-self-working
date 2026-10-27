@@ -60,3 +60,6 @@ export function foreignAmount(amountKRW, currency, fx, step = 1) {
   const units = amountKRW / krwPerUnit(currency, fx);
   return Number((Math.ceil(units / step - 1e-9) * step).toFixed(2));
 }
+
+// The rates a fxNote kept, so a stated amount can be recomputed from the note alone.
+export const fxOfNote = (note) => ({ date: note?.date ?? null, source: note?.source ?? null, rates: { KRW: note?.krwPerUnit, [note?.currency]: 1 } });

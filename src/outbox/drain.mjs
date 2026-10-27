@@ -47,10 +47,21 @@ const norm = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
 const textOf = (row) => row.operator?.finalText ?? row.payload.text ?? '';
 export const newApprovalId = (platform, now = new Date()) => dayKey(now) + '-' + platform + '-' + randomBytes(4).toString('hex');
 
-// The item authorize judges, rebuilt from the row so an operator edit is judged as the new text it is.
-export function itemOf(row) {
+// What a proposal hands propose besides its text: the amount in the currency the form takes, that currency and
+// the delivery period. A row that names no currency is in KRW on a board priced in KRW and in no known currency
+// elsewhere or when no descriptor says, and a KRW row states its amountKRW. callSurface sends exactly these and
+// authorize judges them.
+export function proposalTerms(row, descriptor) {
   const p = row.payload;
-  return { platform: row.platform, kind: row.kind, text: textOf(row), amountKRW: p.amountKRW, costKRW: p.costKRW ?? null, serviceLabel: p.serviceLabel ?? null, attachments: (p.files ?? []).map(baseName), thread: p.thread ?? { kind: 'message', stage: 'pre_order' }, ...(p.decision ? { decision: p.decision } : {}) };
+  const currency = p.currency ?? (descriptor?.currency === 'KRW' ? 'KRW' : null);
+  return { amount: p.amount ?? (currency === 'KRW' ? p.amountKRW ?? null : null), currency, periodDays: p.periodDays ?? p.deliveryDays ?? null };
+}
+
+// The item authorize judges, rebuilt from the row so an operator edit is judged as the new text it is, and a
+// proposal with the terms propose will receive and the rate they were stated at.
+export function itemOf(row, descriptor = null) {
+  const p = row.payload;
+  return { platform: row.platform, kind: row.kind, text: textOf(row), amountKRW: p.amountKRW, costKRW: p.costKRW ?? null, serviceLabel: p.serviceLabel ?? null, attachments: (p.files ?? []).map(baseName), thread: p.thread ?? { kind: 'message', stage: 'pre_order' }, ...(p.decision ? { decision: p.decision } : {}), ...(row.kind === 'proposal' ? { ...proposalTerms(row, descriptor), fx: p.fx ?? null } : {}) };
 }
 
 // What the page shows after an interrupted send: the outbound bubble for a message or a delivery, the
@@ -95,9 +106,8 @@ function callSurface(surface, row, verdict, approved, descriptor, files) {
   // customer: soomgo observes the quote from its charge for this customer (e8ea6a6, 7b9524e; 003 Surface).
   if (row.kind === 'quote') return surface.quote(p.threadRef, { amountKRW: p.amountKRW, priceType: p.priceType ?? 'fixed', text, authorized: verdict, allowSpendCash: spendsCash(descriptor, p.thread?.kind), customer: p.customer ?? null });
   if (row.kind === 'pay_request') return surface.payRequest(p.threadRef, { amountKRW: p.amountKRW, approved, authorized: verdict });
-  // amount is in currency, the board's own (a converted proposal, wp8) or KRW; periodDays is the delivery the
-  // decision quoted.
-  if (row.kind === 'proposal') return surface.propose(p.threadRef, { text, amountKRW: p.amountKRW, amount: p.amount ?? p.amountKRW ?? null, currency: p.currency ?? 'KRW', periodDays: p.periodDays ?? p.deliveryDays ?? null, phases: p.proposal?.phases ?? [], files: p.files ?? [], authorized: verdict });
+  // The terms authorize judged (proposalTerms): amount in currency, and the delivery period the decision quoted.
+  if (row.kind === 'proposal') return surface.propose(p.threadRef, { text, amountKRW: p.amountKRW, ...proposalTerms(row, descriptor), phases: p.proposal?.phases ?? [], files: p.files ?? [], authorized: verdict });
   return surface.send(p.threadRef, { text, files: row.kind === 'delivery' ? files : [], authorized: verdict });
 }
 
@@ -237,12 +247,15 @@ export async function drain(ledger, { platform, surface, authorize, ctx }) {
   };
   let proposalsStopped = false;
   // The day's exchange rate, read once and only for a proposal priced outside KRW. A proposal whose rate is
-  // older than it goes stale before anything is judged or sent: its amount no longer states its KRW price.
+  // older than it goes stale before anything is judged or sent: its amount no longer states its KRW price. One
+  // in a foreign or unknown currency that carries no dated rate is left to authorize, which refuses it
+  // (price.terms), so it is never sent.
   let dayFx;
   const fxOfDay = async () => (dayFx ??= await (ctx.loadFx ?? defaultLoadFx)(ctx.instance, { now: () => now }));
   for (const row of ledger.listOutbox({ platform, statuses: ['planned', 'approved'] }).filter((r) => handles(surface, r.kind))) {
     if (proposalsStopped && row.kind === 'proposal') continue;
-    if (row.kind === 'proposal' && row.payload.fx) {
+    const terms = row.kind === 'proposal' ? proposalTerms(row, ctx.descriptor) : null;
+    if (terms && terms.currency !== 'KRW' && row.payload.fx?.date) {
       let today;
       try {
         today = await fxOfDay();
@@ -269,7 +282,7 @@ export async function drain(ledger, { platform, surface, authorize, ctx }) {
       continue;
     }
     const approved = row.status === 'approved';
-    const verdict = authorize(itemOf(row), { ...ctx, now, approved, priceRow: row.payload.priceRow ?? null, usage: usage(row) });
+    const verdict = authorize(itemOf(row, ctx.descriptor), { ...ctx, now, approved, priceRow: row.payload.priceRow ?? null, usage: usage(row) });
     if (verdict.verdict === 'refuse') {
       const reason = verdict.violations.map((v) => v.rule + ' ' + v.detail).join('; ');
       if (!setStatus(ledger, row.id, { from: row.status, to: 'blocked', verdict, reason })) {

@@ -12,6 +12,7 @@
 import { isActive } from '../core/clock.mjs';
 import { effectiveMode, ordersWatched, pipelineSettings } from '../core/settings.mjs';
 import { answeredServices, catalogServicesFor } from '../economics/catalog.mjs';
+import { foreignAmount, fxOfNote } from '../economics/fx.mjs';
 import { gateOutbound } from './gate.mjs';
 
 // soomgo's file picker shows 0/10 attachments; more files need packaging (src/orders/delivery.mjs:25-27).
@@ -42,6 +43,24 @@ export function bidBudgetCheck({ budget, usage, costKRW }) {
 
 // A proposal on a platform that charges for bids (bid credits, Connects) is what bidBudgetCheck guards.
 export const spendsBids = (descriptor, kind) => kind === 'proposal' && (descriptor.bidCost?.unit ?? 'none') !== 'none';
+
+// Why the terms a proposal hands propose (amount, currency, the rate they were stated at) cannot go out, or
+// null: a proposal names its currency, a KRW one states its amountKRW, and a foreign one carries a dated rate of
+// that currency and states exactly foreignAmount of its amountKRW at that rate, so an amount that disagrees with
+// the price it came from is never sent.
+export function proposalTermsProblem(item) {
+  const { currency, amount, amountKRW, fx } = item;
+  if (!currency) return 'the proposal names no currency for its amount';
+  if (currency === 'KRW') return amount === amountKRW ? null : 'the proposal states ' + amount + ' KRW against its price of ' + amountKRW + ' KRW';
+  if (!fx?.date || fx.currency !== currency || !(fx.krwPerUnit > 0)) return 'the proposal in ' + currency + ' carries no dated ' + currency + ' rate';
+  let expected;
+  try {
+    expected = foreignAmount(amountKRW, currency, fxOfNote(fx));
+  } catch (err) {
+    return 'the proposal in ' + currency + ' has no amount to state: ' + err.message;
+  }
+  return amount === expected ? null : 'the proposal states ' + amount + ' ' + currency + ' where ' + amountKRW + ' KRW at ' + fx.krwPerUnit + ' KRW per ' + currency + ' (' + fx.date + ') is ' + expected;
+}
 
 // Fails closed: a missing limit or an unknown cost refuses the spend (src/pipeline/thread.mjs:63-71).
 // spent marks a refusal that only the day's caps caused, so a later day's budget can pay it (b223ed7).
@@ -88,6 +107,9 @@ export function authorize(item, ctx) {
   // on its page, so it is refused, approved or not (wp8).
   const form = descriptor.forms?.[item.kind];
   if (form && form.mapped !== true) return { verdict: 'refuse', violations: [rule('form.unmapped', item.kind + ' form on ' + item.platform + ' is not mapped and read back')], warnings: [], reasons: [rule('form.unmapped', 'form unmapped')] };
+  // A proposal's stated terms are what the form receives; terms that disagree with their price never go out.
+  const terms = item.kind === 'proposal' ? proposalTermsProblem(item) : null;
+  if (terms) return { verdict: 'refuse', violations: [rule('price.terms', terms)], warnings: [], reasons: [rule('price.terms', terms)] };
   // A proposal that spends the platform's bids goes out only inside the operator's bid budget, approved or not.
   if (spendsBids(descriptor, item.kind)) {
     const bid = bidBudgetCheck({ budget: instance.config?.platforms?.[item.platform]?.bidBudget, usage, costKRW: item.costKRW });

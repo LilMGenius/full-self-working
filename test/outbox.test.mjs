@@ -692,9 +692,14 @@ const mappedFreelancer = () => {
   return d;
 };
 const EN = 'I can build this with the layout you described. Let me know the schedule you have in mind.';
-// A bid as the loop plans it: priced by code from a viable price row (U8.11), so only the bid budget decides it.
-const bidPayload = (costKRW, i) => ({ text: EN + ' ' + i, amountKRW: 400000, costKRW, priceRow: { ...ROW, platform: 'freelancer' }, thread: { kind: 'request', stage: 'pre_order', lastInboundText: 'Need a landing page', recentOutbound: [] }, decision: decision({ intent: 'quote_request', language: 'en', reply: EN, quote: { amountKRW: 400000, scope: ['landing page'], deliveryDays: 7, priceType: 'fixed', complexity: 1 } }) });
-const bidSetup = (bidBudget) => setup('freelancer', (c) => ({ ...c, platforms: { ...c.platforms, freelancer: { ...c.platforms.freelancer, enabled: true, mode: 'auto', bidBudget } } }));
+// A bid as the loop plans it: priced by code from a viable price row and stated in dollars at the day's rate
+// (U8.11), so only the bid budget decides it.
+const bidPayload = (costKRW, i) => ({ text: EN + ' ' + i, amountKRW: 400000, currency: 'USD', amount: 286, fx: RATE('2026-10-19'), costKRW, priceRow: { ...ROW, platform: 'freelancer' }, thread: { kind: 'request', stage: 'pre_order', lastInboundText: 'Need a landing page', recentOutbound: [] }, decision: decision({ intent: 'quote_request', language: 'en', reply: EN, quote: { amountKRW: 400000, scope: ['landing page'], deliveryDays: 7, priceType: 'fixed', complexity: 1 } }) });
+// A freelancer drain with the proposal form mapped and the day's rate of 2026-10-19 unless a case says otherwise.
+const bidSetup = (bidBudget) => {
+  const s = setup('freelancer', (c) => ({ ...c, platforms: { ...c.platforms, freelancer: { ...c.platforms.freelancer, enabled: true, mode: 'auto', bidBudget } } }));
+  return { ...s, run: (surface, over = {}) => s.run(surface, { descriptor: mappedFreelancer(), loadFx: dayRate, ...over }) };
+};
 
 test('two priced proposals with room for one: the first goes out and the second is blocked by budget.bid', async () => {
   const s = bidSetup({ monthlyKRW: 3000, stopAfterUnanswered: 20 });
@@ -804,4 +809,27 @@ test('an earlier bid with no known cost blocks the next bid by name until the op
   const { receipt } = settleSent(s.ledger, old.approvalId, { costKRW: 1200, now: NOON });
   assert.equal(receipt.cashSpentKRW, 1200);
   assert.deepEqual(bidUsage(s.ledger, 'freelancer', NOON).unknownCost, ['20261020-freelancer-0000aaa2']);
+});
+
+// The terms propose receives are the ones authorize judged (the C review of wp8, findings 2 and 3).
+test('a dollar proposal with no rate is blocked by price.terms with no rate read and nothing sent', async () => {
+  const s = bidSetup({ monthlyKRW: 0, stopAfterUnanswered: 20 });
+  const row = plan(s.ledger, { platform: 'freelancer', threadId: s.thread('p1', 'request').id, kind: 'proposal', payload: { ...bidPayload(0, 0), fx: undefined } });
+  let reads = 0;
+  const surface = scriptedSurface({ methods: ['propose'] });
+  const out = await s.run(surface, { loadFx: async () => (reads++, Promise.reject(new Error('unavailable'))) });
+  assert.deepEqual([out.map((x) => x.action), surface.count('propose'), reads], [['blocked'], 0, 0]);
+  assert.match(s.ledger.getOutbox(row.id).reason, /^price\.terms the proposal in USD carries no dated USD rate/);
+});
+
+test('a dollar amount that disagrees with its KRW price is blocked, and the one that agrees is what propose receives', async () => {
+  const s = bidSetup({ monthlyKRW: 0, stopAfterUnanswered: 20 });
+  const wrong = plan(s.ledger, { platform: 'freelancer', threadId: s.thread('p1', 'request').id, kind: 'proposal', payload: { ...bidPayload(0, 0), amount: 1 } });
+  const right = plan(s.ledger, { platform: 'freelancer', threadId: s.thread('p2', 'request').id, kind: 'proposal', payload: bidPayload(0, 1) });
+  const surface = scriptedSurface({ methods: ['propose'] });
+  const out = await s.run(surface);
+  assert.deepEqual(out.map((x) => [x.id, x.action]), [[wrong.id, 'blocked'], [right.id, 'observed']]);
+  assert.match(s.ledger.getOutbox(wrong.id).reason, /states 1 USD where 400000 KRW at 1400 KRW per USD \(2026-10-19\) is 286/);
+  const call = surface.calls.find((c) => c.name === 'propose');
+  assert.deepEqual([call.ref, call.args.amount, call.args.currency], ['p2', 286, 'USD']);
 });

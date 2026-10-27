@@ -2,8 +2,9 @@ name: site
 # The portfolio site's multi-platform check (AGENTS.md executionIsCheap): every push builds the synthetic fixture
 # instance and sweeps each page in two passes (scripts/site-sweep.mjs). The first renders the nine fixed viewports of
 # src/render/viewports.mjs (320x568 to 1920x1080) with a capture each and fails on horizontal overflow, a key element
-# below its data-min-size, a fallback font or a broken image. The second checks every width from 320 to 1920 px in
-# 1 px steps at heights 568, 800 and 1080, without captures, for overflow and key elements below their minimum size.
+# below its floor (a drawn box under data-min-size, a text mark's font-size under data-min-font), a fallback font or a
+# broken image. The second checks every width from 320 to 1920 px in 1 px steps at heights 568, 800 and 1080, without
+# captures, for overflow and key elements below their floors.
 # It runs on push only, with no schedule and no path filter, since a change outside site/ (a catalog label, a ranking
 # rule, a token) can move the output.
 on:

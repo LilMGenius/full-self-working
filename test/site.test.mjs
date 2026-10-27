@@ -3,10 +3,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { buildSite } from '../site/build.mjs';
 import { publish } from '../scripts/publish.mjs';
 import { rankPortfolio } from '../src/portfolio/rank.mjs';
-import { DEFAULT_CHROME } from '../src/render/html2png.mjs';
+import { DEFAULT_CHROME, openRenderer } from '../src/render/html2png.mjs';
+import { platformFontProblems } from '../src/render/fonts.mjs';
 import { repoRoot } from '../src/core/instance.mjs';
 import { tempDir } from './tmp.mjs';
 import { PRIVATE, writeSiteFixture } from './fixtures/site-instance.mjs';
@@ -176,5 +178,39 @@ test('a README capture carries its own caption and a contribution is labelled wi
     assert.ok(card(html, 'bg-big-lib').includes('<p class="work-kind">' + e.repo + '</p>'), lang + ' contribution names its repository');
     assert.ok(card(html, 'bg-private-fix').includes('<p class="work-kind">' + e.other + '</p>'), lang + ' contribution without a repository');
     assert.equal([...html.matchAll(/class="work-kind"/g)].length, 2, lang + ' only the two contributions are labelled');
+  }
+});
+
+// The built pages carry the floors the sweep holds (src/render/checks.mjs), and the favicon, served alone, draws its
+// letter in the face it embeds rather than in a system face.
+test('the built pages mark their text and tap-target floors, and the favicon draws its letter in its own face', { skip: !existsSync(process.env.FSW_CHROME ?? DEFAULT_CHROME) && 'Chrome not installed' }, async (t) => {
+  const dir = fixture();
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const out = join(dir, 'dist');
+  await buildSite({ instance: dir, out });
+  for (const file of ['index.html', 'en/index.html']) {
+    const html = readFileSync(join(out, file), 'utf8');
+    assert.match(html, /<a class="mark" href="[^"]+" data-min-font="20">/, file + ' wordmark');
+    const nav = html.match(/<nav [^>]*>([\s\S]*?)<\/nav>/)[1];
+    const navLinks = [...nav.matchAll(/<a href="#[^"]+"([^>]*)>/g)].map((m) => m[1]);
+    assert.ok(navLinks.length >= 3, file + ' nav links');
+    for (const a of navLinks) assert.equal(a, ' data-min-size="24" data-min-media="(min-width: 720px)"', file + ' nav link');
+    const workLinks = [...html.matchAll(/<a class="work-link"[^>]*>/g)].map((m) => m[0]);
+    assert.ok(workLinks.length >= 2, file + ' work links');
+    for (const a of workLinks) assert.match(a, / data-min-size="24"/);
+    assert.match(html, /<a class="email" href="mailto:hello@example\.org" data-min-size="44">/, file + ' email');
+    const channels = [...html.match(/<p class="channels">([\s\S]*?)<\/p>/)[1].matchAll(/<a [^>]*>/g)].map((m) => m[0]);
+    assert.equal(channels.length, 1);
+    for (const a of channels) assert.match(a, / data-min-size="44"/);
+  }
+  const svg = readFileSync(join(out, 'favicon.svg'), 'utf8');
+  assert.match(svg, /<style>@font-face\{font-family:"FSW Sans";[^}]*src:url\(data:font\/woff2;base64,/);
+  assert.ok(Buffer.byteLength(svg) < 16000, 'the favicon embeds its letter, not the page subset: ' + Buffer.byteLength(svg) + ' bytes');
+  const renderer = await openRenderer();
+  try {
+    const r = await renderer.render({ url: pathToFileURL(join(out, 'favicon.svg')).href, width: 64, height: 64, format: 'png', fontReport: true, out: join(dir, 'favicon-alone.png') });
+    assert.deepEqual(platformFontProblems(r.platformFonts, 'Pretendard'), []);
+  } finally {
+    await renderer.close();
   }
 });

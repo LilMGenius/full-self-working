@@ -12,15 +12,20 @@ export const listingUrl = (def) =>
   def.kmongCategoryId ? `${BASE}/category/${def.kmongCategoryId}` : `${BASE}/search?type=gig&keyword=${encodeURIComponent(def.kmongCategory)}`;
 
 // Cards render on the client a few seconds after load, and search pages reuse the GigCard testid in
-// side blocks, so parseListing dedupes by href.
+// side blocks, so parseListing dedupes by href. img is the card's cover as the page resolved it (the
+// frontier reference set reads it); a cover that has not loaded yet falls back to its src attribute.
 function pageCards() {
   const total = (document.body.innerText.match(/([\d,]+)개의 서비스/) || [])[1] ?? null;
-  return { total, cards: [...document.querySelectorAll('a[data-testid=GigCard]')].map((a) => ({ href: a.getAttribute('href'), text: a.innerText })) };
+  const cover = (a) => {
+    const img = a.querySelector('img');
+    return img ? img.currentSrc || img.getAttribute('src') || null : null;
+  };
+  return { total, cards: [...document.querySelectorAll('a[data-testid=GigCard]')].map((a) => ({ href: a.getAttribute('href'), text: a.innerText, img: cover(a) })) };
 }
 
 // Card lines: title, an optional rating (4.9) and review count ((85)), the price ("99,000원~", where the
 // tilde marks a starting price), the seller, then badges such as 빠른 응답 and 세금계산서.
-export function parseCard({ href, text }) {
+export function parseCard({ href, text, img = null }) {
   const l = lines(text);
   const at = l.findIndex((x) => PRICE.test(x));
   if (at < 1) return null;
@@ -31,7 +36,7 @@ export function parseCard({ href, text }) {
     if (/^\d\.\d$/.test(x)) rating = Number(x);
     else if (/^\([\d,]+\)$/.test(x)) reviews = toInt(x);
   }
-  return { href, title: l[0], seller: l[at + 1] ?? null, priceKRW: toInt(digits), fromPrice: tilde === '~', rating, reviews, badges: l.slice(at + 2) };
+  return { href, title: l[0], seller: l[at + 1] ?? null, priceKRW: toInt(digits), fromPrice: tilde === '~', rating, reviews, badges: l.slice(at + 2), img };
 }
 
 export function parseListing({ total, cards }, { limit = 30 } = {}) {
@@ -59,7 +64,7 @@ export async function sample(session, targets, { now = () => new Date(), limit =
       const { total, cards } = parseListing(await session.evaluate(pageCards), { limit });
       if (!cards.length) throw new Error(`no priced gig card on ${url}`);
       const observedAt = now().toISOString();
-      cards.forEach((c, i) => rows.push({ platform: 'kmong', category, url: BASE + c.href, query: url, rank: i + 1, title: c.title, priceKRW: c.priceKRW, fromPrice: c.fromPrice, rating: c.rating, reviews: c.reviews, badges: c.badges, listingTotal: total, observedAt }));
+      cards.forEach((c, i) => rows.push({ platform: 'kmong', category, url: BASE + c.href, query: url, rank: i + 1, title: c.title, priceKRW: c.priceKRW, fromPrice: c.fromPrice, rating: c.rating, reviews: c.reviews, badges: c.badges, img: c.img, listingTotal: total, observedAt }));
     } catch (err) {
       errors.push({ category, message: err.message });
     }

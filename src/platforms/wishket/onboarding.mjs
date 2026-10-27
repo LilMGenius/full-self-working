@@ -297,13 +297,10 @@ export async function readIdentity(session) {
   });
 }
 
+// A run without a ledger has no recorded request; a ledger that cannot be read is an error with its cause.
 export function pendingIdentity(ledger, now) {
-  try {
-    const row = ledger?.db?.prepare("SELECT at, payload FROM events WHERE kind = 'platform.identity_request' AND platform = 'wishket' ORDER BY id DESC LIMIT 1").get();
-    return row && now - Date.parse(row.at) < 2 * DAY_MS ? row : null;
-  } catch {
-    return null;
-  }
+  const row = ledger?.db?.prepare("SELECT at, payload FROM events WHERE kind = 'platform.identity_request' AND platform = 'wishket' ORDER BY id DESC LIMIT 1").get();
+  return row && now - Date.parse(row.at) < 2 * DAY_MS ? row : null;
 }
 
 async function identityStep(session, ctx) {

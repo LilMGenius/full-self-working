@@ -4,6 +4,7 @@ import { loadInstance } from '../core/instance.mjs';
 import { AdapterRefusal } from '../platforms/kit.mjs';
 import { openKmongConversation } from '../platforms/kmong/conversation.mjs';
 import { openKmongListing } from '../platforms/kmong/listing.mjs';
+import { sample } from '../platforms/kmong/market.mjs';
 import { openProjectReader, openProjectSeller } from '../platforms/kmong/projects.mjs';
 import { authorizedSend, messageOf, readKind, receiptOf, unauthorized } from './shared.mjs';
 
@@ -56,6 +57,9 @@ export async function openKmongSurface({ session, openReader = openProjectReader
       return { counts: { reviews: seller.reviews, rating: seller.rating }, rows: null, gap: 'review rows are not parsed yet' };
     },
     supply: async () => ({ platform: 'kmong', listings: (await openKmongListing({ session: a.session }).then((l) => l.listings())).gigs, services: null }),
+    // The frontier reference set (AGENTS.md frontierTargets): the top cards of each target's category page,
+    // one page load per target, with their cover image URLs. Rows keep no seller name past this read.
+    frontier: (targets, { perCategory = 3 } = {}) => sample(a.session, targets, { limit: perCategory }),
     // An enterprise proposal (003 propose; ref is the project thread's externalId, project:<id>). The
     // project is read first for its title, which the read-back on /seller/proposals matches, and its
     // status; then the projects page module fills the form, reads every field back, submits and looks for

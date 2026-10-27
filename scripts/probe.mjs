@@ -2,20 +2,27 @@
 // node scripts/probe.mjs <platform> <op> [ref] [--kind message|request] [--out <dir>] [--record] [--now]
 // One read operation of a surface on the operator's signed-in Chrome, printed as counts and field
 // presence, never customer text. ops: login, sense, read (refuses a ref the list shows unread, since
-// opening it would mark it read under the live supervisor), orders, supply, reviews. It starts inside the probe
+// opening it would mark it read under the live supervisor), orders, supply, reviews, and frontier (kmong
+// only: the top cards of each published gig's category and their cover images, saved under
+// <instance>/qa/frontier/<day>/ as the reference set our listing images are judged against). It starts inside the probe
 // window: after the live supervisor recorded its tick for the current 5-minute mark, and at least a
 // minute before the next one, so it never shares the BrowserSkill extension with a poll; --now skips the
 // wait. --record writes every call to <instance>/qa/surfaces/<platform>/<day>/. Exit 0 when the operation
 // ran, 1 when it failed or was refused, 2 on a usage error.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { extname, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { nextMark } from '../src/core/clock.mjs';
+import { dayKey, nextMark } from '../src/core/clock.mjs';
 import { instanceDir } from '../src/core/instance.mjs';
+import { catalog, targetsFor } from '../src/economics/catalog.mjs';
+import { readPublished } from '../src/listings/gig.mjs';
 import { recordingPath } from '../src/surface/recorder.mjs';
 import { hasSurface, openSurface } from '../src/surface/index.mjs';
 
-export const READ_OPS = ['login', 'sense', 'read', 'orders', 'supply', 'reviews'];
+export const READ_OPS = ['login', 'sense', 'read', 'orders', 'supply', 'reviews', 'frontier'];
+// Ops that exist on one platform only.
+const ONLY_ON = { frontier: 'kmong' };
+export const FRONTIER_PER_CATEGORY = 3;
 const MARK_MS = 5 * 60_000;
 export const CLOSE_MS = 60_000;
 export const FALLBACK_OPEN_MS = 150_000;
@@ -60,7 +67,68 @@ const lastTick = (dir) => {
   return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')).lastTick?.at ?? null : null;
 };
 
-export async function probe(argv, { now = () => new Date(), sleep = (ms) => new Promise((r) => setTimeout(r, ms)), open = openSurface, log = console.log } = {}) {
+// The kmong targets of the services with a submitted gig, one per category, each named by its service.
+export function frontierTargets(dir, list = catalog) {
+  const published = new Set(readPublished({ dir }).map((p) => p.service));
+  const subset = Object.fromEntries(Object.entries(list).filter(([id]) => published.has(id)));
+  return targetsFor('kmong', subset).map((t) => ({ ...t, service: Object.keys(subset).find((id) => subset[id] === t.def) }));
+}
+
+const IMAGE_EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'image/avif': 'avif' };
+const extOf = (type, url) => IMAGE_EXT[String(type ?? '').split(';')[0].trim()] ?? (extname(new URL(url).pathname).slice(1).toLowerCase() || 'img');
+
+// Reads each target's top cards and saves their cover images to <instance>/qa/frontier/<day>/
+// <service>-<rank>.<ext>, beside frontier.json (category, rank, gig URL, rating, review count, file; no
+// seller name, since the rows stay in the instance and kmong forbids redistribution). A service already
+// filled today is skipped, so a run the window cut short is finished by the next one. open() is asked
+// before every category load and ends the op once the probe window closes.
+export async function captureFrontier(surface, { dir, day, open = () => true, fetchImage = fetch, perCategory = FRONTIER_PER_CATEGORY } = {}) {
+  const folder = join(dir, 'qa', 'frontier', day);
+  mkdirSync(folder, { recursive: true });
+  const index = join(folder, 'frontier.json');
+  const entries = existsSync(index) ? JSON.parse(readFileSync(index, 'utf8')) : [];
+  const save = () => {
+    writeFileSync(index + '.tmp', JSON.stringify(entries, null, 1) + '\n');
+    renameSync(index + '.tmp', index);
+  };
+  // stoppedByWindow is a flag, since the printed summary keeps numbers and booleans and drops words.
+  const out = { categories: 0, skipped: 0, saved: 0, missing: 0, errors: [], stoppedByWindow: false };
+  for (const target of frontierTargets(dir)) {
+    if (entries.some((e) => e.service === target.service && e.file)) {
+      out.skipped++;
+      continue;
+    }
+    if (!open()) {
+      out.stoppedByWindow = true;
+      break;
+    }
+    const { rows, errors } = await surface.frontier([target], { perCategory });
+    out.categories++;
+    for (const e of errors) out.errors.push(target.service + ': ' + e.message);
+    for (const row of rows) {
+      const entry = { service: target.service, category: row.category, rank: row.rank, url: row.url, rating: row.rating, reviews: row.reviews, file: null, error: null };
+      try {
+        if (!row.img) throw new Error('the card showed no cover image');
+        const res = await fetchImage(row.img);
+        if (!res.ok) throw new Error('cover image answered ' + res.status);
+        const file = target.service + '-' + row.rank + '.' + extOf(res.headers.get('content-type'), row.img);
+        writeFileSync(join(folder, file), Buffer.from(await res.arrayBuffer()));
+        entry.file = file;
+        out.saved++;
+      } catch (err) {
+        entry.error = err.message;
+        out.missing++;
+      }
+      const at = entries.findIndex((e) => e.service === entry.service && e.rank === entry.rank);
+      if (at >= 0) entries[at] = entry;
+      else entries.push(entry);
+    }
+    save();
+  }
+  return out;
+}
+
+export async function probe(argv, { now = () => new Date(), sleep = (ms) => new Promise((r) => setTimeout(r, ms)), open = openSurface, log = console.log, fetchImage = fetch } = {}) {
   let args;
   try {
     args = parseArgs({ args: argv, allowPositionals: true, options: { kind: { type: 'string', default: 'message' }, out: { type: 'string' }, record: { type: 'boolean' }, now: { type: 'boolean' } } });
@@ -70,7 +138,7 @@ export async function probe(argv, { now = () => new Date(), sleep = (ms) => new 
   }
   const [platform, op, ref] = args.positionals;
   const { kind, out, record } = args.values;
-  if (!hasSurface(platform) || !READ_OPS.includes(op) || (op === 'read' && !ref)) {
+  if (!hasSurface(platform) || !READ_OPS.includes(op) || (op === 'read' && !ref) || (ONLY_ON[op] && ONLY_ON[op] !== platform)) {
     console.error('usage: probe <kmong|soomgo> <' + READ_OPS.join('|') + '> [ref] [--kind message|request] [--out dir] [--record] [--now]');
     return 2;
   }
@@ -90,6 +158,9 @@ export async function probe(argv, { now = () => new Date(), sleep = (ms) => new 
       if (!row) throw Object.assign(new Error(kind + ' ' + ref + ' is not in the list'), { code: 'FSW_THREAD_NOT_LISTED' });
       if (row.unread) throw Object.assign(new Error(kind + ' ' + ref + ' is unread; a probe never opens it'), { code: 'FSW_PROBE_UNREAD' });
       result = await surface.read(String(ref), { willReply: false, kind });
+    } else if (op === 'frontier') {
+      const inWindow = () => args.values.now || probeWindow(now(), lastTick(dir)).wait === 0;
+      result = await captureFrontier(surface, { dir, day: dayKey(started), open: inWindow, fetchImage });
     } else result = await surface[op]();
     summary = { platform, op, ref: ref ?? null, ok: true, seconds: Math.round((now() - started) / 1000), loads: surface.session.loads ?? null, result: summarize(result) };
   } catch (err) {

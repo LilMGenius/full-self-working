@@ -14,11 +14,12 @@ import { tempDir } from './tmp.mjs';
 
 test('a kmong card yields title, rating, reviews, starting price, seller and badges', () => {
   const card = parseCard({ href: '/gig/1', text: '브랜드 로고 제작\n\n4.9\n\n(2,391)\n60,000원~\n스튜디오 A\n\n빠른 응답\n\n세금계산서' });
-  assert.deepEqual(card, { href: '/gig/1', title: '브랜드 로고 제작', seller: '스튜디오 A', priceKRW: 60000, fromPrice: true, rating: 4.9, reviews: 2391, badges: ['빠른 응답', '세금계산서'] });
+  assert.deepEqual(card, { href: '/gig/1', title: '브랜드 로고 제작', seller: '스튜디오 A', priceKRW: 60000, fromPrice: true, rating: 4.9, reviews: 2391, badges: ['빠른 응답', '세금계산서'], img: null });
+  assert.equal(parseCard({ href: '/gig/1', text: '로고\n60,000원~\n판매자', img: 'https://cdn.example/cover.jpg' }).img, 'https://cdn.example/cover.jpg');
 });
 
 test('a card without reviews has no rating, and a card without a price is skipped', () => {
-  assert.deepEqual(parseCard({ href: '/gig/2', text: '새 상세페이지\n35,000원\n신규 판매자' }), { href: '/gig/2', title: '새 상세페이지', seller: '신규 판매자', priceKRW: 35000, fromPrice: false, rating: null, reviews: 0, badges: [] });
+  assert.deepEqual(parseCard({ href: '/gig/2', text: '새 상세페이지\n35,000원\n신규 판매자' }), { href: '/gig/2', title: '새 상세페이지', seller: '신규 판매자', priceKRW: 35000, fromPrice: false, rating: null, reviews: 0, badges: [], img: null });
   assert.equal(parseCard({ href: '/gig/3', text: '가격 없는 카드\n판매자' }), null);
 });
 

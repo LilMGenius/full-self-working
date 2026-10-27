@@ -58,16 +58,23 @@ export class RenderError extends Error {
   }
 }
 
-// Chrome writes the chosen port and the browser target path to DevToolsActivePort once it listens.
-async function readActivePort(profile, proc, timeoutMs) {
+// Chrome writes the chosen port and the browser target path to DevToolsActivePort once it listens. Until then the
+// file is absent (ENOENT), or Windows reports it busy while Chrome writes it (EBUSY, EPERM): each is "not ready
+// yet" and the poll goes on until the deadline; any other read error fails the start with its cause.
+const NOT_READY = ['ENOENT', 'EBUSY', 'EPERM'];
+export async function readActivePort(profile, proc, timeoutMs, { read = (file) => readFileSync(file, 'utf8') } = {}) {
   const file = join(profile, 'DevToolsActivePort');
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (proc.exitCode !== null) throw new RenderError('FSW_RENDER_CHROME_EXIT', 'Chrome exited before DevTools came up (exit ' + proc.exitCode + ')');
-    if (existsSync(file)) {
-      const [port, path] = readFileSync(file, 'utf8').split(/\r?\n/);
-      if (port && path) return { port: Number(port), path };
+    let text = null;
+    try {
+      text = read(file);
+    } catch (err) {
+      if (!NOT_READY.includes(err.code)) throw err;
     }
+    const [port, path] = String(text ?? '').split(/\r?\n/);
+    if (port && path) return { port: Number(port), path };
     await sleep(50);
   }
   throw new RenderError('FSW_RENDER_TIMEOUT', 'Chrome did not open DevTools within ' + timeoutMs + ' ms');

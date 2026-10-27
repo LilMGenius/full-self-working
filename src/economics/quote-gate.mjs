@@ -36,6 +36,8 @@ const finite = (v) => typeof v === 'number' && Number.isFinite(v);
 export function judgeQuote({ fit, quoteCount, quoteCostKRW, amountKRW, pricing = null, row, descriptor, arm, settings }) {
   const max = descriptor?.bidCost?.maxPerRequest;
   const known = Number.isInteger(quoteCount) && quoteCount >= 0;
+  // An unknown count is bounded by the platform's cap (soomgo takes 10 quotes a request), so 1 / maxPerRequest is
+  // the lowest share the request can give: a pessimistic bound on the win chance, never an optimistic guess.
   const p0 = known ? 1 / (quoteCount + 1) : Number.isInteger(max) && max > 0 ? 1 / max : null;
   const { won = 0, lost = 0, expired = 0 } = arm ?? {};
   const w = settings?.minCases;

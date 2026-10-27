@@ -46,7 +46,22 @@
       "cashing out through refunds",
       "re-registering after a ban"
     ],
-    "notes": "No explicit bot or scraping clause was found (unknown). Terms change effective 2026-11-19."
+    "notes": "No explicit bot or scraping clause was found (unknown). Terms change effective 2026-11-19.",
+    "sendRequiresOperator": []
+  },
+  "forms": {
+    "quote": {
+      "mapped": true,
+      "mappedAt": "2026-10-25T18:25:41.070Z",
+      "recording": "ledger outbox soomgo quote observed 2026-10-25T18:25:41.070Z",
+      "readBack": true
+    },
+    "message": {
+      "mapped": true,
+      "mappedAt": "2026-10-25T23:02:31.824Z",
+      "recording": "ledger message.sent soomgo 2026-10-25T23:02:31.824Z",
+      "readBack": true
+    }
   },
   "aiPolicy": "unknown",
   "taxInvoice": "The seller issues 세금계산서 or 현금영수증 on the settled amount excluding the 숨고페이 fee; 숨고 files 판매대행자료 with the NTS but the seller files VAT and income.",
@@ -67,6 +82,9 @@
       "maxChars": "unknown"
     },
     "profile": {
+      "maxChars": "unknown"
+    },
+    "proposal": {
       "maxChars": "unknown"
     }
   },

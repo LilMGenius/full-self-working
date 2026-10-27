@@ -18,6 +18,10 @@ export const HOLDING_STATUSES = ['planned', 'awaiting_operator', 'approved', 'se
 const PARK_EVENTS = [['notice:', 'thread.system'], ['expired', 'thread.skipped'], ['stale:', 'thread.skipped'], ['catalog:', 'thread.operator']];
 export const parkEvent = (reason) => PARK_EVENTS.find(([prefix]) => String(reason).startsWith(prefix))?.[1] ?? 'thread.skipped';
 
+// The outbound kind that answers a buyer request: a proposal on a bidding board, a quote elsewhere
+// (registry MODELS).
+export const answerKind = (descriptor) => ([descriptor?.model].flat().includes('bidding') ? 'proposal' : 'quote');
+
 // A thread whose pass threw (a rejected model decision, a page that did not load) was already read, so
 // its list row no longer looks new; it gets this many passes in all before it is left to the operator.
 export const THREAD_ATTEMPTS = 3;
@@ -66,6 +70,9 @@ export function triage(inbound, ledgerRow, { mode, now, settings, descriptor, op
   if (holding) return { action: 'wait', reason: 'outbox item ' + holding.id + ' is ' + holding.status };
   const unread = inbound.unread !== false;
   if (unread && inbound.preview && isSystemNotice({ text: inbound.preview })) return { action: 'park', reason: 'notice: ' + inbound.preview };
+  // A request whose answering form the platform lists unmapped (descriptor forms) could never be answered, so
+  // it is only observed: recorded and counted, with no model call (wp8).
+  if (inbound.kind === 'request' && descriptor?.forms?.[answerKind(descriptor)]?.mapped === false) return { action: 'observe', reason: 'form unmapped' };
   if (mode !== 'observe') {
     const skip = skipReason(inbound, now, settings);
     if (skip) return { action: 'park', reason: skip };

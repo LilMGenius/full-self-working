@@ -30,7 +30,14 @@ const TEXT = '요청하신 구성으로 당일 완성 가능합니다. 원하시
 const decision = { intent: 'inquiry', service: 'landing_page_web', language: 'ko', reply: TEXT, quote: null, needsOperator: false, operatorReason: null, confidence: 0.9, claimsUsed: [], statedBudgetKRW: null };
 const message = (platform) => ({ platform, kind: 'message', text: TEXT, costKRW: 0, attachments: [], thread: { kind: 'message', stage: 'pre_order', lastInboundText: '랜딩 페이지 가능한가요?', recentOutbound: [] }, decision });
 const rule = (over = {}) => ({ id: 'no_rush', pattern: '당일\\s*완성', flags: 'iu', reason: 'same-day promises led to revisions', tier: 'floor', ...over });
-const verdict = (platform, lessonsRules) => authorize(message(platform), { descriptor: loadDescriptor(platform), instance: makeInstance(), mode: 'auto', now: new Date('2026-10-20T12:00:00+09:00'), lessonsRules });
+// Scope is judged as if every platform's message form were mapped: a form listed unmapped refuses the item
+// before the gate runs (test/forms-policy.test.mjs), which would hide the learned rule this file is about.
+const mappedMessage = (platform) => {
+  const d = structuredClone(loadDescriptor(platform));
+  if (d.forms?.message) d.forms.message = { mapped: true, mappedAt: '2026-10-20T00:00:00Z', recording: 'test', readBack: true };
+  return d;
+};
+const verdict = (platform, lessonsRules) => authorize(message(platform), { descriptor: mappedMessage(platform), instance: makeInstance(), mode: 'auto', now: new Date('2026-10-20T12:00:00+09:00'), lessonsRules });
 const learned = (v) => v.violations.filter((x) => x.rule.startsWith('learned.')).map((x) => x.rule);
 
 test('a rule scoped to one platform fires through authorize only on that platform', () => {

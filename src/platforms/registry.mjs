@@ -8,7 +8,9 @@ export const descriptorDir = join(dirname(fileURLToPath(import.meta.url)), 'desc
 export const CONTACT_CLASSES = ['phone', 'email', 'url', 'messenger'];
 const MODELS = ['storefront', 'request_quote', 'bidding', 'contest'];
 const MILESTONES = ['native', 'reorder', 'multi_pay', 'none', 'unknown'];
-const LIMIT_KINDS = ['message', 'quote', 'listing', 'profile'];
+const LIMIT_KINDS = ['message', 'quote', 'listing', 'profile', 'proposal'];
+// The kinds an outbound form fills and reads back (descriptor forms, automation.sendRequiresOperator).
+export const OUTBOUND_KINDS = ['quote', 'proposal', 'message'];
 // Browsers a market sampler can read public pages through (src/cli/market.mjs).
 export const MARKET_ENGINES = ['owned', 'attached', 'archive'];
 // How often the supervisor samples a platform's market: the daily slot, or one hourly slice for a host
@@ -70,6 +72,18 @@ export function validateDescriptor(d, id = d?.id) {
   // identity "forbidden" makes the gate block the operator's names (src/policy/gate.mjs identityNames).
   const identity = d.contactPolicy.identity;
   if (identity !== undefined && !['allowed', 'forbidden'].includes(identity)) throw invalid(id, 'contactPolicy.identity', 'unexpected value ' + JSON.stringify(identity));
+  // forms: the outbound kinds this platform's surface fills and reads back. A kind listed unmapped is never
+  // sent (src/policy/authorize.mjs) and its requests are only observed (src/triage); a mapped one names when it
+  // was mapped and the recording or ledger observation it was mapped from. A kind the platform never uses is
+  // left out.
+  for (const [kind, f] of Object.entries(d.forms ?? {})) {
+    if (!OUTBOUND_KINDS.includes(kind)) throw invalid(id, 'forms.' + kind, 'unknown outbound kind');
+    if (typeof f?.mapped !== 'boolean' || f.readBack !== true) throw invalid(id, 'forms.' + kind, 'needs mapped boolean and readBack true');
+    if (f.mapped && !(isText(f.mappedAt) && isText(f.recording))) throw invalid(id, 'forms.' + kind, 'a mapped form names mappedAt and the recording it was mapped from');
+  }
+  // The kinds a person confirms before every send (upwork bars proposal submission without human confirmation).
+  const sro = d.automation.sendRequiresOperator;
+  if (sro !== undefined && !(Array.isArray(sro) && sro.every((k) => OUTBOUND_KINDS.includes(k)))) throw invalid(id, 'automation.sendRequiresOperator', 'unexpected value ' + JSON.stringify(sro));
   // A whole-amount tier that raised the rate would net less on a larger gross, and the cost floor's
   // search needs net to grow with gross.
   if (basis === 'whole' && !(Array.isArray(d.fees.seller) && d.fees.seller.every((t, i, all) => i === 0 || t.rate <= all[i - 1].rate))) {

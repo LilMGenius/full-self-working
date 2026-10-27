@@ -118,15 +118,20 @@ export function authorize(item, ctx) {
     if (d.confidence < floor) operator.push(rule('decision.confidence', 'confidence ' + d.confidence + ' is below ' + floor));
   }
   if (OPERATOR_ONLY_KINDS.includes(item.kind) && !approved) operator.push(rule('kind.operator_only', 'a ' + item.kind + ' always waits for the operator'));
-  // 4. Price row and cash.
-  if (item.kind === 'quote') {
-    if (!approved && (!priceRow || priceRow.viable === false)) operator.push(rule('price.row', 'quote without a viable price row for ' + (d?.service ?? 'unknown service')));
+  // 4. Price row and cash. A proposal answering a buyer request on a bidding board (U8.11 of wp8) is priced
+  // by code like a quote and meets the same price rules; kmong's enterprise proposals (thread kind project,
+  // decision.quote null) are priced by their own planner and keep their verdicts.
+  const priced = item.kind === 'quote' || (item.kind === 'proposal' && (Boolean(d?.quote) || item.thread?.kind === 'request'));
+  if (priced) {
+    if (!approved && (!priceRow || priceRow.viable === false)) operator.push(rule('price.row', item.kind + ' without a viable price row for ' + (d?.service ?? 'unknown service')));
+    if (!approved && item.kind === 'proposal' && typeof item.amountKRW !== 'number') operator.push(rule('price.row', 'proposal without a code-set amount'));
     // A customer who states a budget under the service's cost floor gets no cash quote: the floor would
     // quote several times what they named (a 30,000 KRW homepage request quoted 300,000 KRW, rejected by
     // the main session at 22:15 on 2026-10-25).
     const stated = d?.statedBudgetKRW;
     if (!approved && typeof stated === 'number' && typeof priceRow?.costFloorKRW === 'number' && stated < priceRow.costFloorKRW) operator.push(rule('budget.below_floor', 'the customer states ' + stated + ' KRW, under the ' + priceRow.costFloorKRW + ' KRW cost floor of ' + (d.service ?? 'the service')));
-    if (spendsCash(descriptor, item.thread?.kind)) {
+    // A proposal's bids are the bid budget's (rule 0); the daily cash caps are a quote's.
+    if (item.kind === 'quote' && spendsCash(descriptor, item.thread?.kind)) {
       const check = cashBudgetCheck({ budget: instance.config?.platforms?.[item.platform], usage, costKRW: item.costKRW });
       // Only a refusal the day's caps alone caused waits, approved or not, for a later day's budget (b223ed7).
       // No caps, an unread cost or one quote costing more than a whole day's cash can never be paid, so it is

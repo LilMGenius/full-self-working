@@ -8,6 +8,7 @@ import { gateOutbound } from '../policy/gate.mjs';
 import { COMPLEXITY_RANGE, guideOf, priceRowFor, quoteForRequest, splitPayment } from '../economics/pricing.mjs';
 import { quoteFromRow } from '../economics/quote.mjs';
 import { answeredCatalog } from '../economics/catalog.mjs';
+import { foreignAmount, fxNote, loadFx as defaultLoadFx } from '../economics/fx.mjs';
 import { isSystemNotice } from '../core/notices.mjs';
 import { runCodex as defaultRunCodex } from './codex.mjs';
 import { INTENTS, buildDecisionPrompt, catalogIds, loadCatalog, loadLessons, loadPlaybook } from './prompts.mjs';
@@ -141,11 +142,20 @@ export function gateThread(thread) {
   };
 }
 
-export function outboundItem(thread, decision, text) {
-  const kind = thread.kind === 'request' || decision.quote ? 'quote' : 'message';
+// A buyer request on a bidding board is answered with a proposal (U8.11 of wp8), elsewhere with a quote.
+export const biddingBoard = (descriptor) => [descriptor?.model].flat().includes('bidding');
+// A proposal on a board priced outside KRW also states its code-set price in the board's currency, at the
+// day's rate, which travels with it so the drain can tell a stale rate.
+export const needsFx = (thread, descriptor) => thread.kind === 'request' && biddingBoard(descriptor) && (descriptor.currency ?? 'KRW') !== 'KRW';
+
+export function outboundItem(thread, decision, text, { descriptor = null, fx = null } = {}) {
+  const answer = biddingBoard(descriptor) ? 'proposal' : 'quote';
+  const kind = thread.kind === 'request' ? answer : decision.quote ? 'quote' : 'message';
+  const amountKRW = decision.quote?.amountKRW;
+  const foreign = kind === 'proposal' && needsFx(thread, descriptor) && fx && amountKRW ? { currency: descriptor.currency, amount: foreignAmount(amountKRW, descriptor.currency, fx), fx: fxNote(descriptor.currency, fx) } : {};
   // decision rides on the item so the loop stores it in the outbox payload and authorize reads its rules.
   return {
-    platform: thread.platform, kind, text, amountKRW: decision.quote?.amountKRW,
+    platform: thread.platform, kind, text, amountKRW, ...foreign,
     costKRW: thread.kind === 'request' ? thread.quoteCostKRW ?? null : 0, serviceLabel: thread.serviceLabel ?? null,
     attachments: [], thread: gateThread(thread), decision,
   };
@@ -207,14 +217,18 @@ export async function decide(thread, ctx) {
     }
     return decision;
   };
+  // The day's rate for a board priced outside KRW, read once and only once the model has drafted a reply.
+  let fx = null;
+  const rate = async () => (fx ??= needsFx(thread, descriptor) ? await (ctx.loadFx ?? defaultLoadFx)(instance) : null);
   const gate = (decision) => {
     const priceRow = decision.service ? priceRowFor(priceTable, descriptor.id, decision.service) : null;
-    const item = outboundItem(thread, decision, decision.reply);
+    const item = outboundItem(thread, decision, decision.reply, { descriptor, fx });
     return { item, priceRow, result: gateOutbound(item, { descriptor, instance, priceRow, lessonsRules }) };
   };
 
   const first = await ask({});
   if (first.reply === null) return { decision: first, item: null, priceRow: null, modelCalls: 1 };
+  await rate();
   let g = gate(first);
   if (g.result.ok) return { decision: first, item: g.item, priceRow: g.priceRow, modelCalls: 1 };
   // One redraft with the violations. Whatever comes back is planned; authorize runs the gate again and

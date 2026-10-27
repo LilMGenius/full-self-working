@@ -527,6 +527,8 @@ test('a soomgo quote the platform refused as full goes stale, counts no press an
   assert.deepEqual(out.map((x) => [x.id, x.action, x.code]), [[row.id, 'stale', 'FSW_SOOMGO_REQUEST_FULL']]);
   const after = s.ledger.getOutbox(row.id);
   assert.deepEqual([after.status, after.reason], ['stale', 'soomgo took no quote: 이미 10개 이상 견적을 받은 요청입니다.']);
+  // The refusal code stays on the row, where src/economics/quote-results.mjs reads a refused quote.
+  assert.deepEqual(after.receipt, { refused: 'FSW_SOOMGO_REQUEST_FULL', at: NOON.toISOString() });
   assert.deepEqual(quotaUsage(s.ledger, 'soomgo', NOON), { quotes: 0, cashKRW: 0 });
   assert.equal(events(s.ledger, 'send.unobserved').length, 0);
   assert.deepEqual(s.notes, []);

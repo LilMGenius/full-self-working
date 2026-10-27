@@ -10,7 +10,7 @@
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { runCodex as defaultRunCodex } from '../brain/codex.mjs';
 import { matchFiles } from './accept.mjs';
 
@@ -69,7 +69,9 @@ export function reviewInput(dir, files, captures = []) {
 function parseReview(data) {
   const ok = data && ['pass', 'fail'].includes(data.verdict) && Array.isArray(data.findings) && data.findings.every((f) => f && typeof f.detail === 'string' && ['blocker', 'major', 'minor'].includes(f.severity));
   if (!ok) throw Object.assign(new Error('the review answer is not {verdict, findings}: ' + JSON.stringify(data).slice(0, 300)), { code: 'FSW_REVIEW_BAD_ANSWER' });
-  return { verdict: data.verdict, findings: data.findings.map((f) => ({ severity: f.severity, file: typeof f.file === 'string' ? f.file : null, detail: f.detail })) };
+  // A blocker is a reason to fail by the prompt's own rule, so a pass that names one is recorded as fail.
+  const verdict = data.verdict === 'pass' && data.findings.some((f) => f.severity === 'blocker') ? 'fail' : data.verdict;
+  return { verdict, findings: data.findings.map((f) => ({ severity: f.severity, file: typeof f.file === 'string' ? f.file : null, detail: f.detail })) };
 }
 
 function reviewPrompt({ brief, files, language, input }) {
@@ -83,6 +85,16 @@ function reviewPrompt({ brief, files, language, input }) {
   ].join('\n');
 }
 
+// The delivery against its review: changed when a reviewed file is gone or its bytes differ from the reviewed hash
+// (a review without its file list cannot be checked and counts as changed); unreviewed lists the delivery files the
+// review never read, such as files an operator step added after the run.
+export function reviewDrift(review, files) {
+  if (!Array.isArray(review?.reviewed) || !review.work) return { changed: true, unreviewed: [...files] };
+  const seen = new Set(review.reviewed.map((f) => resolve(review.work, f)));
+  const changed = !review.reviewed.every((f) => existsSync(join(review.work, f))) || hashTree(review.work, review.reviewed) !== review.hash;
+  return { changed, unreviewed: files.filter((f) => !seen.has(resolve(f))) };
+}
+
 // paths: jobPaths of the job; recipe: its deliverables. Returns the review record stored on the job.
 export async function reviewDeliverables({ paths, recipe, language = 'ko', builderModel, model, runCodex = defaultRunCodex, timeoutMs = 900_000 }) {
   const captures = paths.qa && existsSync(paths.qa) ? readdirSync(paths.qa).filter((f) => IMAGE.test(f)).sort().map((f) => join(paths.qa, f)) : [];
@@ -92,7 +104,7 @@ export async function reviewDeliverables({ paths, recipe, language = 'ko', build
   const reviewer = modelFamily(model);
   if (!built || !reviewer || built === reviewer) {
     const detail = 'the review model ' + (model ?? 'none') + ' (' + (reviewer ?? 'unknown family') + ') is not independent of the builder ' + builderModel + ' (' + (built ?? 'unknown family') + '); set jobs.review.model to a model of another family';
-    return { verdict: 'error', findings: [{ severity: 'blocker', file: null, detail }], model: model ?? null, builderModel, files: files.length, hash: hashTree(paths.work, files), durationMs: 0, at };
+    return { verdict: 'error', findings: [{ severity: 'blocker', file: null, detail }], model: model ?? null, builderModel, files: files.length, reviewed: files, work: paths.work, hash: hashTree(paths.work, files), durationMs: 0, at };
   }
   const before = hashTree(paths.work, files);
   const scratch = mkdtempSync(join(tmpdir(), 'fsw-review-'));
@@ -105,14 +117,16 @@ export async function reviewDeliverables({ paths, recipe, language = 'ko', build
     try {
       const r = await runCodex({ prompt: reviewPrompt({ brief, files, language, input }), schema: REVIEW_SCHEMA, model, cwd: scratch, images: input.images, sandbox: 'read-only', timeoutMs });
       result = parseReview(r.data);
-      if (input.unread.length) result = { verdict: result.verdict === 'pass' ? 'error' : result.verdict, findings: [{ severity: 'blocker', file: null, detail: 'not reviewed, a format the review cannot read: ' + input.unread.join(', ') }, ...result.findings] };
+      // A file the review did not see whole was not reviewed: an unread format or a text cut at the limit never passes.
+      const unseen = [...(input.unread.length ? ['not reviewed, a format the review cannot read: ' + input.unread.join(', ')] : []), ...(input.partial.length ? ['reviewed only in part, cut at the review limit: ' + input.partial.join(', ')] : [])];
+      if (unseen.length) result = { verdict: result.verdict === 'pass' ? 'error' : result.verdict, findings: [...unseen.map((detail) => ({ severity: 'blocker', file: null, detail })), ...result.findings] };
     } catch (err) {
       // A codex failure (timeout, a dead proxy, a refused login) is recorded with its cause, never as a pass.
       result = { verdict: 'error', findings: [{ severity: 'blocker', file: null, detail: (err.code ? err.code + ' ' : '') + err.message }] };
     }
     const after = hashTree(paths.work, files);
     if (after !== before) result = { verdict: 'fail', findings: [{ severity: 'blocker', file: null, detail: 'the work folder changed during the review' }, ...result.findings] };
-    return { ...result, model, builderModel, files: files.length, images: input.images.length, partial: input.partial, unread: input.unread, hash: before, durationMs: Date.now() - started, at };
+    return { ...result, model, builderModel, files: files.length, reviewed: files, work: paths.work, images: input.images.length, partial: input.partial, unread: input.unread, hash: before, durationMs: Date.now() - started, at };
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }

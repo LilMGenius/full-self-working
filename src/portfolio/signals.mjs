@@ -80,13 +80,16 @@ async function repoAuthor(fetch, repo, { login, orgs }, errors) {
   return { why, stars: why === null ? gh.stargazers_count ?? null : null };
 }
 
-// The npm user who published a package's first version (versions[<first>]._npmUser, the first by the record's time
-// map, else the first listed); null when the record names none.
+// The first version of a package (by the record's time map, else the first listed) and the npm user who published
+// it (versions[<first>]._npmUser). npm keeps an unpublished version's time but drops its record, so a first version
+// with no record is unpublished and its publisher unknown.
 function firstPublisher(rec) {
-  const listed = Object.keys(rec?.versions ?? {});
   const time = rec?.time ?? {};
-  const first = [...listed].sort((a, b) => (Date.parse(time[a] ?? '') || Infinity) - (Date.parse(time[b] ?? '') || Infinity) || listed.indexOf(a) - listed.indexOf(b))[0];
-  return first ? String(rec.versions[first]?._npmUser?.name ?? '').toLowerCase() || null : null;
+  const known = [...new Set([...Object.keys(rec?.versions ?? {}), ...Object.keys(time).filter((k) => k !== 'created' && k !== 'modified')])];
+  const first = [...known].sort((a, b) => (Date.parse(time[a] ?? '') || Infinity) - (Date.parse(time[b] ?? '') || Infinity) || known.indexOf(a) - known.indexOf(b))[0];
+  if (!first) return { version: null, name: null, unpublished: false };
+  if (!rec.versions?.[first]) return { version: first, name: null, unpublished: true };
+  return { version: first, name: String(rec.versions[first]._npmUser?.name ?? '').toLowerCase() || null, unpublished: false };
 }
 
 // A package named without a GitHub URL is the operator's only by its npm record. When the record names a GitHub
@@ -102,8 +105,9 @@ async function packageAuthor(fetch, name, ctx, errors) {
     return { why: viaRepo.why === null ? null : 'npm package ' + name + ': ' + viaRepo.why, stars: viaRepo.stars };
   }
   if (ctx.npmUser == null) return { why: 'npm package ' + name + ': no npmjs.com link in profile.person.links', stars: null };
-  const publisher = firstPublisher(rec);
-  return { why: publisher === ctx.npmUser ? null : 'npm package ' + name + ': first version published by ' + (publisher ?? 'an unknown user'), stars: null };
+  const first = firstPublisher(rec);
+  if (first.unpublished) return { why: 'npm package ' + name + ': first version ' + first.version + ' was unpublished, so its publisher is unknown', stars: null };
+  return { why: first.name === ctx.npmUser ? null : 'npm package ' + name + ': first version published by ' + (first.name ?? 'an unknown user'), stars: null };
 }
 
 // {authored, why, stars, downloads, errors} per item that names a repository or a package. Only an item the

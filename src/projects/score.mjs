@@ -5,6 +5,7 @@
 // by its page version, so it is judged once unless the client changes the page.
 import { costFloor } from '../economics/pricing.mjs';
 import { armWeight } from '../economics/priority.mjs';
+import { FIT_RANK } from '../economics/quote-gate.mjs';
 import { dayKey } from '../core/clock.mjs';
 import catalog from '../economics/services.json' with { type: 'json' };
 
@@ -143,7 +144,6 @@ export const SERVICE_KEYWORDS = {
 export const OFFLINE_RE = /상주|오프라인\s*(?:근무|미팅|교육|행사|매장\s*운영)|현장\s*(?:근무|방문|설치|상주|촬영)|출장|하드웨어|펌웨어|임베디드|회로|PCB|아두이노|제조|양산|금형|시제품|생산\s*라인|시공|인테리어|설치\s*공사/i;
 export const NATIVE_APP_RE = /앱\s*스토어|앱스토어|플레이\s*스토어|구글\s*플레이|iOS|안드로이드|Android|Flutter|플러터|React\s*Native|리액트\s*네이티브|네이티브\s*앱/i;
 
-export const FIT_RANK = { none: 0, some: 1, strong: 2 };
 export const FIT_FACTOR = { some: 0.6, strong: 1 };
 
 const ascii = /^[A-Za-z]+$/;

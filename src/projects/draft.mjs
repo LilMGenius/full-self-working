@@ -10,7 +10,6 @@ import { gateOutbound, identityParts, namePattern } from '../policy/gate.mjs';
 import { runCodex as defaultRunCodex } from '../brain/codex.mjs';
 import { loadGateRules } from '../brain/respond.mjs';
 import { dayKey } from '../core/clock.mjs';
-import { FIT_RANK } from './score.mjs';
 
 export const DEFAULT_CRITIC_MODEL = 'cpa/claude-opus-5-5';
 export const DEFAULT_MIN_CRITIC_SCORE = 0.75;
@@ -117,8 +116,6 @@ export function sendDecision({ policy, mode, sendingHours, fit, totalKRW, critic
   else if (!critic.pass) why.push('critic ' + (critic.error ? 'failed: ' + critic.error : 'score ' + critic.score + ' below ' + policy.minCriticScore + (critic.problems?.length ? ' (' + critic.problems.slice(0, 3).join('; ') + ')' : '')));
   return why.length ? { action: 'approval', reason: why.join('; ') } : { action: 'send', reason: null };
 }
-
-export const fitMeets = (fit, minFit) => FIT_RANK[fit] >= FIT_RANK[minFit];
 
 // The smallest total the platform's form takes for this project: its descriptor ratio of the budget,
 // rounded up to 10,000 KRW (kmong prints 최소 1540만원 for a 2200만원 budget). 0 when either is unknown.

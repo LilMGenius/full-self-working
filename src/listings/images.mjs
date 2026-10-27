@@ -55,10 +55,14 @@ const BASE_CSS = '*{box-sizing:border-box;margin:0;padding:0}' +
 // Sets each [data-fit] block to the largest size up to data-max at which it fits its box, wide and (when the
 // box has a height) tall, once the inlined face has loaded, so a short claim is set huge and a long one
 // still fits on its lines.
-const FIT = '<script>document.fonts.ready.then(() => { for (const el of document.querySelectorAll("[data-fit]")) {' +
-  ' const box = el.parentElement; let size = Number(el.dataset.max); el.style.fontSize = size + "px";' +
-  ' const over = () => el.scrollWidth > box.clientWidth || (box.clientHeight > 0 && el.offsetHeight > box.clientHeight);' +
-  ' while (over() && size > 28) { size -= 2; el.style.fontSize = size + "px"; } } });</script>';
+// The overflow test the fit and its probe share: wider than its box, or taller when the box has a height.
+const OVER = '(el) => el.scrollWidth > el.parentElement.clientWidth || (el.parentElement.clientHeight > 0 && el.offsetHeight > el.parentElement.clientHeight)';
+export const FIT_FLOOR_PX = 28;
+const FIT = '<script>const over = ' + OVER + '; document.fonts.ready.then(() => { for (const el of document.querySelectorAll("[data-fit]")) {' +
+  ' let size = Number(el.dataset.max); el.style.fontSize = size + "px";' +
+  ' while (over(el) && size > ' + FIT_FLOOR_PX + ') { size -= 2; el.style.fontSize = size + "px"; } } });</script>';
+// Run after the page settled: the text of every fitted block that still overflows at the floor size.
+const FIT_PROBE = '(() => { const over = ' + OVER + '; return [...document.querySelectorAll("[data-fit]")].filter(over).map((el) => el.innerText.replace(/\\s+/g, " ")); })()';
 
 // fontFace is the inlined @font-face rule; an empty one (a face that failed to inline) makes every text node
 // fall back, which the font proof in renderListingImages reports.
@@ -263,20 +267,23 @@ export async function renderListingImages({ listing, studio, outDir, proofs = []
     const shot = (r) => (r.kind === 'capture' ? (files[r.id] ? shotOf(files[r.id], byId[r.id]) : null) : { src: dataUrl(r.file), ...imageSize(readFileSync(r.file)), sample: r.kind === 'sample' });
     const shots = (list) => list.map(refOf).map(shot).filter(Boolean);
     const fonts = [];
+    // A fallback face, and a fitted heading that overflows even at the floor size (it would be clipped by the
+    // image edge), are each a violation of the image they were drawn in.
     const proved = (name, r) => {
       for (const detail of platformFontProblems(r.platformFonts, 'Pretendard')) fonts.push({ field: 'images.' + name, rule: 'image.font', detail });
+      for (const text of r.probe ?? []) fonts.push({ field: 'images.' + name, rule: 'image.text_fit', detail: 'the heading does not fit its box even at ' + FIT_FLOOR_PX + ' px: ' + text });
       return r;
     };
     const mainPage = mainHtml({ listing, studio, cardShots: shots(plan.card), fontFace });
     const main = join(outDir, 'main.png');
-    proved('main', await renderer.render({ html: mainPage, ...MAIN_SIZE, out: main, format: 'png', fontReport: true }));
+    proved('main', await renderer.render({ html: mainPage, ...MAIN_SIZE, out: main, format: 'png', fontReport: true, probe: FIT_PROBE }));
     const preview = join(outDir, 'main-190.png');
     await renderer.render({ html: mainPage, ...MAIN_SIZE, out: preview, format: 'png', maxSide: 190 });
     const detail = [];
     for (const [i, html] of detailHtmls({ listing, studio, gallery: shots(plan.gallery), fontFace }).entries()) {
       const out = join(outDir, 'detail-' + (i + 1) + '.jpg');
       // A short viewport lets the full-page capture end where the content ends.
-      proved('detail.' + i, await renderer.render({ html, width: DETAIL_WIDTH, height: 200, fullPage: true, out, format: 'jpeg', quality: 90, scale: DETAIL_SCALE, fontReport: true }));
+      proved('detail.' + i, await renderer.render({ html, width: DETAIL_WIDTH, height: 200, fullPage: true, out, format: 'jpeg', quality: 90, scale: DETAIL_SCALE, fontReport: true, probe: FIT_PROBE }));
       detail.push(out);
     }
     return { main, detail, preview, version: IMAGES_VERSION, violations: [...checkImages({ main, detail }), ...fonts] };

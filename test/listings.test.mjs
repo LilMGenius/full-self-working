@@ -724,3 +724,12 @@ test('the watch\'s resubmit after a rejection shares the day\'s room with the re
   assert.deepEqual(s.calls, []);
   assert.match(day.rows[0].reason, /refreshPerDay/);
 });
+
+test('a claim that does not fit its box even at the smallest size is a violation, not clipped by the card edge', async () => {
+  const long = listingOf();
+  long.imageCopy.card.headline = ['데이터수집과정리와자동화와검수와전달까지한번에하는서비스', '파일로'];
+  const r = await renderListingImages({ listing: long, studio: '스튜디오', outDir: tempDir('fsw-img-') });
+  const fit = r.violations.filter((v) => v.rule === 'image.text_fit');
+  assert.deepEqual(fit.map((v) => v.field), ['images.main'], JSON.stringify(r.violations));
+  assert.match(fit[0].detail, /does not fit .* at 28 px/);
+});

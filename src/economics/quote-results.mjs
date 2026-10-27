@@ -1,7 +1,7 @@
 // What became of every quote fsw sent, replayed from the ledger (docs/DESIGN.md, Economics): won, lost,
 // expired, refused, superseded or still open, each with the price index it went out at when its pricing
 // basis is known.
-// Nothing here writes; the same ledger and the same day give the same list, which the price table
+// Nothing here writes; the same ledger state and the same day give the same list, which the price table
 // (price-learning.mjs) and the allocation (yield.mjs) both read, so neither counts a quote its own way.
 export const QUOTE_RESULTS = ['won', 'lost', 'expired', 'refused', 'superseded', 'open'];
 const DAY_MS = 86_400_000;
@@ -17,7 +17,9 @@ export function decidedThreads(ledger) {
 }
 
 // 00:00 Seoul of a dayKey (YYYYMMDD, src/core/clock.mjs): the instant a day's table and allocation are
-// computed as of, so a rerun later that day sees the same cases.
+// computed as of. It cuts which quotes count by when they went out; their status is read as the ledger holds
+// it now, since the ledger keeps no time a quote was decided, so a hire recorded later the same day changes
+// a rerun of that day's table.
 export function dayStart(day) {
   if (!/^\d{8}$/.test(String(day))) throw new RangeError('day must be YYYYMMDD, got ' + day);
   return new Date(day.slice(0, 4) + '-' + day.slice(4, 6) + '-' + day.slice(6, 8) + 'T00:00:00+09:00');

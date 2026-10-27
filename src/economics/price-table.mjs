@@ -39,7 +39,8 @@ export function latestTable(dir) {
 
 // adapterFor(platform) resolves truthy when this build can work that platform. ledger is the replay source
 // of price learning; without one (a test of the market part alone) rows stay on the market, as before. The
-// table is computed as of 00:00 Seoul of its day, so a rerun the same day writes the same rows.
+// table counts the quotes sent before 00:00 Seoul of its day, with their status as the ledger holds it now:
+// a rerun the same day writes the same rows unless a quote was decided in between (quote-results.mjs).
 export async function refreshPriceTable(instance, { adapterFor, ledger = null, day, log = () => {} } = {}) {
   if (typeof adapterFor !== 'function') throw new TypeError('refreshPriceTable needs adapterFor');
   const summary = latestSummary(instance);

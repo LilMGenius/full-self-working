@@ -11,6 +11,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { isContribution } from '../core/profile.mjs';
 import { gateOutbound } from '../policy/gate.mjs';
 import { loadDescriptor } from '../platforms/registry.mjs';
 import { fontProblems, pdfFonts, pdfPageCount, platformFontProblems, pretendardFontFace } from '../render/fonts.mjs';
@@ -49,7 +50,6 @@ export function formatPeriod(period, lang = 'ko') {
 }
 
 // A project is someone else's when the profile says so: contribution true, or a role naming a contribution.
-export const isContribution = (p) => p?.contribution === true || /\bcontribut/i.test(p?.role ?? '');
 
 // The printed resume as data: sections in the order the profile lists its entries.
 export function resumeModel(profile, { lang = 'ko' } = {}) {

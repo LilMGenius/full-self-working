@@ -3,6 +3,7 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ensureDir } from '../core/instance.mjs';
+import { isContribution } from '../core/profile.mjs';
 import { rankPortfolio } from './rank.mjs';
 
 const itemsPath = (instance) => join(instance.paths.portfolio, 'items.json');
@@ -50,6 +51,10 @@ export function itemsFromProfile(profile) {
     summary_ko: p.what_ko ?? null,
     summary_en: p.what ?? null,
     url: p.url ?? null,
+    // the npm package a project publishes (its downloads are read as reach, src/portfolio/signals.mjs), and whether
+    // it is a contribution to another maintainer's repository, which carries no fame and no README capture.
+    package: p.package ?? null,
+    contribution: isContribution(p),
   }));
 }
 
@@ -91,7 +96,9 @@ function merge(existing, generated) {
   return out;
 }
 
-export function syncPortfolio(instance, ledger) {
+// signals: the day's readSignals result, or null when the job did not read them (the item keeps what it had);
+// media: captured media per item id, for items that had none.
+export function syncPortfolio(instance, ledger, { signals = null, media = {} } = {}) {
   const existing = loadItems(instance);
   const byId = new Map(existing.map((i) => [i.id, i]));
   const generated = [...itemsFromProfile(instance.profile)];
@@ -103,7 +110,12 @@ export function syncPortfolio(instance, ledger) {
     const review = ledger.jobReviews(job.id).at(-1) ?? null;
     generated.push(itemFromJob({ job, payments, review }));
   }
-  for (const g of generated) byId.set(g.id, merge(byId.get(g.id), g));
+  // A read reach object is never empty, so it replaces yesterday's, including a figure that went absent today: a
+  // number whose source stopped answering is not kept.
+  for (const g of generated) {
+    const read = signals ? { reach: signals.reach[g.id] ?? null, ...(signals.quality[g.id] ? { quality: signals.quality[g.id].quality } : {}) } : {};
+    byId.set(g.id, merge(byId.get(g.id), { ...g, ...read, ...(media[g.id] ? { media: media[g.id] } : {}) }));
+  }
   const items = [...byId.values()].sort((a, b) => String(a.id).localeCompare(String(b.id)));
   if (JSON.stringify(items) !== JSON.stringify(existing)) saveItems(instance, items);
   return rankPortfolio(items);

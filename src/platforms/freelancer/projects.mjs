@@ -9,6 +9,7 @@ import { apiResult, jobsUrl, pageBody } from './market.mjs';
 const BASE = 'https://www.freelancer.com';
 const API = BASE + '/api/projects/0.1';
 export const SELF_URL = BASE + '/api/users/0.1/self/';
+export const SELF_REPUTATION_URL = SELF_URL + '?reputation=true';
 export const LOGIN_URL = BASE + '/login';
 
 export const activeUrl = (jobIds, limit) => API + '/projects/active/?' + jobIds.map((id) => 'jobs[]=' + id).join('&') + '&project_types[]=fixed&job_details=true&limit=' + limit + '&sort_field=time_updated';
@@ -84,6 +85,21 @@ export function selfStatus(body) {
 export async function readSelf(session) {
   await session.navigate(SELF_URL, { settle: 500 });
   return selfStatus(await session.evaluate(pageBody));
+}
+
+// A signed-in self answer's result, or a named error for anything else.
+export function apiResultOf(body, url) {
+  if (selfStatus(body).loggedIn !== true) throw Object.assign(new Error('the freelancer self API did not answer signed in at ' + url), { code: 'FSW_FREELANCER_SIGNED_OUT' });
+  return body.json.result;
+}
+
+// The seller's review count and rating from the self API's reputation (entire history), in the shape the
+// price table's state file takes (src/economics/price-table.mjs sellerStatsFrom).
+export async function readReputation(session) {
+  await session.navigate(SELF_REPUTATION_URL, { settle: 500 });
+  const h = apiResultOf(await session.evaluate(pageBody), SELF_REPUTATION_URL)?.reputation?.entire_history;
+  if (!Number.isInteger(h?.reviews)) return null;
+  return { reviews: h.reviews, rating: typeof h.overall === 'number' ? h.overall : null, completed: Number.isInteger(h.complete) ? h.complete : null };
 }
 
 // The Google sign-in of the login page, mapped 2026-10-26 by the onboarding wizard

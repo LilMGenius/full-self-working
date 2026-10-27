@@ -110,3 +110,19 @@ test('syncPortfolio merges background and paid jobs without duplicates and keeps
   assert.ok(readFileSync(file, 'utf8').endsWith('\n'));
   ledger.close();
 });
+
+// U7.8: tier B orders by fame first, read from the item's public reach when no client names one.
+test('in tier B a famous background item outranks a better-scored one without fame, and a client fame wins over reach', () => {
+  const ranked = rankPortfolio([
+    { id: 'scored', source: 'background', quality: 0.9 },
+    { id: 'famous', source: 'background', quality: null, reach: { fame: 0.8 } },
+    { id: 'quiet', source: 'background', quality: 0.5, reach: { fame: null } },
+  ]);
+  assert.deepEqual(ids(ranked), ['famous', 'scored', 'quiet']);
+  const a = rankPortfolio([
+    job('reach-only', { satisfaction: { liked: true }, client: { fame: 0.2 }, reach: { fame: 0.9 } }),
+    job('client', { satisfaction: { liked: true }, client: { fame: 0.5 } }),
+    job('reach', { satisfaction: { liked: true }, reach: { fame: 0.3 } }),
+  ]);
+  assert.deepEqual(ids(a), ['client', 'reach', 'reach-only']);
+});

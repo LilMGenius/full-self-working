@@ -93,8 +93,10 @@ const summary = {
     { platform: 'kmong', category: 'mid', n: 30, p25: 6000, median: 8000, p75: 20000 },
   ],
 };
+// reviews of each service on the platform, all tied to their service through the ledger.
+const byService = (reviews) => Object.fromEntries(Object.keys(services).filter((s) => !s.startsWith('_')).map((s) => [s, reviews]));
 const table = (reviews, strength = 'some', descriptor = free) =>
-  buildPriceTable({ summary, services, profile: { serviceFit: { svc: { strength } } }, sellerStats: { kmong: { reviews } }, config, descriptors: { kmong: descriptor } });
+  buildPriceTable({ summary, services, profile: { serviceFit: { svc: { strength } } }, sellerStats: { kmong: { reviews: reviews * 3, byService: byService(reviews) } }, config, descriptors: { kmong: descriptor } });
 
 test('price tiers switch at 5 and 30 reviews and round to 1,000 KRW', () => {
   const base = (n) => table(n).find((r) => r.service === 'svc').baseKRW;
@@ -149,19 +151,54 @@ test('a service whose cost floor is above the market ceiling is priced out, with
   assert.throws(() => buildPriceTable({ summary, services, profile: {}, sellerStats: { kmong: { reviews: 5 } }, config: { yield: { humanHourValueKRW: 30000 } }, descriptors: { kmong: free } }), { code: 'FSW_CONFIG_MISSING' });
 });
 
-test('request quotes scale the guide average, clamp to the guide and respect the cost floor plus quote cost', () => {
+test('request quotes scale the row base, clamp to the guide and respect the cost floor plus quote cost', () => {
   const guide = { avgKRW: 100000, minKRW: 80000, maxKRW: 150000 };
-  const row = { costFloorKRW: 20000, ceilingKRW: 150000 };
+  const row = { baseKRW: 100000, costFloorKRW: 20000, ceilingKRW: 150000 };
   const q = (complexity, extra = {}) => quoteForRequest({ guide, complexity, row, descriptor: free, config, quoteCostKRW: 1990, ...extra });
   assert.equal(q(1).amountKRW, 100000);
   assert.equal(q(0.6).amountKRW, 80000);
   assert.equal(q(1.6).amountKRW, 150000);
-  const floored = q(0.6, { row: { costFloorKRW: 90000, ceilingKRW: 150000 } });
+  const floored = q(0.6, { row: { baseKRW: 100000, costFloorKRW: 90000, ceilingKRW: 150000 } });
   assert.equal(floored.amountKRW, 92000);
   assert.equal(floored.floorApplied, true);
   assert.equal(floored.netKRW, 92000 - 1990);
   assert.throws(() => q(1.7), RangeError);
   assert.throws(() => q(1, { quoteCostKRW: undefined }), { code: 'FSW_QUOTE_COST_MISSING' });
+  assert.throws(() => q(1, { row: { costFloorKRW: 20000 } }), { code: 'FSW_PRICE_ROW_MISSING' });
+});
+
+// The founder's pricing decision of 2026-10-27: a service the seller has fewer than 5 reviews for prices at the
+// first tier, and a request quote starts from that row instead of the guide average. Guide figures are synthetic,
+// shaped like a soomgo detail page guide (minimum 35,000, average 300,000).
+const soomgo = { ...free, id: 'soomgo' };
+const detailGuide = { observedAt: '2026-10-27', entries: [{ platform: 'soomgo', category: '상세', n: 100, avgKRW: 300000, minKRW: 35000, maxKRW: 1500000 }, { platform: 'soomgo', category: '과외', n: 100, avgKRW: 40000, minKRW: 20000, maxKRW: 90000 }] };
+const guideServices = {
+  detail: { soomgoGuide: '상세', agentHours: { standard: 5 }, humanMinutes: { standard: 60 } },
+  lesson: { soomgoGuide: '과외', delivery: 'operator', agentHours: { standard: 0 }, humanMinutes: { standard: 60 } },
+};
+const guideTable = (stats) => buildPriceTable({ summary: detailGuide, services: guideServices, profile: { serviceFit: { detail: { strength: 'some' }, lesson: { strength: 'some' } } }, sellerStats: { soomgo: stats }, config, descriptors: { soomgo } });
+
+test('reviews tier each service by its own count: an untied platform total counts for an operator service only', () => {
+  const rows = Object.fromEntries(guideTable({ reviews: 20 }).map((r) => [r.service, r]));
+  // 35,000 + 0.35 x (300,000 - 35,000) = 127,750, rounded: the 20 reviews name no agent-delivered service.
+  assert.deepEqual([rows.detail.baseKRW, rows.detail.basis.reviews, rows.detail.basis.platformReviews], [128000, 0, 20]);
+  assert.deepEqual([rows.lesson.baseKRW, rows.lesson.basis.reviews], [40000, 20]);
+  const tied = Object.fromEntries(guideTable({ reviews: 20, byService: { detail: 5 } }).map((r) => [r.service, r]));
+  assert.deepEqual([tied.detail.baseKRW, tied.detail.basis.reviews, tied.lesson.basis.reviews], [300000, 5, 15]);
+  assert.equal(Object.fromEntries(guideTable({ reviews: 3, byService: { detail: 4 } }).map((r) => [r.service, r])).lesson.basis.reviews, 0, 'more tied than the total leaves nothing untied');
+});
+
+test('a detail page request at complexity 1.0 is quoted at the first-tier row base, not the guide average', () => {
+  const row = guideTable({ reviews: 20 }).find((r) => r.service === 'detail');
+  const guide = { avgKRW: 300000, minKRW: 35000, maxKRW: 1500000 };
+  const q = (complexity, r = row) => quoteForRequest({ guide, complexity, row: r, descriptor: soomgo, config, quoteCostKRW: 990 });
+  assert.equal(q(1).amountKRW, 128000);
+  assert.deepEqual([q(1).basis.source, q(1).basis.base, q(1).basis.reference, q(1).basis.guideAvg], ['price-row', 128000, 128000, 300000]);
+  assert.equal(q(1.3).amountKRW, 166000);
+  // 5 agent hours at 2,000 and 60 operator minutes at 30,000 an hour cost 40,000; with the 990 quote cost, 41,000.
+  assert.equal(q(0.6, { ...row, baseKRW: 50000 }).amountKRW, 41000, 'held at the cost floor plus the quote cost, above the guide minimum');
+  const learned = q(1, { ...row, baseKRW: 115000, learned: { factor: 0.9, fromKRW: 128000 } });
+  assert.deepEqual([learned.amountKRW, learned.basis.reference, learned.basis.learnedFactor], [115000, 128000, 0.9]);
 });
 
 const sum = (parts) => parts.reduce((s, p) => s + p.amountKRW, 0);

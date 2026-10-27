@@ -14,7 +14,8 @@ export const COMPLEXITY_RANGE = [0.6, 1.6];
 export const roundTo1000 = (x) => Math.round(x / 1000) * 1000;
 const ceilTo1000 = (x) => Math.ceil(x / 1000) * 1000;
 
-// Review tiers: fewer than 5, 5 to 29, 30 or more reviews on that platform.
+// Review tiers: fewer than 5, 5 to 29, 30 or more reviews of the service on that platform. A seller new to a
+// service enters at the first tier so the first jobs win, and price learning raises the row from there.
 export function tierBase({ reviews, p25, median, p75 }) {
   if (reviews < 5) return p25 + 0.35 * (median - p25);
   if (reviews < 30) return median;
@@ -76,9 +77,15 @@ export function buildPriceTable({ summary, services, profile, sellerStats, confi
     const field = CATEGORY_FIELD[platform];
     // A platform without a catalog field has no category mapping yet; adding one to services.json closes it.
     if (!field) continue;
-    const reviews = requireNumber(sellerStats?.[platform]?.reviews, `sellerStats.${platform}.reviews`, 'FSW_SELLER_STATS_MISSING');
+    const platformReviews = requireNumber(sellerStats?.[platform]?.reviews, `sellerStats.${platform}.reviews`, 'FSW_SELLER_STATS_MISSING');
+    // byService holds the reviews the ledger ties to each service through its job. The rest of the platform's
+    // total names no service: it counts for an operator-delivered service (catalog deliveryOf; work the operator
+    // did before fsw kept a ledger) and never for an agent-delivered one, whose first jobs it did not win.
+    const byService = sellerStats[platform].byService ?? {};
+    const unattributed = Math.max(0, platformReviews - Object.values(byService).reduce((s, n) => s + n, 0));
     for (const [service, def] of Object.entries(services)) {
       if (service.startsWith('_')) continue;
+      const reviews = (byService[service] ?? 0) + ((def.delivery ?? 'agent') === 'operator' ? unattributed : 0);
       const category = def[field];
       const market = marketFor(entries, platform, category);
       if (!market) continue;
@@ -107,7 +114,7 @@ export function buildPriceTable({ summary, services, profile, sellerStats, confi
         ceilingKRW: Math.max(marketCeilingKRW, packages.premium),
         costFloorKRW,
         marketCeilingKRW,
-        basis: { n: market.n, p25: market.p25, median: market.median, p75: market.p75, high: market.high, source: market.source, observedAt: summary.observedAt ?? null, reviews },
+        basis: { n: market.n, p25: market.p25, median: market.median, p75: market.p75, high: market.high, source: market.source, observedAt: summary.observedAt ?? null, reviews, platformReviews },
         fitStrength,
         fitListed: Boolean(listed),
         viable: costFloorKRW <= marketCeilingKRW,
@@ -127,7 +134,11 @@ export const priceRowFor = (table, platform, service) => table.find((r) => r.pla
 // basis). null for a row priced from listing quantiles.
 export const guideOf = (row) => (row?.basis?.source === 'price-guide' ? { avgKRW: row.basis.median, minKRW: row.basis.p25, maxKRW: row.basis.high } : null);
 
-// Quote for a request on a guide platform. quoteCostKRW is what sending the quote costs (숨고캐시);
+// Quote for a request on a guide platform: the price row's base (its review tier, fit and learned factor, as
+// quoteFromRow in src/economics/quote.mjs) times the model's complexity, clamped to the guide's minimum and
+// maximum. The guide average sets no amount: a seller with few reviews of the service enters at the first
+// tier, and pricing every request from the average sent first quotes at the market middle that none of them won.
+// quoteCostKRW is what sending the quote costs (숨고캐시);
 // it is required wherever the descriptor says quotes are paid, since the descriptor holds no number.
 // A guide whose unit is per item (장 for photos) prices one item, and this quote has no quantity yet:
 // until the brain's request decision carries one and multiplies it here, such a quote covers one item.
@@ -140,16 +151,18 @@ export function quoteForRequest({ guide, complexity, row, descriptor, config, qu
     throw new RangeError(`complexity must be within [${cmin}, ${cmax}], got ${complexity}`);
   }
   const avg = requireNumber(guide?.avgKRW, 'guide.avgKRW', 'FSW_MARKET_SUMMARY_INVALID');
+  const base = requireNumber(row?.baseKRW, 'row.baseKRW', 'FSW_PRICE_ROW_MISSING');
   const min = requireNumber(guide?.minKRW, 'guide.minKRW', 'FSW_MARKET_SUMMARY_INVALID');
   const max = requireNumber(guide?.maxKRW, 'guide.maxKRW', 'FSW_MARKET_SUMMARY_INVALID');
   const paid = descriptor?.bidCost?.unit && descriptor.bidCost.unit !== 'none';
   const quoteCost = paid ? requireNumber(quoteCostKRW, 'quoteCostKRW', 'FSW_QUOTE_COST_MISSING') : 0;
   const costFloorKRW = requireNumber(row?.costFloorKRW, 'row.costFloorKRW', 'FSW_PRICE_ROW_MISSING');
-  // The row's learned factor (src/economics/price-learning.mjs) moves the guide average the way this
-  // service's own quotes ended; the guide clamp below keeps the amount inside the market's minimum and
-  // maximum, and the floor keeps it above the cost floor plus the quote cost.
-  const factor = row?.learned?.factor ?? 1;
-  const raw = avg * factor * complexity;
+  // The row base already carries the learned factor (src/economics/price-learning.mjs); reference is the base
+  // before learning, so quoteResults reads this quote's index against what it was priced from. The guide clamp
+  // keeps the amount inside the market's minimum and maximum, and the floor above the cost floor plus the quote cost.
+  const factor = row.learned?.factor ?? 1;
+  const reference = row.learned?.fromKRW ?? base;
+  const raw = base * complexity;
   let clamped = Math.min(max, Math.max(min, raw));
   if (budget?.minKRW) clamped = Math.max(clamped, Math.min(budget.minKRW, max));
   if (budget?.maxKRW) clamped = Math.min(clamped, Math.max(budget.maxKRW, min));
@@ -163,7 +176,7 @@ export function quoteForRequest({ guide, complexity, row, descriptor, config, qu
     floorApplied: amountKRW === minimum && roundTo1000(clamped) < minimum,
     aboveGuide: amountKRW > max,
     aboveCeiling: row.ceilingKRW != null && amountKRW > row.ceilingKRW,
-    basis: { guideAvg: avg, guideMin: min, guideMax: max, reference: avg, learnedFactor: factor, complexity, raw, budget, clamped, costFloorKRW },
+    basis: { source: 'price-row', base, reference, learnedFactor: factor, complexity, raw, guideAvg: avg, guideMin: min, guideMax: max, budget, clamped, costFloorKRW },
   };
 }
 

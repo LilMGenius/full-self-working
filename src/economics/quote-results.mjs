@@ -27,10 +27,13 @@ export function dayStart(day) {
   return new Date(day.slice(0, 4) + '-' + day.slice(4, 6) + '-' + day.slice(6, 8) + 'T00:00:00+09:00');
 }
 
-// amount / (complexity x the unlearned reference it was priced from): the guide average of a request quote
-// or the row base before learning (basis.reference from this unit; older bases name it guideAvg or base).
-// null without a basis.
+// amount / (complexity x the unlearned reference it was priced from): the row base before learning
+// (basis.reference; an older row basis names it base). null without a basis, and null for a request quote priced
+// from the guide average (a guideAvg basis that is not a price-row one), which every request quote was until
+// 2026-10-27: its index reads against the market middle, while the factor now multiplies the row's tiered base, so a
+// loss at the average would pull a first-tier base down that never lost. Such a quote counts in the win rate only.
 export function priceIndex(amountKRW, pricing) {
+  if (pricing?.guideAvg != null && pricing.source !== 'price-row') return null;
   const ref = pricing?.reference ?? pricing?.guideAvg ?? pricing?.base;
   const cx = pricing?.complexity;
   return amountKRW > 0 && ref > 0 && cx > 0 ? amountKRW / (cx * ref) : null;

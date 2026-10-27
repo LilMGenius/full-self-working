@@ -186,9 +186,9 @@ export async function decide(thread, ctx) {
     });
     const decision = parseDecision(data, ids);
     if (decision.quote) {
-      // A fixed quote is priced here, never by the model: on a guide platform from the guide average
-      // times the model's complexity (quoteForRequest), elsewhere from the price row base times it
-      // (quoteFromRow). An hourly quote or one without a price row keeps the model's figure and is
+      // A fixed quote is priced here, never by the model: from the price row base times the model's
+      // complexity, held inside the market guide on a guide platform (quoteForRequest) and inside the
+      // row's floor and ceiling elsewhere (quoteFromRow). An hourly quote or one without a price row keeps the model's figure and is
       // marked so; authorize then sends it to the operator (no viable price row) or checks its range.
       const row = decision.service ? priceRowFor(priceTable, descriptor.id, decision.service) : null;
       const guide = thread.kind === 'request' ? guideOf(row) : null;

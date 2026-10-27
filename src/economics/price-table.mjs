@@ -1,5 +1,5 @@
 // The price table file (moved from src/cli/price.mjs:19-77 at 2c77326): rebuilt from the newest market
-// summary, the profile's service fit and each platform's review count, and written only when a row
+// summary, the profile's service fit and the review count of each service on each platform, and written only when a row
 // changed. Every platform with summary entries is priced, enabled or not; a platform without a state file
 // is priced as a new seller (0 reviews), and each row says whether this build has a surface for its
 // platform, which the allocation requires. A platform that is not enabled and cannot be priced is listed
@@ -30,6 +30,14 @@ export function sellerStatsFrom(state, platform) {
   throw new EconomicsError('FSW_SELLER_STATS_MISSING', 'no review count in the ' + platform + ' state', { platform });
 }
 
+// Reviews the ledger ties to each service on a platform: every review row joined to its job's service. A review
+// with no job names no service; without a ledger nothing is tied.
+export function serviceReviews(ledger, platform) {
+  if (!ledger) return {};
+  const rows = ledger.db.prepare('SELECT j.service AS service, COUNT(*) AS n FROM reviews r JOIN jobs j ON j.id = r.job_id WHERE j.platform = ? AND j.service IS NOT NULL GROUP BY j.service ORDER BY j.service').all(platform);
+  return Object.fromEntries(rows.map((r) => [r.service, Number(r.n)]));
+}
+
 // The newest price-table-YYYYMMDD.json in dir as {file, table}, or null.
 export function latestTable(dir) {
   if (!existsSync(dir)) return null;
@@ -38,7 +46,8 @@ export function latestTable(dir) {
 }
 
 // adapterFor(platform) resolves truthy when this build can work that platform. ledger is the replay source
-// of price learning; without one (a test of the market part alone) rows stay on the market, as before. The
+// of price learning and of the reviews per service; without one (a test of the market part alone) rows stay on
+// the market and no review is tied to an agent-delivered service. The
 // table counts the quotes sent before 00:00 Seoul of its day, with their status as the ledger holds it now:
 // a rerun the same day writes the same rows unless a quote was decided in between (quote-results.mjs).
 export async function refreshPriceTable(instance, { adapterFor, ledger = null, day, log = () => {} } = {}) {
@@ -57,8 +66,8 @@ export async function refreshPriceTable(instance, { adapterFor, ledger = null, d
   for (const id of ids) {
     try {
       const statePath = join(instance.paths.platforms, id + '-state.json');
-      if (existsSync(statePath)) sellerStats[id] = sellerStatsFrom(JSON.parse(readFileSync(statePath, 'utf8')), id);
-      else if (!enabled.includes(id)) sellerStats[id] = { reviews: 0, basis: 'no account state: priced as a new seller' };
+      if (existsSync(statePath)) sellerStats[id] = { ...sellerStatsFrom(JSON.parse(readFileSync(statePath, 'utf8')), id), byService: serviceReviews(ledger, id) };
+      else if (!enabled.includes(id)) sellerStats[id] = { reviews: 0, basis: 'no account state: priced as a new seller', byService: serviceReviews(ledger, id) };
       const descriptor = loadDescriptor(id);
       const built = buildPriceTable({ summary, services: catalog, profile: instance.profile, sellerStats, config: instance.config, descriptors: { [id]: descriptor } });
       const priced = results ? learnPriceRows(built, results, { settings: learning, descriptors: { [id]: descriptor }, asOf }) : built;

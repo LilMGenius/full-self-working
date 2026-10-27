@@ -6,6 +6,7 @@
 // project, whose service label is the card's 위시켓 field, with no quote cost (applying is free, descriptor
 // bidCost).
 import { AdapterRefusal } from '../platforms/kit.mjs';
+import { createHash } from 'node:crypto';
 import { APPLY_UNMAPPED, openProjectReader } from '../platforms/wishket/projects.mjs';
 import { readKind } from './shared.mjs';
 
@@ -17,18 +18,22 @@ const unmapped = (what) => {
   throw new AdapterRefusal(APPLY_UNMAPPED, 'the wishket ' + what + ' needs the signed-in apply form, which is not mapped from a recording; nothing was typed');
 };
 
-// A card shows only the date it was posted, so a project's list time is that Seoul day: it stays the same on
-// every poll, and a project read once is not read again (triage needsWork).
+// A card shows only the date it was posted, so a project's list time is that Seoul day and stays the same
+// when the client edits it. The card's title, budget and field make its revision (inbound.rev), so an edit to
+// any of them reads the project again (triage needsWork) and stores its body as a new message. An edit to the
+// description alone changes nothing on the card and stays unseen until the card changes; applying is unmapped,
+// so such a project is only observed.
 const postedAt = (date) => (date ? date + 'T00:00:00+09:00' : null);
+export const revOf = (p) => createHash('sha256').update(JSON.stringify([p.title ?? null, p.amountKRW ?? null, p.field ?? null])).digest('hex').slice(0, 12);
 
 export const inboundOfProject = (p) => ({
-  platform: 'wishket', ref: String(p.id), kind: 'request', at: postedAt(p.postedOn), unread: false, service: p.field, preview: p.title,
+  platform: 'wishket', ref: String(p.id), kind: 'request', at: postedAt(p.postedOn), rev: revOf(p), unread: false, service: p.field, preview: p.title,
   notice: null, status: p.private ? 'private' : 'open', hired: null, quotable: !p.private, expiresAt: null, quoteCostKRW: 0, requestId: String(p.id), customer: null, quote: null,
 });
 
 export const threadOfProject = (p) => ({
   platform: 'wishket', ref: String(p.id), kind: 'request', stage: 'pre_order', customer: null, title: p.title, language: 'ko', quoteCostKRW: 0, budget: p.amountKRW,
-  messages: [{ direction: 'in', text: p.description, at: postedAt(p.postedOn), externalId: 'request' }],
+  messages: [{ direction: 'in', text: p.description, at: postedAt(p.postedOn), externalId: 'request:' + revOf(p) }],
   notices: [],
 });
 

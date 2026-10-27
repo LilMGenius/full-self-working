@@ -21,6 +21,23 @@ const notify = (ctx, msg) => (ctx.notify ?? notifyOperator)(ctx.instance, msg);
 // publish makes before it opens the form (FSW_LISTING_BLOCKED), so it counts as sent.
 export const maybeSent = (r, err) => (err ? err.code !== 'FSW_LISTING_BLOCKED' : r?.submitted === true);
 
+// Sends to kmong review a gig's review state shows on a Seoul day: a refresh whose time is that day, and
+// each resubmit after a rejection that may have been sent that day (sent, or ok for records written before
+// sent was kept).
+export function sendsOn(state, day) {
+  const on = (at) => Boolean(at) && dayKey(new Date(at)) === day;
+  return (on(state.refreshedAt) ? 1 : 0) + (state.resubmits ?? []).filter((r) => (r.sent ?? r.ok === true) && on(r.at)).length;
+}
+
+// What is left of listings.refreshPerDay on a Seoul day, shared by the daily refresh and the watch's
+// resubmits. An absent setting leaves no room: it gates kmong review, so it fails closed. current is the
+// in-memory state of the gig being handled, read in place of its file.
+export function roomOn(instance, day, current = null) {
+  const dir = listingsDir(instance);
+  const used = readPublished(instance).reduce((n, p) => n + sendsOn(current?.service === p.service ? current.state : readReview(dir, p.service), day), 0);
+  return (instance.config?.listings?.refreshPerDay ?? 0) - used;
+}
+
 // One rejected gig: the case is recorded once per rejection, then the listing is rebuilt with kmong's
 // notice as a violation and resubmitted, or the operator is asked. Returns the row the job reports.
 async function handleRejection(ctx, { p, gig, state, act, observed, adapter }) {
@@ -33,26 +50,33 @@ async function handleRejection(ctx, { p, gig, state, act, observed, adapter }) {
     state.recordedRejection = observed.key;
     // Each rejection with its time, so the redesign stop reads rejections after a redesign even once
     // lastStatus moved on (listingsWatch overwrites it within the hour).
-    state.rejections = [...(state.rejections ?? []), { at: new Date().toISOString(), key: observed.key }];
+    state.rejections = [...(state.rejections ?? []), { at: (ctx.now ?? new Date()).toISOString(), key: observed.key }];
   }
-  const at = new Date().toISOString();
+  const at = (ctx.now ?? new Date()).toISOString();
   if (act.action === 'escalate' || ctx.forceMode === 'observe') {
     const why = act.action === 'escalate' ? act.detail : 'FSW_FORCE_MODE=observe keeps the agent from resubmitting: ' + observed.notice;
     await notify(ctx, { kind: 'listing', title: 'kmong gig ' + p.gigId + ' (' + p.service + ') needs a person', body: why, url: 'https://kmong.com/my-gigs?statusType=REJECTED', dedupeKey: 'listing-rejected-' + p.gigId + '-' + observed.key });
     if (act.action === 'escalate') Object.assign(state, { handledRejection: observed.key, lastStatus: 'rejected', escalatedAt: at });
     return { action: act.action === 'escalate' ? 'escalated' : 'observed', detail: why };
   }
+  // A resubmit goes to kmong review like a refresh, so it waits for the next Seoul day once the day's
+  // listings.refreshPerDay sends are spent; the rejection stays unhandled and the next hourly pass tries again.
+  if (roomOn(instance, dayKey(ctx.now ?? new Date()), { service: p.service, state }) <= 0) {
+    return { action: 'waiting', detail: "the day's listings.refreshPerDay sends to kmong review are spent; the resubmit waits for the next Seoul day" };
+  }
+  let reached = false;
   try {
     await (ctx.build ?? build)(p.service, { instance, runCodex: ctx.runCodex, log: ctx.log ?? (() => {}), violations: [reviewViolation(observed.notice)], previous: spec });
+    reached = true;
     const r = await (ctx.publish ?? publish)(p.service, { instance, adapter, ledger, log: ctx.log ?? (() => {}), replaceImages: ['main', 'detail'] });
-    state.resubmits = [...(state.resubmits ?? []), { at, key: observed.key, notice: observed.notice, ok: r.observed === true && r.submitted === true, status: r.status ?? null, reason: r.reason ?? null }];
+    state.resubmits = [...(state.resubmits ?? []), { at, key: observed.key, notice: observed.notice, ok: r.observed === true && r.submitted === true, sent: maybeSent(r), status: r.status ?? null, reason: r.reason ?? null }];
     if (r.observed && r.submitted) {
       Object.assign(state, { handledRejection: observed.key, lastStatus: gigStatus(r.status) });
       return { action: 'resubmitted', status: r.status };
     }
     return { action: 'resubmit_failed', detail: r.reason };
   } catch (err) {
-    state.resubmits = [...(state.resubmits ?? []), { at, key: observed.key, notice: observed.notice, ok: false, error: (err.code ? err.code + ' ' : '') + err.message }];
+    state.resubmits = [...(state.resubmits ?? []), { at, key: observed.key, notice: observed.notice, ok: false, sent: reached && maybeSent(null, err), error: (err.code ? err.code + ' ' : '') + err.message }];
     return { action: 'resubmit_failed', detail: err.message };
   }
 }
@@ -160,11 +184,9 @@ async function refreshGigs(ctx) {
   if (!candidates.length) return { status: 'ok', rows: [], detail: 'no gig shows a changed top item or an older images version' };
   if (ctx.forceMode === 'observe') return { status: 'skipped', detail: 'observe mode', keepDue: true };
   const dir = listingsDir(instance);
-  const day = dayKey(ctx.now ?? new Date());
-  const refreshedToday = (s) => Boolean(s.refreshedAt) && dayKey(new Date(s.refreshedAt)) === day;
-  // An absent setting refreshes nothing, since it gates kmong review and so fails closed; D sets it with
-  // fsw settings reset after the handover. Basis refreshes count against it too.
-  let room = (instance.config.listings?.refreshPerDay ?? 0) - published.filter((p) => refreshedToday(readReview(dir, p.service))).length;
+  // Basis refreshes, version refreshes and the watch's resubmits share one room; D sets the setting with
+  // fsw settings reset after the handover.
+  let room = roomOn(instance, dayKey(ctx.now ?? new Date()));
   // A redesign stops while a gig rendered with the current version was rejected after its redesign landed.
   const redesignRejected = published.some((p) => {
     const s = readReview(dir, p.service);

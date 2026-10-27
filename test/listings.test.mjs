@@ -336,7 +336,8 @@ test('the third rejection of a gig goes to the operator and is not resubmitted',
   const instance = publishedInstance();
   const dir = join(instance.dir, 'listings');
   for (const [day, mod] of [['2026-10-27', '2026-10-25'], ['2026-10-29', '2026-10-27'], ['2026-10-31', '2026-10-29']]) {
-    const w = watchCtx(instance, [{ gigId: 7, status: '비승인', approvedAt: day, modifiedAt: mod }]);
+    // Each rejection comes on its own day, so each resubmit has the day's room.
+    const w = watchCtx(instance, [{ gigId: 7, status: '비승인', approvedAt: day, modifiedAt: mod }], { ctx: { now: new Date(day + 'T03:00:00Z') } });
     await listingsWatch(w.ctx);
     const waiting = watchCtx(instance, [{ gigId: 7, status: '승인 전', approvedAt: null, modifiedAt: day }]);
     await listingsWatch(waiting.ctx);
@@ -692,4 +693,34 @@ test('a submit kmong may have taken uses the day\'s room and is recorded, read b
   // The next day the gig already in review is not sent again within the 14-day rule.
   const next = await listingsRefresh({ ...unread.ctx, now: new Date(Date.now() + 86_400_000) });
   assert.match(next.rows.find((r) => r.service === first).reason, /refreshed within 14 days/);
+});
+
+test('the watch\'s resubmit after a rejection shares the day\'s room with the refresh', async () => {
+  const { listingsWatch, listingsRefresh } = await import('../src/listings/watch.mjs');
+  const rejected = { gigId: 7, status: '비승인', approvedAt: '2026.10.27', modifiedAt: '2026.10.25' };
+  // The day's one send already went to another gig, so the resubmit waits and stays unhandled.
+  const instance = publishedInstance({ landing_page_web: 7, data_crawling: 8 });
+  instance.config.listings = { ...instance.config.listings, refreshPerDay: 1 };
+  writeFileSync(join(instance.dir, 'listings', 'data_crawling', 'review.json'), JSON.stringify({ refreshedAt: new Date().toISOString() }));
+  const w = watchCtx(instance, [rejected, { gigId: 8, status: '승인 전' }]);
+  const r = await listingsWatch(w.ctx);
+  assert.deepEqual(w.published, []);
+  assert.equal(r.rows.find((x) => x.service === 'landing_page_web').action, 'waiting');
+  const { readReview, nextReviewAction } = await import('../src/listings/review.mjs');
+  const state = readReview(join(instance.dir, 'listings'), 'landing_page_web');
+  assert.equal(state.handledRejection, undefined);
+  assert.equal(nextReviewAction(state, { status: 'rejected', key: state.recordedRejection, notice: 'x' }).action, 'resubmit', 'tomorrow it resubmits');
+  // With room, the resubmit goes and uses it: the refresh the same day sends nothing.
+  const fresh = publishedInstance({ landing_page_web: 7 });
+  fresh.config.listings = { ...fresh.config.listings, refreshPerDay: 1 };
+  const w2 = watchCtx(fresh, [rejected]);
+  await listingsWatch(w2.ctx);
+  assert.equal(w2.published.length, 1);
+  const sent = readReview(join(fresh.dir, 'listings'), 'landing_page_web').resubmits.at(-1);
+  assert.equal(sent.sent, true);
+  const s = refreshScene();
+  writeFileSync(join(s.instance.dir, 'listings', 'landing_page_web', 'review.json'), JSON.stringify({ resubmits: [{ at: new Date().toISOString(), sent: true }] }));
+  const day = await listingsRefresh(s.ctx);
+  assert.deepEqual(s.calls, []);
+  assert.match(day.rows[0].reason, /refreshPerDay/);
 });

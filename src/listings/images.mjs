@@ -73,7 +73,11 @@ const MAIN_CSS = '.card{position:relative;width:652px;height:488px;overflow:hidd
   'h1 em{font-style:normal;color:var(--color-accent-on-ink)}' +
   '.foot{position:absolute;left:40px;bottom:36px;width:180px}' +
   '.rule{width:56px;height:6px;background:var(--color-accent-on-ink)}' +
-  '.sub{margin-top:16px;font-size:var(--type-4);line-height:1.4;font-weight:var(--font-strong);color:var(--color-on-ink);letter-spacing:-.01em}' +
+  '.sub{margin-top:14px;font-size:var(--type-3);line-height:1.4;font-weight:var(--font-strong);color:var(--color-on-ink-muted);letter-spacing:-.01em}' +
+  // The gig's scope, two or three concrete items, as the leading covers name theirs.
+  '.scope{margin-top:14px;display:flex;flex-direction:column;gap:7px}' +
+  '.scope li{list-style:none;display:flex;align-items:center;gap:9px;font-size:var(--type-4);line-height:1.2;font-weight:var(--font-display);letter-spacing:-.02em;white-space:nowrap}' +
+  '.scope li:before{content:"";flex:none;width:7px;height:7px;background:var(--color-accent-on-ink)}' +
   // The proof sits on a paper stage that bleeds off the card's right and bottom edges, so a dark screen
   // still stands apart from the ink field and the card reads in two tones at grid size.
   '.stage{position:absolute;left:244px;top:256px;right:0;bottom:0;background:var(--color-paper);border-radius:var(--radius-lg) 0 0 0;overflow:hidden}' +
@@ -114,7 +118,7 @@ export function mainHtml({ listing, cardShots = [], fontFace }) {
   }
   const claim = c.headline.map((line, i) => (i === c.headline.length - 1 && i > 0 ? '<em>' + esc(line) + '</em>' : esc(line))).join('<br>');
   const body = '<div class="card"><div class="claim"><h1 data-fit data-max="112">' + claim + '</h1></div>' +
-    '<div class="foot"><div class="rule"></div><p class="sub">' + esc(c.subline) + '</p></div>' + visual + '</div>';
+    '<div class="foot"><div class="rule"></div><p class="sub">' + esc(c.subline) + '</p><ul class="scope">' + (c.tags ?? []).slice(0, 3).map((t) => '<li>' + esc(t) + '</li>').join('') + '</ul></div>' + visual + '</div>';
   return page(body, MAIN_CSS, MAIN_SIZE, fontFace);
 }
 

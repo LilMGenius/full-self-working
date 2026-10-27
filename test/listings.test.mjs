@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { crc32, deflateSync } from 'node:zlib';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { buildListing, checkListing, KMONG_LIMITS, ListingError, packageTerms, processText } from '../src/listings/kmong.mjs';
 import { checkImages, detailHtmls, imageSize, LABELS, mainHtml, renderListingImages } from '../src/listings/images.mjs';
@@ -617,4 +618,46 @@ test('buyer chats before and after a redesign become one listing_change case, on
   assert.equal(changeCases({ instance, ledger, now: new Date('2026-11-03T00:00:00Z') }).recorded, 0);
   delete instance.config.listings.changeWindowDays;
   assert.equal(changeCases({ instance, ledger }).recorded, 0);
+});
+
+// ---- U7.5 round 2: scope on the cover, and the cover the instance names now ----
+
+test('the main card names the gig scope: every card tag is drawn, escaped', () => {
+  const l = listingOf();
+  l.imageCopy.card.tags = ['수집 코드', 'CSV <엑셀>', '재실행 안내'];
+  const html = mainHtml({ listing: l });
+  for (const t of ['수집 코드', 'CSV &lt;엑셀&gt;', '재실행 안내']) assert.ok(html.includes('>' + t + '<'), t);
+});
+
+// A real 8-bit grey PNG of the given size, so imageSize and the renderer read what a sample file holds.
+function tinyPng(width, height) {
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    const td = Buffer.concat([Buffer.from(type, 'latin1'), data]);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(crc32(td));
+    return Buffer.concat([len, td, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;
+  const raw = Buffer.alloc((width + 1) * height, 0x80);
+  for (let y = 0; y < height; y++) raw[y * (width + 1)] = 0;
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
+}
+
+test('a re-render takes the cover the instance names in proofs.json now, not the one frozen in the spec', async () => {
+  const { render } = await import('../src/listings/gig.mjs');
+  const instance = publishedInstance();
+  const dir = join(instance.dir, 'listings');
+  mkdirSync(join(dir, '_samples', 'landing_page_web'), { recursive: true });
+  writeFileSync(join(dir, '_samples', 'landing_page_web', 'cover.png'), tinyPng(380, 200));
+  writeFileSync(join(dir, '_samples', 'landing_page_web', 'samples.json'), JSON.stringify([{ id: 'cover', file: 'cover.png', note: '표지 예시' }]));
+  writeFileSync(join(dir, 'proofs.json'), JSON.stringify({ proofs: [], services: { landing_page_web: { card: ['sample:cover'] } } }));
+  writeFileSync(join(dir, 'landing_page_web', 'spec.json'), JSON.stringify({ ...listingOf(), proofPlan: { card: [], gallery: [] } }));
+  await render('landing_page_web', { instance, log: () => {} });
+  const spec = JSON.parse(readFileSync(join(dir, 'landing_page_web', 'spec.json'), 'utf8'));
+  assert.deepEqual(spec.proofPlan, { card: [{ kind: 'sample', file: join(dir, '_samples', 'landing_page_web', 'cover.png') }], gallery: [] });
 });

@@ -46,9 +46,10 @@ export function proofPlan({ service, items = [], profile = null, proofs = [], sa
 }
 
 // True when the ranked items a gig was built from are no longer the ones it would show now. The ranking stays exact
-// (src/portfolio/rank.mjs); here a run of items in now whose fame each differs by less than gap from the first item of
-// the run (both known) is read in its before order, so a chain of small gaps never hides a larger lead change, so a one-star change that swaps two close items does not send the gig to kmong
-// review again. An item that enters or leaves the basis, or a swap on any other key, still counts.
+// (src/portfolio/rank.mjs). Here neighbouring items in now whose fame (both known) differs by less than gap from
+// every other item of their run are read in their before order: a one-star change that swaps two close items does
+// not send the gig to kmong review again. Every member must be close, since the basis follows tiers and likes before
+// fame and is not sorted by it. An item that enters or leaves the basis, or a swap on any other key, still counts.
 export function basisChanged(before, now, { fame = {}, gap = 0 } = {}) {
   const b = before ?? [];
   const n = now ?? [];
@@ -57,7 +58,7 @@ export function basisChanged(before, now, { fame = {}, gap = 0 } = {}) {
   const close = (x, y) => fame[x] != null && fame[y] != null && Math.abs(fame[x] - fame[y]) < gap;
   const runs = [];
   for (const id of n) {
-    if (runs.length && close(runs.at(-1)[0], id)) runs.at(-1).push(id);
+    if (runs.length && runs.at(-1).every((x) => close(x, id))) runs.at(-1).push(id);
     else runs.push([id]);
   }
   const at = new Map(b.map((id, i) => [id, i]));

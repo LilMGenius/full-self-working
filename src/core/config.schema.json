@@ -189,7 +189,7 @@
         "string",
         "null"
       ],
-      "description": "a JSON file outside the repository with an email login per platform, {\"kmong\": {\"method\": \"email\", \"email\": \"...\", \"password\": \"...\"}}; a signed-out platform is signed in again from it at most once an hour",
+      "description": "a JSON file outside the repository with a login per platform, an email login {\"kmong\": {\"method\": \"email\", \"email\": \"...\", \"password\": \"...\"}} or a Google sign-in {\"freelancer\": {\"method\": \"google\"}} with the account onboarding.identity names; a signed-out platform is signed in again from it at most once an hour",
       "default": null
     },
     "activeHours": {

@@ -75,6 +75,20 @@ test('freelancer login reads the self API in the session: unauthenticated is fal
   assert.deepEqual(other.calls[0], ['navigate', 'https://www.freelancer.com/api/users/0.1/self/']);
 });
 
+test('freelancer signIn presses the framed Google button on the login page, and a login page that redirects away presses nothing', async () => {
+  const pressed = [];
+  const google = async (_s, opts) => pressed.push(opts);
+  const page = (loginLands, self) => ({ calls: [], navigate: async (url) => (url.endsWith('/login') ? loginLands : url), evaluate: async () => self, stop: async () => {} });
+  const signedOut = await openFreelancerSurface({ session: page('https://www.freelancer.com/login', { json: { status: 'success', result: { id: 1 } } }), targets: TARGETS, google });
+  assert.deepEqual(await signedOut.signIn({ email: 'operator@example.invalid' }), { signedIn: true, reason: 'the signed-in marker is not mapped yet' });
+  assert.deepEqual(pressed, [{ framed: true, email: 'operator@example.invalid' }]);
+  const stillOut = await openFreelancerSurface({ session: page('https://www.freelancer.com/login', { json: { status: 'error', error_code: 'RestExceptionCodes.NOT_AUTHENTICATED' } }), targets: TARGETS, google });
+  assert.equal((await stillOut.signIn({ email: 'operator@example.invalid' })).signedIn, false);
+  const already = await openFreelancerSurface({ session: page('https://www.freelancer.com/dashboard', null), targets: TARGETS, google });
+  assert.deepEqual(await already.signIn({ email: 'operator@example.invalid' }), { signedIn: true, alreadySignedIn: true });
+  assert.equal(pressed.length, 2);
+});
+
 test('openSurface opens freelancer on the session it is given, as a publicSense surface', async () => {
   assert.equal(hasSurface('freelancer'), true);
   const s = await openSurface('freelancer', { session: fakeSession(null) });

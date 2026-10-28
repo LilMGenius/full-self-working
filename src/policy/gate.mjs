@@ -62,7 +62,7 @@ function hostOf(url) {
   return url.replace(/^https?:\/\//i, '').split(/[/?#:]/)[0].replace(/^www\./i, '').toLowerCase();
 }
 
-function stageOf(item) {
+function gateStage(item) {
   if (item.kind === 'listing' || item.kind === 'profile') return 'pre_order';
   return item.thread?.stage ?? 'pre_order';
 }
@@ -125,7 +125,7 @@ export function gateOutbound(item, ctx = {}) {
   const text = String(item.text ?? '');
   const attachmentNames = (item.attachments ?? []).map((a) => (typeof a === 'string' ? a : a?.name ?? '')).filter(Boolean);
   const scan = [text, ...attachmentNames].join('\n');
-  const stage = stageOf(item);
+  const stage = gateStage(item);
   const policy = descriptor.contactPolicy ?? {};
   const allowedClasses = new Set(stage === 'pre_order' ? policy.preOrder ?? [] : policy.postOrder ?? []);
   const allowedHosts = (policy.allowedHosts ?? []).map((h) => h.toLowerCase());

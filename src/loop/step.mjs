@@ -273,6 +273,15 @@ export async function step(platform, ctx) {
           bump('threads', 'parked');
           continue;
         }
+        // A chat whose newest message is ours has nothing to answer: the list moved for our own send or a notice,
+        // and a model handed our own message as the last word answered it (soomgo 2026-10-29: a reply to a quote
+        // preview cut at "진..."). It settles as read, and a buyer message later moves the list again.
+        const newest = (thread.messages ?? []).at(-1);
+        if ((ib.kind ?? 'message') === 'message' && newest?.direction === 'out') {
+          ledger.upsertThread({ platform, externalId: ref, kind: 'message', meta: readMeta({ settled: settled('decide') }) });
+          event('thread.wait', ref, { reason: 'our message is the newest' });
+          continue;
+        }
         const stage = stageOf({ page: thread.stage ?? ib.stage, kind: ib.kind }, ledger, platform, row.id);
         const view = { ...thread, platform, ref, kind: ib.kind ?? 'message', stage, serviceLabel: ib.service ?? null, requestId: ib.requestId ?? null, customer: thread.customer ?? ib.customer ?? null, quoteCostKRW: thread.quoteCostKRW ?? ib.quoteCostKRW ?? null };
         const quoteCount = [thread.quoteCount, ib.quoteCount].find(Number.isInteger) ?? null;

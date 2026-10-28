@@ -715,3 +715,16 @@ test('a step records the quote funnel from the rows it senses, and a second step
   assert.equal(second.funnel, 0);
   assert.equal(s.events('quote.opened').length, 1);
 });
+
+test('a chat whose newest message is ours is settled without a model call or a reply', async () => {
+  const s = setup();
+  const ours = { ...chat('kmong', 'k1'), messages: [{ direction: 'in', text: '상세페이지 문의', at: hoursBefore(NOON, 3), externalId: 'k1:in' }, { direction: 'out', text: '자료를 보내 주시면 확인하겠습니다. 진...', at: hoursBefore(NOON, 2), externalId: 'k1:out' }] };
+  const surface = scriptedSurface({ sense: [inbound('kmong', 'k1')], threads: () => ours });
+  const codex = codexWith(decision());
+  await s.run('kmong', surface, { runCodex: codex });
+  assert.equal(codex.calls, 0);
+  assert.equal(s.ledger.db.prepare('SELECT COUNT(*) n FROM outbox').get().n, 0);
+  assert.deepEqual(s.events('thread.wait').map((e) => e.reason), ['our message is the newest']);
+  await s.run('kmong', scriptedSurface({ sense: [inbound('kmong', 'k1', { unread: false })], threads: () => ours }), { runCodex: codex });
+  assert.equal(codex.calls, 0, 'the settled chat waits on the next poll');
+});

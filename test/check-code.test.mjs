@@ -46,3 +46,13 @@ test('a name that appears in a comment or a string is no use: such an export is 
   assert.deepEqual(deadExports(files).map((d) => d.file + ' ' + d.name + (d.internal ? ' internal' : '')), ['src/a/old.mjs unused']);
 });
 
+
+test('a quote inside a regex literal does not hide the code after it', () => {
+  // The reviewer's repro, then a quote and a slash inside a character class, then a division that is no regex.
+  const files = {
+    'src/a/r.mjs': "export function active() {}\nconst r = /'/; active();\n",
+    'src/a/c.mjs': "export function used() {}\nconst parts = (x) => x.split(/[/'\"]/).length / 2; used(parts);\n",
+    'src/a/d.mjs': "export function half() {}\nconst q = 4 / 2; const w = 'a'; half(q, w);\n",
+  };
+  assert.deepEqual(deadExports(files).map((d) => d.file + ' ' + d.name + (d.internal ? ' internal' : '')).sort(), ['src/a/c.mjs used internal', 'src/a/d.mjs half internal', 'src/a/r.mjs active internal']);
+});

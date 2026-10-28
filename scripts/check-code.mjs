@@ -33,8 +33,12 @@ const lineOf = (text, index) => text.slice(0, index).split('\n').length;
 const resolveFrom = (file, spec) => (spec.startsWith('.') ? normalize(join(dirname(file), spec)).split('\\').join('/') : null);
 const imported = (list) => list.split(',').map((s) => s.trim().split(/\s+as\s+/)[0].split(/\s*:\s*/)[0].trim()).filter(Boolean);
 
-// The text with comments and the contents of string and template literals blanked (a template's ${...} parts stay
-// code), so a name counts as used in its file only where code names it. Regex literals are left as they are.
+// A slash starts a regex literal where an expression begins: after one of these characters, at the start of a line,
+// or after return or typeof; anywhere else it divides.
+const REGEX_BEFORE = /(?:^|[(,=:[!&|?{};]|\breturn|\btypeof)\s*$/;
+
+// The text with comments and the contents of string, template and regex literals blanked (a template's ${...}
+// parts stay code), so a name counts as used in its file only where code names it.
 function codeOnly(text) {
   let out = '';
   const stack = [];
@@ -57,6 +61,21 @@ function codeOnly(text) {
       out += c + blank(text.slice(i + 1, j)) + (text[j] === c ? c : ''); i = text[j] === c ? j + 1 : j; continue;
     }
     if (c === '`') { stack.push('tpl'); out += c; i++; continue; }
+    if (c === '/' && REGEX_BEFORE.test(out.slice(out.lastIndexOf('\n') + 1).slice(-40))) {
+      let j = i + 1;
+      let inClass = false;
+      while (j < text.length && text[j] !== '\n' && (inClass || text[j] !== '/')) {
+        if (text[j] === '\\') j++;
+        else if (text[j] === '[') inClass = true;
+        else if (text[j] === ']') inClass = false;
+        j++;
+      }
+      if (text[j] === '/') {
+        out += '/' + blank(text.slice(i + 1, j)) + '/';
+        i = j + 1;
+        continue;
+      }
+    }
     if (c === '{' && stack.length) stack.push('{');
     if (c === '}' && stack.length) { const top = stack.pop(); if (top === 'expr') { out += c; i++; continue; } }
     out += c; i++;

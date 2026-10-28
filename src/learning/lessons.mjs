@@ -1,8 +1,9 @@
 // writeLessons: the paperthin:re0-memo method over new cases, run through the brain. Each new case is
 // generalized into its class with the case kept as evidence and the gate that would catch it named;
 // lessons of the same class merge into one. Output: lessons/lessons.jsonl, one lesson per class.
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { writeAtomic } from '../core/atomic.mjs';
 import { ensureDir } from '../core/instance.mjs';
 import { logEvent } from '../core/log.mjs';
 import { runCodex as defaultRunCodex } from '../brain/codex.mjs';
@@ -16,11 +17,6 @@ export function readLessons(instance) {
   const file = lessonsFile(instance);
   if (!existsSync(file)) return [];
   return readFileSync(file, 'utf8').split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
-}
-
-export function writeAtomic(path, text) {
-  writeFileSync(path + '.tmp', text);
-  renameSync(path + '.tmp', path);
 }
 
 const readState = (instance) => (existsSync(stateFile(instance)) ? JSON.parse(readFileSync(stateFile(instance), 'utf8')) : { learnedCaseIds: [] });

@@ -11,7 +11,8 @@ import { logEvent } from '../core/log.mjs';
 import { floorFindings } from '../policy/slop.mjs';
 import { runCodex as defaultRunCodex } from '../brain/codex.mjs';
 import { readCases } from './outcomes.mjs';
-import { readLessons, writeAtomic } from './lessons.mjs';
+import { writeAtomic } from '../core/atomic.mjs';
+import { readLessons } from './lessons.mjs';
 import { normalizeAppliesTo } from './scope.mjs';
 
 export const MAX_PATTERN_LENGTH = 200;

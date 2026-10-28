@@ -5,7 +5,8 @@
 // reads true, which the probe cannot yet (080 order 8 maps the marker with its recording).
 import { AdapterRefusal } from '../platforms/kit.mjs';
 import { probeSignIn } from '../platforms/signin.mjs';
-import { authorizedSend, unauthorized } from './shared.mjs';
+import { verifyAuthorization } from '../core/authz.mjs';
+import { unauthorized } from './shared.mjs';
 
 export const UNMAPPED = 'FSW_UPWORK_UNMAPPED';
 export const NOT_TYPED = [UNMAPPED];
@@ -17,7 +18,7 @@ const unmapped = (what) => {
 };
 // The token check runs first, so a forged call is refused for its authorization before the unmapped form.
 const write = (kinds, what) => async (ref, { text, authorized } = {}) => {
-  const why = authorizedSend(authorized, { platform: 'upwork', ref: String(ref), kinds, text });
+  const why = verifyAuthorization(authorized, { platform: 'upwork', ref: String(ref), kinds, text });
   return why ? unauthorized(why) : unmapped(what);
 };
 

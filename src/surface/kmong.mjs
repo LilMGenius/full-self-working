@@ -6,7 +6,8 @@ import { openKmongConversation } from '../platforms/kmong/conversation.mjs';
 import { openKmongListing } from '../platforms/kmong/listing.mjs';
 import { sample } from '../platforms/kmong/market.mjs';
 import { openProjectReader, openProjectSeller } from '../platforms/kmong/projects.mjs';
-import { authorizedSend, messageOf, readKind, receiptOf, unauthorized } from './shared.mjs';
+import { verifyAuthorization } from '../core/authz.mjs';
+import { messageOf, readKind, receiptOf, unauthorized } from './shared.mjs';
 
 // Refusals seller.propose returns before it types anything: the day's quota is spent, or 제안하기 opened
 // the enterprise profile registration in place of the form. They are thrown so the drain returns the row
@@ -43,12 +44,12 @@ export async function openKmongSurface({ session, openReader = openProjectReader
     // kmong has conversations only, so read takes kind message and refuses a request.
     read: async (ref, { willReply = false, kind } = {}) => (readKind(kind, ['message']), threadOf(await a.readThread(ref, { willReply }))),
     send: async (ref, { text, files = [], authorized } = {}) => {
-      const why = authorizedSend(authorized, { platform: 'kmong', ref: String(ref), kinds: ['message', 'delivery'], text });
+      const why = verifyAuthorization(authorized, { platform: 'kmong', ref: String(ref), kinds: ['message', 'delivery'], text });
       return why ? unauthorized(why) : receiptOf(await a.send(ref, { text, files, gate: { ok: true } }));
     },
     // kmong has no mapped quote form: a price goes out as a message the loop plans as kind message.
     quote: async (ref, { text, authorized } = {}) => {
-      const why = authorizedSend(authorized, { platform: 'kmong', ref: String(ref), kinds: ['quote'], text });
+      const why = verifyAuthorization(authorized, { platform: 'kmong', ref: String(ref), kinds: ['quote'], text });
       return why ? unauthorized(why) : { observed: false, reason: 'kmong has no mapped quote form; send the price as a message' };
     },
     orders: () => a.orders(),
@@ -71,7 +72,7 @@ export async function openKmongSurface({ session, openReader = openProjectReader
     // status; then the projects page module fills the form, reads every field back, submits and looks for
     // the proposal on /seller/proposals. The seller shares this surface's session, which stop() ends.
     propose: async (ref, { text, amountKRW, phases = [], authorized } = {}) => {
-      const why = authorizedSend(authorized, { platform: 'kmong', ref: String(ref), kinds: ['proposal'], text });
+      const why = verifyAuthorization(authorized, { platform: 'kmong', ref: String(ref), kinds: ['proposal'], text });
       if (why) return unauthorized(why);
       const id = Number(String(ref).replace(/^project:/, ''));
       const reader = await openReader();

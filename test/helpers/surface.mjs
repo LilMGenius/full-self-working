@@ -1,13 +1,13 @@
 // scriptedSurface: a 003 Surface for tests. send, quote and (when methods names it) propose refuse through
-// authorizedSend of src/surface/shared.mjs unless the drain's token covers the thread, kind and text, and
+// verifyAuthorization of src/core/authz.mjs unless the drain's token covers the thread, kind and text, and
 // payRequest refuses the same way and throws unless approved is true (the refusal contract of the adapters).
 // A scripted surface stands in for whichever platform drains it, so the token is checked against that platform
 // unless the platform option names one. Every call is logged. receipts
 // maps a method to a queue (or a function) of receipts; an Error in it is thrown. methods lists the
 // optional methods the surface has (payRequest, propose, orders), so handles sees exactly those.
-import { mintAuthorization } from '../../src/core/authz.mjs';
+import { mintAuthorization, verifyAuthorization } from '../../src/core/authz.mjs';
 import { outboxKey } from '../../src/core/ledger.mjs';
-import { authorizedSend, unauthorized } from '../../src/surface/shared.mjs';
+import { unauthorized } from '../../src/surface/shared.mjs';
 
 // The token the drain would mint for a row of this platform, thread and kind carrying this text, for tests that
 // call a surface write directly (src/core/authz.mjs).
@@ -15,7 +15,7 @@ export const tokenFor = (platform, ref, kind, text = '') => mintAuthorization({ 
 
 export function scriptedSurface({ platform = null, login = { loggedIn: true }, sense = [], threads = {}, receipts = {}, methods = ['payRequest'], orders = null } = {}) {
   const calls = [];
-  const why = (ref, kinds, args, text = args.text) => authorizedSend(args.authorized, { platform: platform ?? String(args.authorized?.key ?? '').split(':')[0], ref: String(ref), kinds, text });
+  const why = (ref, kinds, args, text = args.text) => verifyAuthorization(args.authorized, { platform: platform ?? String(args.authorized?.key ?? '').split(':')[0], ref: String(ref), kinds, text });
   const next = (method, ...args) => {
     const q = receipts[method];
     const r = typeof q === 'function' ? q(...args) : Array.isArray(q) && q.length ? q.shift() : { observed: true };

@@ -327,7 +327,7 @@ test('a surface without payRequest or propose leaves those rows alone; one with 
   const out = await s.run(withPropose);
   assert.deepEqual(out.map((x) => [x.id, x.action]), [[prop.id, 'observed']]);
   const call = withPropose.calls.find((c) => c.name === 'propose');
-  assert.deepEqual([call.args.amountKRW, call.args.phases.length, call.args.authorized.verdict], [1000000, 1, 'send']);
+  assert.deepEqual([call.args.amountKRW, call.args.phases.length, call.args.authorized.key], [1000000, 1, s.ledger.getOutbox(prop.id).key]);
 });
 
 test('a soomgo quote goes to the surface with its customer, and a row without one passes null', async () => {
@@ -742,7 +742,7 @@ test('a proposal priced at an older rate than the day goes stale with no surface
   assert.match(s.ledger.getOutbox(old.id).reason, /343 USD at the rate of 2026-10-16, older than the rate of 2026-10-19/);
   const calls = surface.calls.filter((c) => c.name === 'propose');
   assert.equal(calls.length, 1);
-  assert.deepEqual([calls[0].ref, calls[0].args.amount, calls[0].args.currency, calls[0].args.amountKRW, calls[0].args.periodDays, calls[0].args.authorized.verdict], ['p2', 343, 'USD', 480000, 7, 'send']);
+  assert.deepEqual([calls[0].ref, calls[0].args.amount, calls[0].args.currency, calls[0].args.amountKRW, calls[0].args.periodDays, calls[0].args.authorized.key], ['p2', 343, 'USD', 480000, 7, s.ledger.getOutbox(current.id).key]);
 });
 
 test('a rate the day cannot read holds the converted proposal, and a KRW proposal gets amount in KRW', async () => {

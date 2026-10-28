@@ -42,9 +42,15 @@ export async function openKmongSurface({ session, openReader = openProjectReader
     sense: async () => (await a.inbox()).map(inboundOf),
     // kmong has conversations only, so read takes kind message and refuses a request.
     read: async (ref, { willReply = false, kind } = {}) => (readKind(kind, ['message']), threadOf(await a.readThread(ref, { willReply }))),
-    send: async (ref, { text, files = [], authorized } = {}) => (authorizedSend(authorized) ? receiptOf(await a.send(ref, { text, files, gate: { ok: true } })) : unauthorized()),
+    send: async (ref, { text, files = [], authorized } = {}) => {
+      const why = authorizedSend(authorized, { platform: 'kmong', ref: String(ref), kinds: ['message', 'delivery'], text });
+      return why ? unauthorized(why) : receiptOf(await a.send(ref, { text, files, gate: { ok: true } }));
+    },
     // kmong has no mapped quote form: a price goes out as a message the loop plans as kind message.
-    quote: async () => ({ observed: false, reason: 'kmong has no mapped quote form; send the price as a message' }),
+    quote: async (ref, { text, authorized } = {}) => {
+      const why = authorizedSend(authorized, { platform: 'kmong', ref: String(ref), kinds: ['quote'], text });
+      return why ? unauthorized(why) : { observed: false, reason: 'kmong has no mapped quote form; send the price as a message' };
+    },
     orders: () => a.orders(),
     // 003 reviews?(): counts from the public profile; rows join once pageReviewRows is mapped (U6.6). The
     // dashboard read that finds the nickname is also the sign-in check, so the review pass needs no login()
@@ -64,9 +70,9 @@ export async function openKmongSurface({ session, openReader = openProjectReader
     // project is read first for its title, which the read-back on /seller/proposals matches, and its
     // status; then the projects page module fills the form, reads every field back, submits and looks for
     // the proposal on /seller/proposals. The seller shares this surface's session, which stop() ends.
-    // Known gap (003 Surface): authorized is checked by verdict only until wp9's src/core/authz.mjs.
     propose: async (ref, { text, amountKRW, phases = [], authorized } = {}) => {
-      if (!authorizedSend(authorized)) return unauthorized();
+      const why = authorizedSend(authorized, { platform: 'kmong', ref: String(ref), kinds: ['proposal'], text });
+      if (why) return unauthorized(why);
       const id = Number(String(ref).replace(/^project:/, ''));
       const reader = await openReader();
       let project;

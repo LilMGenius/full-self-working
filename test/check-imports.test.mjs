@@ -65,3 +65,12 @@ test('ajv imported statically in src/core/config.mjs fails once the supervisor g
   'src/cli/run.mjs': "import { v } from '../core/config.mjs';\nexport const run = v;\n",
   'src/core/config.mjs': "import Ajv2020 from 'ajv/dist/2020.js';\nexport const v = Ajv2020;\n",
 }, (root) => assert.deepEqual(checkImports(root), ['src/core/config.mjs:1 src/core/config.mjs imports ajv/dist/2020.js, which the deploy worktree cannot resolve (no node_modules)'])));
+
+test('only the outbox mints a surface write token: a surface that names mintAuthorization fails, the drain passes', () => withTree({
+  'src/core/authz.mjs': 'export const mintAuthorization = () => ({});\nexport const verifyAuthorization = () => null;\n',
+  'src/outbox/drain.mjs': "import { mintAuthorization } from '../core/authz.mjs';\nexport const d = mintAuthorization;\n",
+  'src/surface/kmong.mjs': "import { verifyAuthorization } from '../core/authz.mjs';\nimport { mintAuthorization } from '../core/authz.mjs';\nexport const k = [verifyAuthorization, mintAuthorization];\n",
+}, (root) => assert.deepEqual(checkImports(root), [
+  'src/surface/kmong.mjs:2 mintAuthorization outside src/outbox: only the drain mints a surface write token',
+  'src/surface/kmong.mjs:3 mintAuthorization outside src/outbox: only the drain mints a surface write token',
+])));

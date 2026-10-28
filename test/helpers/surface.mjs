@@ -1,12 +1,21 @@
 // scriptedSurface: a 003 Surface for tests. send, quote and (when methods names it) propose refuse through
-// authorizedSend of src/surface/shared.mjs unless authorized.verdict is send, and payRequest refuses the
-// same way and throws unless approved is true (the refusal contract of the adapters). Every call is logged. receipts
+// authorizedSend of src/surface/shared.mjs unless the drain's token covers the thread, kind and text, and
+// payRequest refuses the same way and throws unless approved is true (the refusal contract of the adapters).
+// A scripted surface stands in for whichever platform drains it, so the token is checked against that platform
+// unless the platform option names one. Every call is logged. receipts
 // maps a method to a queue (or a function) of receipts; an Error in it is thrown. methods lists the
 // optional methods the surface has (payRequest, propose, orders), so handles sees exactly those.
+import { mintAuthorization } from '../../src/core/authz.mjs';
+import { outboxKey } from '../../src/core/ledger.mjs';
 import { authorizedSend, unauthorized } from '../../src/surface/shared.mjs';
 
-export function scriptedSurface({ login = { loggedIn: true }, sense = [], threads = {}, receipts = {}, methods = ['payRequest'], orders = null } = {}) {
+// The token the drain would mint for a row of this platform, thread and kind carrying this text, for tests that
+// call a surface write directly (src/core/authz.mjs).
+export const tokenFor = (platform, ref, kind, text = '') => mintAuthorization({ key: outboxKey({ platform, threadRef: String(ref), kind, text }) }, text);
+
+export function scriptedSurface({ platform = null, login = { loggedIn: true }, sense = [], threads = {}, receipts = {}, methods = ['payRequest'], orders = null } = {}) {
   const calls = [];
+  const why = (ref, kinds, args, text = args.text) => authorizedSend(args.authorized, { platform: platform ?? String(args.authorized?.key ?? '').split(':')[0], ref: String(ref), kinds, text });
   const next = (method, ...args) => {
     const q = receipts[method];
     const r = typeof q === 'function' ? q(...args) : Array.isArray(q) && q.length ? q.shift() : { observed: true };
@@ -27,12 +36,14 @@ export function scriptedSurface({ login = { loggedIn: true }, sense = [], thread
       return t ?? { ref, messages: [], notices: [] };
     },
     send: async (ref, args) => {
-      if (!authorizedSend(args.authorized)) return unauthorized();
+      const refused = why(ref, ['message', 'delivery'], args);
+      if (refused) return unauthorized(refused);
       calls.push({ name: 'send', ref, args });
       return next('send', ref, args);
     },
     quote: async (ref, args) => {
-      if (!authorizedSend(args.authorized)) return unauthorized();
+      const refused = why(ref, ['quote'], args);
+      if (refused) return unauthorized(refused);
       calls.push({ name: 'quote', ref, args });
       return next('quote', ref, args);
     },
@@ -40,7 +51,8 @@ export function scriptedSurface({ login = { loggedIn: true }, sense = [], thread
   };
   if (methods.includes('payRequest')) {
     s.payRequest = async (ref, args) => {
-      if (!authorizedSend(args.authorized)) return unauthorized();
+      const refused = why(ref, ['pay_request'], args, '');
+      if (refused) return unauthorized(refused);
       if (args.approved !== true) throw Object.assign(new Error('payRequest needs an approved operator item'), { code: 'FSW_PAY_REQUEST_REFUSED' });
       calls.push({ name: 'payRequest', ref, args });
       return next('payRequest', ref, args);
@@ -48,7 +60,8 @@ export function scriptedSurface({ login = { loggedIn: true }, sense = [], thread
   }
   if (methods.includes('propose')) {
     s.propose = async (ref, args) => {
-      if (!authorizedSend(args.authorized)) return unauthorized();
+      const refused = why(ref, ['proposal'], args);
+      if (refused) return unauthorized(refused);
       calls.push({ name: 'propose', ref, args });
       return next('propose', ref, args);
     };

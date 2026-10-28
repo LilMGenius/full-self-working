@@ -5,6 +5,7 @@
 // reads true, which the probe cannot yet (080 order 8 maps the marker with its recording).
 import { AdapterRefusal } from '../platforms/kit.mjs';
 import { probeSignIn } from '../platforms/signin.mjs';
+import { authorizedSend, unauthorized } from './shared.mjs';
 
 export const UNMAPPED = 'FSW_UPWORK_UNMAPPED';
 export const NOT_TYPED = [UNMAPPED];
@@ -13,6 +14,11 @@ export const SIGN_IN = { startUrl: 'https://www.upwork.com/nx/find-work/', login
 
 const unmapped = (what) => {
   throw new AdapterRefusal(UNMAPPED, 'the upwork ' + what + ' is not mapped from a signed-in recording; nothing was loaded or typed');
+};
+// The token check runs first, so a forged call is refused for its authorization before the unmapped form.
+const write = (kinds, what) => async (ref, { text, authorized } = {}) => {
+  const why = authorizedSend(authorized, { platform: 'upwork', ref: String(ref), kinds, text });
+  return why ? unauthorized(why) : unmapped(what);
 };
 
 export async function openUpworkSurface({ session } = {}) {
@@ -23,9 +29,9 @@ export async function openUpworkSurface({ session } = {}) {
     login: () => probeSignIn(session, SIGN_IN),
     sense: async () => [],
     read: async () => unmapped('job page'),
-    send: async () => unmapped('message form'),
-    quote: async () => unmapped('quote, which a proposal replaces,'),
-    propose: async () => unmapped('proposal form'),
+    send: write(['message', 'delivery'], 'message form'),
+    quote: write(['quote'], 'quote, which a proposal replaces,'),
+    propose: write(['proposal'], 'proposal form'),
     stop: async () => session?.stop?.(),
   };
 }

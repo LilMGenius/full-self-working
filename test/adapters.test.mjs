@@ -430,6 +430,8 @@ test('soomgo quote is observed from its 견적 발송 charge in 충전/사용 �
   const s = sentQuoteSession(['35,000캐시', '견적 발송 - 고객A', seoulStamp(), '-4,490캐시', '견적 보상 - 고객C', '2026-10-24 07:30:00', '1,990캐시'].join('\n'));
   const q = await (await openSoomgo({ session: s, sleep: async () => {} })).quote('req1', quoteArgs);
   assert.deepEqual([q.observed, q.cashSpentKRW], [true, 4490]);
+  const closed = s.log.indexOf('evaluate pageCloseNotice');
+  assert.ok(closed >= 0 && closed < s.log.indexOf('type [data-fsw=quote-price]'), 'an announcement modal is closed before the price is typed');
 });
 
 test('a smart quote charge never passes for the press of fsw\'s own quote, with or without a customer', () => {

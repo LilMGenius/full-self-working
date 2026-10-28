@@ -15,7 +15,7 @@ import { copyFileSync, existsSync, readFileSync, realpathSync, renameSync, write
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
-import { pidAlive } from '../src/supervisor/run.mjs';
+import { pidAlive } from '../src/supervisor/lock.mjs';
 
 export const sha256 = (file) => createHash('sha256').update(readFileSync(file)).digest('hex');
 

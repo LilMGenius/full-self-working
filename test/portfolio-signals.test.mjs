@@ -176,7 +176,7 @@ test('syncPortfolio stores the day signals and media, and a figure gone today re
 });
 
 test('the portfolio job reads the day signals, captures README media for authored repositories and tells the operator about items with none', async () => {
-  const { JOB_HANDLERS } = await import('../src/supervisor/run.mjs');
+  const { JOB_HANDLERS } = await import('../src/supervisor/jobs.mjs');
   const dir = tempDir('fsw-portfolio-job-');
   const instance = { dir, profile: { person: { links: ['https://github.com/maker'] }, projects: [
     { name: 'Own', role: 'Author', url: 'https://github.com/maker/own' },
@@ -206,7 +206,7 @@ test('a repository that answered nothing and has no media is listed missing with
   const reach = { kyro: { authored: false, why: 'repository unread', errors: ['github maker/kyro answered 404'] }, lib: { authored: false, why: 'owned by other', errors: [] } };
   const out = await captureRepoMedia([item('kyro'), item('lib', { url: 'https://github.com/other/lib' })], { renderer: { render: async () => { throw new Error('nothing to render'); } }, dir: tempDir('fsw-media-'), reach });
   assert.deepEqual(out, { media: {}, missing: ['kyro'], reasons: { kyro: 'github maker/kyro answered 404' } });
-  const { JOB_HANDLERS } = await import('../src/supervisor/run.mjs');
+  const { JOB_HANDLERS } = await import('../src/supervisor/jobs.mjs');
   const dir = tempDir('fsw-portfolio-job-');
   const instance = { dir, profile: { person: { links: ['https://github.com/maker'] }, projects: [{ name: 'Kyro', url: 'https://github.com/maker/kyro' }, { name: 'Bare' }] }, paths: { portfolio: join(dir, 'portfolio') } };
   const notes = [];

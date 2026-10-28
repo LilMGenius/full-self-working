@@ -18,7 +18,8 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
-import { STUCK_POLLS, pidAlive } from '../src/supervisor/run.mjs';
+import { pidAlive } from '../src/supervisor/lock.mjs';
+import { STUCK_POLLS } from '../src/supervisor/run.mjs';
 
 // 003 "supervisor.log lines and the tick event": the lines runSupervisor logs at 2c77326 and at v0.
 export const FORMATS = {

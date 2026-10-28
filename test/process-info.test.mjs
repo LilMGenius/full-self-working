@@ -1,9 +1,9 @@
-// processInfo in src/supervisor/run.mjs when powershell.exe cannot be read: the 2c77326 tasklist rule
+// processInfo in src/supervisor/lock.mjs when powershell.exe cannot be read: the 2c77326 tasklist rule
 // decides, with no start time, and acquireLock answers instead of throwing. exec is a recording stand-in;
 // the pid is this test's own process, which process.kill(pid, 0) finds alive.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { acquireLock, pidAlive, processInfo } from '../src/supervisor/run.mjs';
+import { acquireLock, pidAlive, processInfo } from '../src/supervisor/lock.mjs';
 import { tempDir } from './tmp.mjs';
 
 const pid = process.pid;

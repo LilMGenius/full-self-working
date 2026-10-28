@@ -6,7 +6,8 @@ import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
-import { JOB_HANDLERS, readState, runSupervisor, runTick } from '../src/supervisor/run.mjs';
+import { JOB_HANDLERS } from '../src/supervisor/jobs.mjs';
+import { readState, runSupervisor, runTick } from '../src/supervisor/run.mjs';
 import { JOBS } from '../src/supervisor/schedule.mjs';
 import { tempDir } from './tmp.mjs';
 

@@ -88,8 +88,6 @@ export function writeState(instance, state) {
   renameSync(tmp, file);
 }
 
-// ---- jobs ----
-
 // One pass: every due job in schedule order, each isolated. A job that ran, failed or is not wired has
 // had its turn for the period; the period's failure stays in the events for the digest, and the next
 // period tries again.

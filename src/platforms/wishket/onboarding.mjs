@@ -36,8 +36,6 @@ export const STEPS = [
   { id: 'availability', detect: { path: /^\/partners\/p\/[^/]+\/$/ } },
 ];
 
-// ---- page reads and writes ----
-
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const result = (step, state, detail) => ({ step, state, detail });
 

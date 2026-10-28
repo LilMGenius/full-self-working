@@ -7,7 +7,8 @@ import { targetsFor } from '../economics/catalog.mjs';
 import { AdapterRefusal } from '../platforms/kit.mjs';
 import { BALANCE, FORM_UNMAPPED, NO_BIDS, STEPS, bidCostKRW, bidRefusal, readBidState } from '../platforms/freelancer/bid.mjs';
 import { fetchApi, listProjects, readProject, readReputation, readSelf, signInWithGoogle } from '../platforms/freelancer/projects.mjs';
-import { authorizedSend, readKind, unauthorized } from './shared.mjs';
+import { verifyAuthorization } from '../core/authz.mjs';
+import { readKind, unauthorized } from './shared.mjs';
 
 export { FORM_UNMAPPED };
 // Every refusal propose throws before it types anything, so the drain returns the row instead of reading
@@ -58,17 +59,17 @@ export async function openFreelancerSurface({ session, fetchJson = fetchApi, tar
       return threadOfProject(p, willReply ? await readBidState(session, p) : null);
     },
     send: async (ref, { text, authorized } = {}) => {
-      const why = authorizedSend(authorized, { platform: 'freelancer', ref: String(ref), kinds: ['message', 'delivery'], text });
+      const why = verifyAuthorization(authorized, { platform: 'freelancer', ref: String(ref), kinds: ['message', 'delivery'], text });
       return why ? unauthorized(why) : unmapped('message');
     },
     quote: async (ref, { text, authorized } = {}) => {
-      const why = authorizedSend(authorized, { platform: 'freelancer', ref: String(ref), kinds: ['quote'], text });
+      const why = verifyAuthorization(authorized, { platform: 'freelancer', ref: String(ref), kinds: ['quote'], text });
       return why ? unauthorized(why) : unmapped('quote');
     },
     // Every bid is refused by name before anything is typed: the balance, the profile steps, the free bids,
     // then the unmapped form (src/platforms/freelancer/bid.mjs bidRefusal).
     propose: async (ref, { text, authorized } = {}) => {
-      const why = authorizedSend(authorized, { platform: 'freelancer', ref: String(ref), kinds: ['proposal'], text });
+      const why = verifyAuthorization(authorized, { platform: 'freelancer', ref: String(ref), kinds: ['proposal'], text });
       if (why) return unauthorized(why);
       const r = bidRefusal(await readBidState(session, await readProject(ref, { fetchJson })));
       throw new AdapterRefusal(r.code, r.reason);

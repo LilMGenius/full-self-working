@@ -8,7 +8,8 @@
 import { AdapterRefusal } from '../platforms/kit.mjs';
 import { createHash } from 'node:crypto';
 import { APPLY_UNMAPPED, openProjectReader } from '../platforms/wishket/projects.mjs';
-import { authorizedSend, readKind, unauthorized } from './shared.mjs';
+import { verifyAuthorization } from '../core/authz.mjs';
+import { readKind, unauthorized } from './shared.mjs';
 
 export { APPLY_UNMAPPED };
 // Every refusal a wishket write throws before it touches a page, for the drain's PROPOSAL_NOT_SENT.
@@ -19,7 +20,7 @@ const unmapped = (what) => {
 };
 // The token check runs first, so a forged call is refused for its authorization before the unmapped form.
 const write = (kinds, what) => async (ref, { text, authorized } = {}) => {
-  const why = authorizedSend(authorized, { platform: 'wishket', ref: String(ref), kinds, text });
+  const why = verifyAuthorization(authorized, { platform: 'wishket', ref: String(ref), kinds, text });
   return why ? unauthorized(why) : unmapped(what);
 };
 

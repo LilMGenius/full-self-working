@@ -1,6 +1,5 @@
 // What every surface returns, mapped from the 2c77326 adapter results (003 Surface): Receipt, the refusal a
 // write gives without the drain's authorization, the read kinds, and the Thread message shape.
-import { verifyAuthorization } from '../core/authz.mjs';
 import { AdapterRefusal } from '../platforms/kit.mjs';
 
 export const receiptOf = (r) => ({
@@ -16,10 +15,10 @@ export const receiptOf = (r) => ({
   ...(typeof r?.costKRW === 'number' ? { costKRW: r.costKRW } : {}),
 });
 
-// Every surface write (send, quote, payRequest, propose) goes to the page only with a token the outbox drain
-// minted for this platform, thread, kind and text (src/core/authz.mjs); returns null when it may, else the
-// reason. The 2c77326 adapters keep refusing without gate.ok, which a surface sets only after this check.
-export const authorizedSend = (authorized, expect) => verifyAuthorization(authorized, expect);
+// Every surface write (send, quote, payRequest, propose) goes to the page only when verifyAuthorization
+// (src/core/authz.mjs) finds the outbox drain's token for this platform, thread, kind and text; otherwise it
+// returns this refusal. The 2c77326 adapters keep refusing without gate.ok, which a surface sets only after
+// that check.
 export const unauthorized = (reason) => ({ observed: false, reason: 'not authorized: ' + reason });
 
 // read's kind tells a soomgo request id from a chat id (003); a kind the platform does not have is refused

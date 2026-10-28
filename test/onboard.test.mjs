@@ -7,7 +7,8 @@ import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { parseArgs, run } from '../src/cli/onboard.mjs';
 import { blockOf, dayLabel, humanize, readIdentity, walkWizard } from '../src/platforms/onboarding.mjs';
 import { HANDLERS as FREELANCER, STEPS as FREELANCER_STEPS, addSkill, firstExperience, headlineAndSummary, parseSelectedSkills, profileLanguages, resultPattern, skillOfResult, splitLegalName, stepOfUrl as freelancerStep, usDate } from '../src/platforms/freelancer/onboarding.mjs';
-import { HANDLERS as UPWORK, employmentEntries, onboard, parseEmploymentCard, parsePeriod, splitTitle, stepOfUrl, upworkSpecialties } from '../src/platforms/upwork/onboarding.mjs';
+import { HANDLERS as UPWORK, onboard, stepOfUrl } from '../src/platforms/upwork/onboarding.mjs';
+import { employmentEntries, parseEmploymentCard, parsePeriod, splitTitle, upworkSpecialties } from '../src/platforms/upwork/profile-plan.mjs';
 import { tempDir } from './tmp.mjs';
 
 function instance() {

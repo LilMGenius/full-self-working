@@ -27,7 +27,7 @@ import { existsSync, readFileSync, realpathSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
-import { pidAlive } from '../src/supervisor/run.mjs';
+import { pidAlive } from '../src/supervisor/lock.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const ps = (cmd) => execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', cmd], { encoding: 'utf8', windowsHide: true }).trim();

@@ -26,7 +26,7 @@ import { parseArgs } from 'node:util';
 import { FINAL_FILE, KIND_OF as IMPORT_KIND, OPEN_ROW, SENT_FILE, STATUS_OF, importApprovals } from '../src/core/approvals-import.mjs';
 import { dayKey } from '../src/core/clock.mjs';
 import { openLedger, outboxKey } from '../src/core/ledger.mjs';
-import { pidAlive } from '../src/supervisor/run.mjs';
+import { pidAlive } from '../src/supervisor/lock.mjs';
 import { liveLockHolder, readTask, taskBlocks } from './ledger-snapshot.mjs';
 
 // The status the importer reads a file as: an open file the old code could not observe is unobserved.

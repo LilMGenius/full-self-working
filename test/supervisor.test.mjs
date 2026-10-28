@@ -5,7 +5,8 @@ import { closeSync, copyFileSync, linkSync, openSync, readdirSync, readFileSync,
 import { dirname, join } from 'node:path';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
-import { acquireLock, effectiveMode, pidAlive, readLock, releaseLock, runSupervisor, runTick, STUCK_POLLS } from '../src/supervisor/run.mjs';
+import { acquireLock, pidAlive, readLock, releaseLock } from '../src/supervisor/lock.mjs';
+import { effectiveMode, runSupervisor, runTick, STUCK_POLLS } from '../src/supervisor/run.mjs';
 import { writeDigest } from '../src/supervisor/digest.mjs';
 import { dueJobs, JOBS, nextWake, periodKey } from '../src/supervisor/schedule.mjs';
 import { advance, moneyToSignals } from '../src/deal/index.mjs';

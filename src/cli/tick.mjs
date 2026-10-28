@@ -3,7 +3,8 @@
 // tick reports the BrowserSkill daemon without starting one, since the daemon would die with the tick.
 import { loadInstance } from '../core/instance.mjs';
 import { createBrowserKeeper } from '../supervisor/keepalive.mjs';
-import { acquireLock, codeState, releaseLock, runTick } from '../supervisor/run.mjs';
+import { acquireLock, releaseLock } from '../supervisor/lock.mjs';
+import { codeState, runTick } from '../supervisor/run.mjs';
 
 export function formatTick(summary) {
   const lines = ['tick ' + summary.at + (summary.forceMode ? ' (forced ' + summary.forceMode + ')' : '')];

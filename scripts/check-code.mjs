@@ -35,7 +35,13 @@ const imported = (list) => list.split(',').map((s) => s.trim().split(/\s+as\s+/)
 
 // A slash starts a regex literal where an expression begins: after one of these characters, at the start of a line,
 // or after return or typeof; anywhere else it divides.
-const REGEX_BEFORE = /(?:^|[(,=:[!&|?{};]|\breturn|\btypeof)\s*$/;
+// A slash starts a regex literal when the code before it, across line breaks, ends in an operator or keyword
+// that expects an operand, or when nothing precedes it; after a name, a number or a closing paren it divides.
+const REGEX_BEFORE = /(?:[(,=:[!&|?{};]|\breturn|\btypeof)$/;
+const regexStarts = (out) => {
+  const prev = out.trimEnd();
+  return prev === '' || REGEX_BEFORE.test(prev.slice(-8));
+};
 
 // The text with comments and the contents of string, template and regex literals blanked (a template's ${...}
 // parts stay code), so a name counts as used in its file only where code names it.
@@ -61,7 +67,7 @@ function codeOnly(text) {
       out += c + blank(text.slice(i + 1, j)) + (text[j] === c ? c : ''); i = text[j] === c ? j + 1 : j; continue;
     }
     if (c === '`') { stack.push('tpl'); out += c; i++; continue; }
-    if (c === '/' && REGEX_BEFORE.test(out.slice(out.lastIndexOf('\n') + 1).slice(-40))) {
+    if (c === '/' && regexStarts(out)) {
       let j = i + 1;
       let inClass = false;
       while (j < text.length && text[j] !== '\n' && (inClass || text[j] !== '/')) {

@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { profileProcesses } from '../src/render/html2png.mjs';
+import { profileProcesses } from '../src/render/profile.mjs';
 
 // The outer runner's context variable would make a nested run skip the file's tests.
 const { NODE_TEST_CONTEXT, ...env } = process.env;

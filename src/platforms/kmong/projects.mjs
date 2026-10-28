@@ -277,6 +277,7 @@ export async function openProjectReader({ renderer } = {}) {
       return parseProjectDetail(res.data, { now });
     },
     async close() {
+      // cleanup: a page the browser already closed needs nothing more
       await page.close().catch(() => {});
       if (own) await r.close();
     },

@@ -147,6 +147,7 @@ export async function openRenderer({ chrome = process.env.FSW_CHROME ?? DEFAULT_
         probe: probed,
       };
     } finally {
+      // cleanup: a target already gone needs no close, and the capture above already holds its result
       await cdp.send('Target.closeTarget', { targetId }).catch(() => {});
     }
   }
@@ -231,6 +232,7 @@ export async function openRenderer({ chrome = process.env.FSW_CHROME ?? DEFAULT_
       writeFileSync(out, bytes);
       return { out: resolve(out), bytes: bytes.length, fonts: settled.result?.value?.fonts ?? null, platformFonts: faces };
     } finally {
+      // cleanup: a target already gone needs no close, and the capture above already holds its result
       await cdp.send('Target.closeTarget', { targetId }).catch(() => {});
     }
   }

@@ -18,7 +18,6 @@ export const SCRIPTS = ['render', 'accept'];
 // image accepts PNG or JPEG, for deliverables whose format depends on the source (a cutout keeps alpha).
 export const FORMATS = ['html', 'png', 'jpeg', 'image', 'svg', 'pdf', 'md', 'txt', 'csv', 'srt', 'json', 'js', 'py', 'bas', 'xlsx', 'xlsm', 'pptx', 'docx', 'zip', 'mp4'];
 export const IMAGE_FORMATS = ['png', 'jpeg', 'image'];
-export const TEXT_FORMATS = ['html', 'svg', 'md', 'txt', 'csv', 'srt', 'json', 'js', 'py', 'bas'];
 export const LINT_FORMATS = ['html', 'md', 'txt', 'srt', 'csv'];
 export const CHECKS = ['files', 'image', 'sloplint', 'viewports', 'command'];
 export const PAYMENT_LEVELS = ['none', 'deposit', 'full'];

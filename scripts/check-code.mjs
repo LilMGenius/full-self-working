@@ -37,7 +37,7 @@ const imported = (list) => list.split(',').map((s) => s.trim().split(/\s+as\s+/)
 // or after return or typeof; anywhere else it divides.
 // A slash starts a regex literal when the code before it, across line breaks, ends in an operator or keyword
 // that expects an operand, or when nothing precedes it; after a name, a number or a closing paren it divides.
-const REGEX_BEFORE = /(?:[(,=:[!&|?{};]|\breturn|\btypeof)$/;
+const REGEX_BEFORE = /(?:[(,=:[!&|?{};<>+\-*%~^]|\breturn|\btypeof)$/;
 const regexStarts = (out) => {
   const prev = out.trimEnd();
   return prev === '' || REGEX_BEFORE.test(prev.slice(-8));

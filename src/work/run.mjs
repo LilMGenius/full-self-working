@@ -11,7 +11,7 @@ import { loadInstance, repoRoot } from '../core/instance.mjs';
 import { openLedger } from '../core/ledger.mjs';
 import { notifyOperator } from '../core/notify.mjs';
 import { openRenderer as defaultOpenRenderer } from '../render/html2png.mjs';
-import { matchFiles, runAcceptance } from './accept.mjs';
+import { matchFiles, runAcceptance, viewportsFor } from './accept.mjs';
 import { loadRecipe, resolveSkill, serviceCatalog } from './recipe.mjs';
 import { reviewDeliverables, reviewerFor } from './review.mjs';
 
@@ -178,7 +178,7 @@ export function buildPrompt({ paths, recipe, skills, language, failures }) {
     '',
     '## Checks that run after you',
     '',
-    ...recipe.acceptance.map((c) => '- ' + c.check + (c.widths ? ' at ' + c.widths.join(', ') + ' px: no horizontal overflow, fonts loaded, no broken image' : '') + (c.run ? ': ' + c.run + (c.cwd ? ' in ' + c.cwd : '') : '') + (c.paths ? ' over ' + c.paths.join(', ') : '')),
+    ...recipe.acceptance.map((c) => '- ' + c.check + (c.check === 'viewports' ? ' at ' + viewportsFor(c).map((v) => v.width).join(', ') + ' px: no horizontal overflow, fonts loaded, no broken image' : '') + (c.run ? ': ' + c.run + (c.cwd ? ' in ' + c.cwd : '') : '') + (c.paths ? ' over ' + c.paths.join(', ') : '')),
     '',
     'Customer-facing text is written in ' + language + '. ' + SLOP_RULES,
     'Pages load no remote fonts, scripts or images; embed or copy what they need into the working directory.',

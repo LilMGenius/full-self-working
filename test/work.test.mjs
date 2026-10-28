@@ -109,7 +109,7 @@ test('viewports fails a page that overflows at phone width and writes JPEG captu
   assert.equal(v.ok, false, v.detail);
   assert.match(v.detail, /site\/index\.html@390: horizontal overflow 900 > 390 \(div\.strip\)/);
   assert.doesNotMatch(v.detail, /@1440/);
-  for (const name of ['site_index-390.jpg', 'site_index-1440.jpg', 'site_index-390-full.jpg']) {
+  for (const name of ['site_index-390x900.jpg', 'site_index-1440x900.jpg', 'site_index-390x900-full.jpg']) {
     const file = join(job, 'qa', name);
     assert.ok(existsSync(file), name);
   }

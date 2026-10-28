@@ -7,11 +7,15 @@ import { extname, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { lintText } from '../policy/slop.mjs';
 import { openRenderer as defaultOpenRenderer } from '../render/html2png.mjs';
+import { VIEWPORTS, viewportName } from '../render/viewports.mjs';
 import { IMAGE_FORMATS, LINT_FORMATS } from './recipe.mjs';
 
-export const DEFAULT_WIDTHS = [390, 768, 1440];
-const VIEWPORT_HEIGHT = { 390: 844, 768: 1024 };
 const CAPTURE_MAX_SIDE = 1600;
+
+// A recipe without widths is a responsive page and is checked at every viewport from 320 to 1920 px. A recipe that
+// lists widths renders a fixed-width artifact (a detail image page at 860 px) and states why in widthsReason; it is
+// checked at those widths with a 900 px viewport height.
+export const viewportsFor = (c) => (c.widths ? c.widths.map((width) => ({ width, height: 900 })) : VIEWPORTS);
 
 // Files under work/ matching a recipe glob, as forward-slash paths relative to work/.
 export function matchFiles(workDir, pattern) {
@@ -190,7 +194,7 @@ const viewportProbe = (width) => '(() => {' +
 async function checkViewports(workDir, recipe, c, { qaDir, openRenderer }) {
   const files = [...new Set(recipe.deliverables.filter((d) => d.format === 'html').flatMap((d) => matchFiles(workDir, d.path)))];
   if (!files.length) return { ok: false, detail: 'no html deliverable to render' };
-  const widths = c.widths ?? DEFAULT_WIDTHS;
+  const viewports = viewportsFor(c);
   let renderer;
   try {
     renderer = await openRenderer();
@@ -203,12 +207,12 @@ async function checkViewports(workDir, recipe, c, { qaDir, openRenderer }) {
     mkdirSync(qaDir, { recursive: true });
     for (const f of files) {
       const stem = f.replace(/\.html?$/i, '').replace(/[\\/]/g, '_');
-      for (const width of widths) {
-        const height = VIEWPORT_HEIGHT[width] ?? 900;
+      for (const { width, height } of viewports) {
+        const name = viewportName({ width, height });
         const url = pathToFileURL(resolve(workDir, f)).href;
         try {
-          const first = await renderer.render({ url, width, height, out: join(qaDir, stem + '-' + width + '.jpg'), format: 'jpeg', maxSide: CAPTURE_MAX_SIDE, probe: viewportProbe(width) });
-          const full = await renderer.render({ url, width, height, fullPage: true, out: join(qaDir, stem + '-' + width + '-full.jpg'), format: 'jpeg', maxSide: CAPTURE_MAX_SIDE });
+          const first = await renderer.render({ url, width, height, out: join(qaDir, stem + '-' + name + '.jpg'), format: 'jpeg', maxSide: CAPTURE_MAX_SIDE, probe: viewportProbe(width) });
+          const full = await renderer.render({ url, width, height, fullPage: true, out: join(qaDir, stem + '-' + name + '-full.jpg'), format: 'jpeg', maxSide: CAPTURE_MAX_SIDE });
           captures.push(relative(join(qaDir, '..'), first.out).split('\\').join('/'), relative(join(qaDir, '..'), full.out).split('\\').join('/'));
           const p = first.probe;
           if (!p) problems.push(f + '@' + width + ': probe returned nothing');
@@ -226,7 +230,7 @@ async function checkViewports(workDir, recipe, c, { qaDir, openRenderer }) {
   } finally {
     await renderer.close();
   }
-  return { ok: !problems.length, detail: problems.length ? problems.join('; ') : files.length + ' pages clean at ' + widths.join(', ') + ' px', captures };
+  return { ok: !problems.length, detail: problems.length ? problems.join('; ') : files.length + ' pages clean at ' + viewports.map(viewportName).join(', '), captures };
 }
 
 const tail = (s, n = 1500) => (s.length > n ? s.slice(-n) : s);

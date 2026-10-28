@@ -111,7 +111,9 @@ export function rowFromApproval(ledger, a) {
       threadId,
       jobId: a.jobId && ledger.getJob(a.jobId) ? a.jobId : null,
       kind,
-      payload: { text: a.draft ?? null, amountKRW, split: a.quote?.split ?? null, scope: a.quote?.scope ?? null, deliveryDays: a.quote?.deliveryDays ?? null, files, costKRW: a.costKRW ?? a.deferredForBudget?.costKRW ?? null, threadRef: String(a.threadRef), importedFrom: 'operator/approvals/' + a.id + '.json', ...(review ? { review } : {}), ...(deferred ? deferredPayload(ledger, a, threadId) : {}), ...(kind === 'proposal' ? proposalPayload(a) : {}) },
+      // keyText is the text the key above was built from, kept apart from later operator edits; a row asked again
+      // carries the operator's edit as its text, since that is what the old approval held.
+      payload: { text: reAsk ? text : a.draft ?? null, keyText: text, amountKRW, split: a.quote?.split ?? null, scope: a.quote?.scope ?? null, deliveryDays: a.quote?.deliveryDays ?? null, files, costKRW: a.costKRW ?? a.deferredForBudget?.costKRW ?? null, threadRef: String(a.threadRef), importedFrom: 'operator/approvals/' + a.id + '.json', ...(review ? { review } : {}), ...(deferred ? deferredPayload(ledger, a, threadId) : {}), ...(kind === 'proposal' ? proposalPayload(a) : {}) },
       verdict: null,
       status,
       reason: reAsk ? 'approved under the d605c5d code with no review; approve it again' : a.reason ?? null,

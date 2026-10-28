@@ -204,3 +204,34 @@ test('an approved delivery from an old approval file lands awaiting the operator
   const sent = ledger.outboxByApproval('20261020-kmong-12340002');
   assert.deepEqual([sent.status, sent.payload.review.verdict], ['observed', 'error']);
 }));
+
+// The operator's edit in the old file is the text the key was built from; asking again must keep it, and the row it
+// becomes after the new approval must drain instead of reading as a payload changed after planning.
+test('an approved delivery imported with an operator edit is asked again with that edit, and drains once re-approved', async () => {
+  const { drain, resolve } = await import('../src/outbox/index.mjs');
+  const { keyMatches } = await import('../src/outbox/plan.mjs');
+  const { exampleDir, loadInstance } = await import('../src/core/instance.mjs');
+  const { loadDescriptor } = await import('../src/platforms/registry.mjs');
+  const { authorize } = await import('../src/policy/authorize.mjs');
+  const dir = tempDir('fsw-approvals-');
+  const approvals = join(dir, 'operator', 'approvals');
+  mkdirSync(approvals, { recursive: true });
+  writeFileSync(join(approvals, '20261020-kmong-12340003.json'), JSON.stringify(approval('20261020-kmong-12340003', { platform: 'kmong', kind: 'delivery', threadRef: 'O4', status: 'approved', draft: '납품합니다', finalText: '수정한 납품 안내입니다', edited: true, files: [], resolvedAt: '2026-10-20T02:00:00.000Z' })));
+  const ledger = openLedger(join(dir, 'ledger.sqlite'));
+  try {
+    ledger.upsertThread({ platform: 'kmong', externalId: 'O4', kind: 'message' });
+    importApprovals(ledger, approvals);
+    const asked = ledger.outboxByApproval('20261020-kmong-12340003');
+    assert.equal(asked.status, 'awaiting_operator');
+    assert.equal(asked.payload.text, '수정한 납품 안내입니다', 'the operator edit is what is asked again');
+    resolve(ledger, '20261020-kmong-12340003', { approve: true, reason: 'checked by hand' });
+    assert.equal(keyMatches(ledger.getOutbox(asked.id)), true, 'the re-approved row still matches the key the import built');
+    const sends = [];
+    const surface = { platform: 'kmong', read: async () => ({ messages: [], notices: [] }), send: async (ref, args) => (sends.push(args.text), { observed: true }), quote: async () => ({ observed: false }), stop: async () => {} };
+    const out = await drain(ledger, { platform: 'kmong', surface, authorize, ctx: { descriptor: loadDescriptor('kmong'), instance: loadInstance({ dir: exampleDir }), mode: 'auto', now: new Date('2026-10-20T12:00:00+09:00'), notify: async () => ({}) } });
+    assert.deepEqual(out.map((x) => x.action), ['observed']);
+    assert.deepEqual(sends, ['수정한 납품 안내입니다']);
+  } finally {
+    ledger.close();
+  }
+});

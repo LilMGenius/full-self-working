@@ -33,11 +33,14 @@ export function keyFiles(payload) {
 // Whether a row's payload still hashes to its key (003 key format); the drain checks it before a send, so a
 // payload edited in the ledger after planning never leaves under the old key. A row imported from a 2c77326
 // approval file was keyed by the import (src/core/approvals-import.mjs) on the file's final text and its files as
-// stored; the planned text also counts, since an operator edit made in v0 moves only operator.finalText.
+// stored, and records that text as keyText, so an operator edit made later in v0 never moves the key; a row imported
+// before keyText existed matches on its operator text or its planned text.
 export function keyMatches(row) {
   const p = row.payload;
   if (!p.importedFrom) return outboxKey({ platform: row.platform, threadRef: p.threadRef, kind: row.kind, text: p.text, amountKRW: p.amountKRW, files: keyFiles(p) }) === row.key;
-  return [row.operator?.finalText, p.text].some((text) => text != null && outboxKey({ platform: row.platform, threadRef: p.threadRef, kind: row.kind, text, amountKRW: p.amountKRW, files: p.files ?? [] }) === row.key);
+  const imported = (text) => outboxKey({ platform: row.platform, threadRef: p.threadRef, kind: row.kind, text, amountKRW: p.amountKRW, files: p.files ?? [] }) === row.key;
+  if (p.keyText !== undefined) return imported(p.keyText);
+  return [row.operator?.finalText, p.text].some((text) => text != null && imported(text));
 }
 
 export function plan(ledger, { platform, threadId, jobId = null, kind, payload }) {

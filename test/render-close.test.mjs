@@ -7,7 +7,8 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, rmSync } from 'node:fs';
 import { basename } from 'node:path';
-import { DEFAULT_CHROME, openRenderer, releaseProfile } from '../src/render/html2png.mjs';
+import { DEFAULT_CHROME, openRenderer } from '../src/render/html2png.mjs';
+import { releaseProfile } from '../src/render/profile.mjs';
 import { tempDir } from './tmp.mjs';
 
 const GRACE_MS = 500;

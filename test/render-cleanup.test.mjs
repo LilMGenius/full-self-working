@@ -5,7 +5,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { openRenderer, releaseProfile, sweepLeftovers } from '../src/render/html2png.mjs';
+import { openRenderer } from '../src/render/html2png.mjs';
+import { releaseProfile, sweepLeftovers } from '../src/render/profile.mjs';
 import { tempDir } from './tmp.mjs';
 
 const PROFILE = 'C:/tmp/fsw-render-AbC123';

@@ -87,7 +87,7 @@ test('the font report reaches pseudo-element content, placeholders and shadow ro
 // Windows can report DevToolsActivePort busy while Chrome writes it, or the file can vanish between the check and the
 // read; both are "not ready yet" until the deadline, and any other read error still fails the start.
 test('a DevToolsActivePort read that is busy or gone once waits for the next poll', async () => {
-  const { readActivePort } = await import('../src/render/html2png.mjs');
+  const { readActivePort } = await import('../src/render/profile.mjs');
   const alive = { exitCode: null };
   for (const code of ['EBUSY', 'EPERM', 'ENOENT']) {
     let calls = 0;
@@ -106,7 +106,7 @@ test('a DevToolsActivePort read that is busy or gone once waits for the next pol
 });
 
 test('a DevToolsActivePort that stays busy until the deadline names the last read error as the cause', async () => {
-  const { readActivePort } = await import('../src/render/html2png.mjs');
+  const { readActivePort } = await import('../src/render/profile.mjs');
   const busy = () => { throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' }); };
   await assert.rejects(readActivePort('C:/profile', { exitCode: null }, 200, { read: busy }), (err) => err.code === 'FSW_RENDER_TIMEOUT' && err.cause?.code === 'EPERM' && /last read: EPERM/.test(err.message));
 });

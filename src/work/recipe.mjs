@@ -179,6 +179,7 @@ export function validateRecipe(recipe, { file = 'recipe', services = serviceCata
     if (c.check === 'viewports') {
       if (!formats.has('html')) err(at, 'viewports needs an html deliverable');
       if (c.widths !== undefined && !(Array.isArray(c.widths) && c.widths.length && c.widths.every(isPosInt))) err(at + '.widths', 'must list positive integer widths');
+      if (c.widths !== undefined && !(typeof c.widthsReason === 'string' && c.widthsReason.trim())) err(at + '.widthsReason', 'a fixed-width check states why the page is not responsive');
     }
     if (c.check === 'command') {
       if (!isText(c.run)) err(at + '.run', 'must be the command to run');

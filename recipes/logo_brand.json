@@ -91,11 +91,7 @@
       ]
     },
     {
-      "check": "viewports",
-      "widths": [
-        390,
-        1440
-      ]
+      "check": "viewports"
     }
   ],
   "payment": {

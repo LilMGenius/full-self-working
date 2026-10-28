@@ -79,12 +79,7 @@
       "check": "sloplint"
     },
     {
-      "check": "viewports",
-      "widths": [
-        390,
-        768,
-        1440
-      ]
+      "check": "viewports"
     }
   ],
   "payment": {

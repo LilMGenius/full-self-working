@@ -85,7 +85,8 @@
       "check": "viewports",
       "widths": [
         860
-      ]
+      ],
+      "widthsReason": "kmong detail images are rendered at 860 css px and uploaded as images; the page is never shown at another width"
     }
   ],
   "payment": {

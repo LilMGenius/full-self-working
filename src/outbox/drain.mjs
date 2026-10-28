@@ -9,14 +9,10 @@
 // 2c77326. A cash quote held only by the day's caps waits as a planned row that asks nobody, and the rows
 // go oldest first, so the first one the day cannot pay holds every newer cash quote (b223ed7).
 import { randomBytes } from 'node:crypto';
-import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { mintAuthorization } from '../core/authz.mjs';
 import { dayKey } from '../core/clock.mjs';
 import { classifyNotice } from '../core/notices.mjs';
 import { notifyOperator } from '../core/notify.mjs';
-import { copiesHash } from '../core/reviewed.mjs';
 import { transaction } from '../core/tx.mjs';
 import { HOLD_RULES, spendsBids, spendsCash } from '../policy/authorize.mjs';
 import { loadFx as defaultLoadFx } from '../economics/fx.mjs';
@@ -26,6 +22,7 @@ import { NOT_TYPED as KMONG_NOT_TYPED } from '../surface/kmong.mjs';
 import { NOT_TYPED as UPWORK_NOT_TYPED } from '../surface/upwork.mjs';
 import { NOT_TYPED as WISHKET_NOT_TYPED } from '../surface/wishket.mjs';
 import { baseName, keyMatches, setStatus } from './plan.mjs';
+import { freeze, removeSendDir, sweepSendLeftovers } from './send-files.mjs';
 import { bidUsage, quotaUsage } from './usage.mjs';
 
 const METHOD = { message: 'send', quote: 'quote', pay_request: 'payRequest', delivery: 'send', proposal: 'propose' };
@@ -116,67 +113,6 @@ function callSurface(surface, row, approved, descriptor, files) {
   // The terms authorize judged (proposalTerms): amount in currency, and the delivery period the decision quoted.
   if (row.kind === 'proposal') return surface.propose(p.threadRef, { text, amountKRW: p.amountKRW, ...proposalTerms(row, descriptor), phases: p.proposal?.phases ?? [], files: p.files ?? [], authorized });
   return surface.send(p.threadRef, { text, files: row.kind === 'delivery' ? files : [], authorized });
-}
-
-// A delivery uploads copies of its files taken once, before the claim: the surface reads them only later (soomgo
-// sets the file input after it opens the chat and types), so uploading the original paths would send whatever they
-// hold by then, and the approved hash would have been checked against other bytes. Each copy sits in its own
-// numbered folder under its own name, as the platform shows it; a file gone before the copy has none, which hashes
-// as missing. The caller removes the folder once the send settles.
-const SEND_PREFIX = 'fsw-send-';
-function freeze(files) {
-  const dir = mkdtempSync(join(tmpdir(), SEND_PREFIX));
-  try {
-    const copies = files.map((f, i) => {
-      const to = join(dir, String(i), baseName(f));
-      mkdirSync(join(dir, String(i)));
-      try {
-        copyFileSync(f, to);
-      } catch (err) {
-        if (err.code !== 'ENOENT') throw err;
-      }
-      return to;
-    });
-    return { dir, copies, hash: copiesHash(files, copies) };
-  } catch (err) {
-    const left = removeSendDir(dir);
-    if (left) err.message += '; the send folder ' + dir + ' stays for a later drain to remove (' + (left.code ?? left.message) + ')';
-    throw err;
-  }
-}
-
-// Removes a send folder, retrying one Windows still reports busy (EBUSY, EPERM while a scanner or an upload holds a
-// copy), and returns the error that outlasted the retries, or null: the caller records it, so a failed removal never
-// takes the place of a send's result.
-function removeSendDir(dir) {
-  try {
-    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
-    return null;
-  } catch (err) {
-    return err;
-  }
-}
-
-// Send folders a removal left behind (the event send.cleanup_failed names each): a drain removes those older than an
-// hour, which no upload takes, judged by the machine's clock that stamped them. One that still resists is a result
-// line of every drain until it goes.
-const SEND_LEFTOVER_MS = 60 * 60_000;
-function sweepSendLeftovers(out) {
-  const root = tmpdir();
-  for (const name of readdirSync(root)) {
-    if (!name.startsWith(SEND_PREFIX)) continue;
-    const dir = join(root, name);
-    let age;
-    try {
-      age = Date.now() - statSync(dir).mtimeMs;
-    } catch (err) {
-      if (err.code === 'ENOENT') continue;
-      throw err;
-    }
-    if (age < SEND_LEFTOVER_MS) continue;
-    const left = removeSendDir(dir);
-    if (left) out.push({ id: null, kind: 'delivery', action: 'leftover', reason: 'the send folder ' + dir + ' could not be removed: ' + (left.code ?? left.message) });
-  }
 }
 
 export function signalOf(row, receipt, now) {

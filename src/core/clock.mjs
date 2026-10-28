@@ -62,7 +62,8 @@ export function nextMark(date, everyMinutes) {
   return new Date(midnight + next * 60_000);
 }
 
-const toMinutes = (hm) => {
+// Minutes after midnight of an HH:MM wall-clock time.
+export const toMinutes = (hm) => {
   const [h, m] = String(hm).split(':').map(Number);
   return h * 60 + m;
 };

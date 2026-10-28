@@ -7,6 +7,7 @@ import { openKmongConversation } from '../src/platforms/kmong/conversation.mjs';
 import { openSoomgo } from '../src/platforms/soomgo/adapter.mjs';
 import { openSurface } from '../src/surface/index.mjs';
 import { readRecording, recordSession, replaySession } from '../src/surface/recorder.mjs';
+import { tokenFor } from './helpers/surface.mjs';
 import { tempDir } from './tmp.mjs';
 
 // A driver stand-in: extractors answer by function name and every action is logged.
@@ -84,28 +85,28 @@ test('soomgo payRequest refuses without approval, refuses an unread chat, and a 
   await assert.rejects(g.payRequest('8', { amountKRW: 50000, dryRun: true }), { code: 'FSW_UNREAD_REFUSED' });
 });
 
-test('surface writes refuse without an authorize verdict of send and never touch the page', async () => {
+test('surface writes refuse without the drain token and never touch the page', async () => {
   for (const platform of ['kmong', 'soomgo']) {
     const s = fakeSession({});
     const surface = await openSurface(platform, { session: s });
-    for (const authorized of [undefined, { verdict: 'operator' }, { verdict: 'refuse' }, { ok: true }]) {
-      assert.deepEqual(await surface.send('1', { text: '안녕하세요', authorized }), { observed: false, reason: 'not authorized: a write needs the authorize() verdict send' });
+    for (const authorized of [undefined, { verdict: 'send' }, { verdict: 'refuse' }, { ok: true }]) {
+      assert.deepEqual(await surface.send('1', { text: '안녕하세요', authorized }), { observed: false, reason: 'not authorized: missing authorization' });
     }
     const q = await surface.quote('1', { amountKRW: 50000, text: '견적', authorized: { verdict: 'refuse' }, allowSpendCash: true });
     assert.equal(q.observed, false);
-    if (surface.payRequest) assert.deepEqual(await surface.payRequest('1', { amountKRW: 50000, approved: true, authorized: { verdict: 'operator' } }), { observed: false, reason: 'not authorized: a write needs the authorize() verdict send' });
+    if (surface.payRequest) assert.deepEqual(await surface.payRequest('1', { amountKRW: 50000, approved: true, authorized: { verdict: 'send' } }), { observed: false, reason: 'not authorized: missing authorization' });
     assert.deepEqual(s.log, []);
   }
 });
 
-test('a soomgo send with the verdict send returns the receipt the page showed', async () => {
+test('a soomgo send with the drain token returns the receipt the page showed', async () => {
   let typed = '';
   let items = [];
   const s = fakeSession({ pageChats: [{ id: 5, newMessages: 0 }], pageOpenChat: true, pageChatThread: () => ({ url: 'u', items, composer: { found: true, value: typed, sendButton: true } }) });
   s.fill = async (t, v) => { typed = v; };
   s.click = async () => { items = [{ kind: 'text', outbound: true, text: typed, time: '오전 10:00' }]; typed = ''; };
   const surface = await openSurface('soomgo', { session: s });
-  assert.deepEqual(await surface.send('5', { text: '안녕하세요', authorized: { verdict: 'send' } }), { observed: true, text: '안녕하세요', snippet: '안녕하세요' });
+  assert.deepEqual(await surface.send('5', { text: '안녕하세요', authorized: tokenFor('soomgo', '5', 'message', '안녕하세요') }), { observed: true, text: '안녕하세요', snippet: '안녕하세요' });
 });
 
 test('sense maps soomgo chats and requests and kmong inbox rows to Inbound, opening nothing', async () => {

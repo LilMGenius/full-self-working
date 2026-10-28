@@ -1,5 +1,6 @@
 // What every surface returns, mapped from the 2c77326 adapter results (003 Surface): Receipt, the refusal a
-// write gives without an authorize verdict of send, the read kinds, and the Thread message shape.
+// write gives without the drain's authorization, the read kinds, and the Thread message shape.
+import { verifyAuthorization } from '../core/authz.mjs';
 import { AdapterRefusal } from '../platforms/kit.mjs';
 
 export const receiptOf = (r) => ({
@@ -15,15 +16,11 @@ export const receiptOf = (r) => ({
   ...(typeof r?.costKRW === 'number' ? { costKRW: r.costKRW } : {}),
 });
 
-// Every surface write (send, quote, payRequest, propose) goes to the page only with authorize()'s verdict
-// send; the 2c77326 adapters keep refusing without gate.ok, which the surface sets only here, and payRequest
-// also needs approved.
-// Known gap: the token is the authorize() result itself and is bound to no outbox row or payload, so
-// in-process code could build one by hand for any of these writes, payRequest included; wp9 closes it with
-// src/core/authz.mjs, whose {key, digest, mac} over the row key and the text or amount the drain sends is
-// checked here.
-export const authorizedSend = (authorized) => authorized?.verdict === 'send';
-export const unauthorized = () => ({ observed: false, reason: 'not authorized: a write needs the authorize() verdict send' });
+// Every surface write (send, quote, payRequest, propose) goes to the page only with a token the outbox drain
+// minted for this platform, thread, kind and text (src/core/authz.mjs); returns null when it may, else the
+// reason. The 2c77326 adapters keep refusing without gate.ok, which a surface sets only after this check.
+export const authorizedSend = (authorized, expect) => verifyAuthorization(authorized, expect);
+export const unauthorized = (reason) => ({ observed: false, reason: 'not authorized: ' + reason });
 
 // read's kind tells a soomgo request id from a chat id (003); a kind the platform does not have is refused
 // before any page loads.

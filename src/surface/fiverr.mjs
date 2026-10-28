@@ -4,6 +4,7 @@
 // drain reads that code as not sent (NOT_TYPED). Fiverr is a storefront: buyers order a gig, nobody bids.
 import { AdapterRefusal } from '../platforms/kit.mjs';
 import { probeSignIn } from '../platforms/signin.mjs';
+import { authorizedSend, unauthorized } from './shared.mjs';
 
 export const UNMAPPED = 'FSW_FIVERR_UNMAPPED';
 export const NOT_TYPED = [UNMAPPED];
@@ -12,6 +13,11 @@ export const SIGN_IN = { startUrl: 'https://www.fiverr.com/inbox', loginRoute: /
 
 const unmapped = (what) => {
   throw new AdapterRefusal(UNMAPPED, 'the fiverr ' + what + ' is not mapped from a signed-in recording; nothing was loaded or typed');
+};
+// The token check runs first, so a forged call is refused for its authorization before the unmapped form.
+const write = (kinds, what) => async (ref, { text, authorized } = {}) => {
+  const why = authorizedSend(authorized, { platform: 'fiverr', ref: String(ref), kinds, text });
+  return why ? unauthorized(why) : unmapped(what);
 };
 
 export async function openFiverrSurface({ session } = {}) {
@@ -22,9 +28,9 @@ export async function openFiverrSurface({ session } = {}) {
     login: () => probeSignIn(session, SIGN_IN),
     sense: async () => [],
     read: async () => unmapped('inbox'),
-    send: async () => unmapped('message form'),
-    quote: async () => unmapped('custom offer form'),
-    propose: async () => unmapped('proposal, which a storefront does not take,'),
+    send: write(['message', 'delivery'], 'message form'),
+    quote: write(['quote'], 'custom offer form'),
+    propose: write(['proposal'], 'proposal, which a storefront does not take,'),
     stop: async () => session?.stop?.(),
   };
 }

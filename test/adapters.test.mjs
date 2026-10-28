@@ -9,6 +9,7 @@ import * as soomgo from '../src/platforms/soomgo/parse.mjs';
 import { openKmongConversation as openKmong } from '../src/platforms/kmong/conversation.mjs';
 import { openSoomgo } from '../src/platforms/soomgo/adapter.mjs';
 import { inboundOfRequest, openSoomgoSurface, threadOfRequest } from '../src/surface/soomgo.mjs';
+import { tokenFor } from './helpers/surface.mjs';
 import { tempDir } from './tmp.mjs';
 
 // A stand-in driver session: page extractors are answered by function name, and every action is logged
@@ -502,5 +503,5 @@ test('a soomgo quote on a request that shows the full notice counts as sent when
   assert.deepEqual(refused, { sent: false, observed: false, pressed: false, code: 'FSW_SOOMGO_REQUEST_FULL', reason: 'soomgo took no quote: 이미 10개 이상 견적을 받은 요청입니다. and 충전/사용 내역 shows no charge for it' });
   assert.ok(full.log.indexOf('navigate https://soomgo.com/mypage/cash-dashboard') > full.log.findIndex((l) => l.startsWith('click [data-fsw=quote-send]')), 'the cash history is read after the press');
   const surface = await openSoomgoSurface({ session: fullPage(''), ...noWait });
-  await assert.rejects(surface.quote('req1', { amountKRW: 50000, text: '견적 드립니다', authorized: { verdict: 'send' }, allowSpendCash: true, customer: '고객A' }), (err) => err.code === 'FSW_SOOMGO_REQUEST_FULL');
+  await assert.rejects(surface.quote('req1', { amountKRW: 50000, text: '견적 드립니다', authorized: tokenFor('soomgo', 'req1', 'quote', '견적 드립니다'), allowSpendCash: true, customer: '고객A' }), (err) => err.code === 'FSW_SOOMGO_REQUEST_FULL');
 });

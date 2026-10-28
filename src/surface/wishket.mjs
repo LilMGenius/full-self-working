@@ -8,7 +8,7 @@
 import { AdapterRefusal } from '../platforms/kit.mjs';
 import { createHash } from 'node:crypto';
 import { APPLY_UNMAPPED, openProjectReader } from '../platforms/wishket/projects.mjs';
-import { readKind } from './shared.mjs';
+import { authorizedSend, readKind, unauthorized } from './shared.mjs';
 
 export { APPLY_UNMAPPED };
 // Every refusal a wishket write throws before it touches a page, for the drain's PROPOSAL_NOT_SENT.
@@ -16,6 +16,11 @@ export const NOT_TYPED = [APPLY_UNMAPPED];
 
 const unmapped = (what) => {
   throw new AdapterRefusal(APPLY_UNMAPPED, 'the wishket ' + what + ' needs the signed-in apply form, which is not mapped from a recording; nothing was typed');
+};
+// The token check runs first, so a forged call is refused for its authorization before the unmapped form.
+const write = (kinds, what) => async (ref, { text, authorized } = {}) => {
+  const why = authorizedSend(authorized, { platform: 'wishket', ref: String(ref), kinds, text });
+  return why ? unauthorized(why) : unmapped(what);
 };
 
 // A card shows only the date it was posted, so a project's list time is that Seoul day and stays the same
@@ -52,9 +57,9 @@ export async function openWishketSurface({ reader = null, open = openProjectRead
       readKind(kind, ['request']);
       return threadOfProject(await (await opened()).readProject(Number(ref), { now }));
     },
-    send: async () => unmapped('message'),
-    quote: async () => unmapped('quote, which an application replaces,'),
-    propose: async () => unmapped('application'),
+    send: write(['message', 'delivery'], 'message'),
+    quote: write(['quote'], 'quote, which an application replaces,'),
+    propose: write(['proposal'], 'application'),
     stop: async () => r?.close(),
   };
 }

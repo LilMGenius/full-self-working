@@ -61,6 +61,11 @@ function walk(dir) {
 
 const forbids = (from, to, target) => (FORBIDDEN[from] ?? []).some((f) => (f.includes('/') ? f === target : f === to && to !== from));
 
+// Only the outbox drain mints the token a surface write needs (src/core/authz.mjs, wp9). FORBIDDEN works on
+// modules and files, and the surfaces import verifyAuthorization from the same file, so this rule is a name scan.
+const MINTS = /\bmintAuthorization\b/;
+const mayMint = (file) => file.startsWith('src/outbox/') || file === 'src/core/authz.mjs';
+
 export function checkImports(root) {
   const problems = [];
   const files = walk(join(root, 'src')).map((f) => posix(relative(root, f))).sort();
@@ -71,7 +76,9 @@ export function checkImports(root) {
     if (!MODULES.includes(from)) problems.push(file + ':1 module ' + from + ' has no row in the module table');
     const edges = [];
     const packages = [];
-    for (const { spec, line, dynamic } of importsOf(readFileSync(join(root, file), 'utf8'))) {
+    const text = readFileSync(join(root, file), 'utf8');
+    if (!mayMint(file)) text.split('\n').forEach((l, i) => MINTS.test(l) && problems.push(file + ':' + (i + 1) + ' mintAuthorization outside src/outbox: only the drain mints a surface write token'));
+    for (const { spec, line, dynamic } of importsOf(text)) {
       if (!spec.startsWith('.')) {
         if (!spec.startsWith('node:') && !(dynamic && DEPLOY_EXEMPT[file]?.some((p) => spec === p || spec.startsWith(p + '/')))) packages.push({ spec, line });
         continue;

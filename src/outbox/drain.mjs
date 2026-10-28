@@ -12,6 +12,7 @@ import { randomBytes } from 'node:crypto';
 import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { mintAuthorization } from '../core/authz.mjs';
 import { dayKey } from '../core/clock.mjs';
 import { classifyNotice } from '../core/notices.mjs';
 import { notifyOperator } from '../core/notify.mjs';
@@ -24,7 +25,7 @@ import { NOT_TYPED as FIVERR_NOT_TYPED } from '../surface/fiverr.mjs';
 import { NOT_TYPED as KMONG_NOT_TYPED } from '../surface/kmong.mjs';
 import { NOT_TYPED as UPWORK_NOT_TYPED } from '../surface/upwork.mjs';
 import { NOT_TYPED as WISHKET_NOT_TYPED } from '../surface/wishket.mjs';
-import { baseName, setStatus } from './plan.mjs';
+import { baseName, keyMatches, setStatus } from './plan.mjs';
 import { bidUsage, quotaUsage } from './usage.mjs';
 
 const METHOD = { message: 'send', quote: 'quote', pay_request: 'payRequest', delivery: 'send', proposal: 'propose' };
@@ -102,20 +103,19 @@ async function readBack(surface, row) {
   return out ? { observed: true, externalId: out.externalId ?? null, text: out.text, reconciled: true } : { observed: false, reason: 'the interrupted ' + row.kind + ' is not on the page', reconciled: true };
 }
 
-// Known gap (003 Surface): verdict is the authorize result itself and is bound to no outbox row or text,
-// so in-process code could build one by hand and pass authorizedSend. The token stays unbound until wp9's
-// src/core/authz.mjs, which signs {key, digest, mac} over row.key and the text sent here and checks it in
-// authorizedSend.
-// files: the frozen copies a delivery uploads (freeze below), never the paths its payload names.
-function callSurface(surface, row, verdict, approved, descriptor, files) {
+// Called only after authorize said send for this row (or the operator approved it); the token binds the write
+// to this row's key and to the exact text sent (src/core/authz.mjs). files: the frozen copies a delivery uploads
+// (freeze below), never the paths its payload names.
+function callSurface(surface, row, approved, descriptor, files) {
   const p = row.payload;
   const text = textOf(row);
+  if (row.kind === 'pay_request') return surface.payRequest(p.threadRef, { amountKRW: p.amountKRW, approved, authorized: approved ? mintAuthorization(row, '') : null });
+  const authorized = mintAuthorization(row, text);
   // customer: soomgo observes the quote from its charge for this customer (e8ea6a6, 7b9524e; 003 Surface).
-  if (row.kind === 'quote') return surface.quote(p.threadRef, { amountKRW: p.amountKRW, priceType: p.priceType ?? 'fixed', text, authorized: verdict, allowSpendCash: spendsCash(descriptor, p.thread?.kind), customer: p.customer ?? null });
-  if (row.kind === 'pay_request') return surface.payRequest(p.threadRef, { amountKRW: p.amountKRW, approved, authorized: verdict });
+  if (row.kind === 'quote') return surface.quote(p.threadRef, { amountKRW: p.amountKRW, priceType: p.priceType ?? 'fixed', text, authorized, allowSpendCash: spendsCash(descriptor, p.thread?.kind), customer: p.customer ?? null });
   // The terms authorize judged (proposalTerms): amount in currency, and the delivery period the decision quoted.
-  if (row.kind === 'proposal') return surface.propose(p.threadRef, { text, amountKRW: p.amountKRW, ...proposalTerms(row, descriptor), phases: p.proposal?.phases ?? [], files: p.files ?? [], authorized: verdict });
-  return surface.send(p.threadRef, { text, files: row.kind === 'delivery' ? files : [], authorized: verdict });
+  if (row.kind === 'proposal') return surface.propose(p.threadRef, { text, amountKRW: p.amountKRW, ...proposalTerms(row, descriptor), phases: p.proposal?.phases ?? [], files: p.files ?? [], authorized });
+  return surface.send(p.threadRef, { text, files: row.kind === 'delivery' ? files : [], authorized });
 }
 
 // A delivery uploads copies of its files taken once, before the claim: the surface reads them only later (soomgo
@@ -270,6 +270,16 @@ export async function drain(ledger, { platform, surface, authorize, ctx }) {
   const fxOfDay = async () => (dayFx ??= await (ctx.loadFx ?? defaultLoadFx)(ctx.instance, { now: () => now }));
   for (const row of ledger.listOutbox({ platform, statuses: ['planned', 'approved'] }).filter((r) => handles(surface, r.kind))) {
     if (proposalsStopped && row.kind === 'proposal') continue;
+    if (!keyMatches(row)) {
+      const reason = 'payload changed after planning';
+      if (!setStatus(ledger, row.id, { from: row.status, to: 'blocked', reason })) {
+        moved(row);
+        continue;
+      }
+      await notify({ kind: 'order', title: platform + ' ' + row.kind + ' ' + row.id + ' changed after planning', body: 'The stored payload no longer matches its key; it was not sent.', dedupeKey: 'outbox-tampered:' + row.id });
+      out.push({ id: row.id, kind: row.kind, action: 'blocked', reason });
+      continue;
+    }
     const terms = row.kind === 'proposal' ? proposalTerms(row, ctx.descriptor) : null;
     if (terms && terms.currency !== 'KRW' && row.payload.fx?.date) {
       let today;
@@ -367,7 +377,7 @@ export async function drain(ledger, { platform, surface, authorize, ctx }) {
         continue;
       }
       try {
-        receipt = await callSurface(surface, row, verdict, approved, ctx.descriptor, frozen?.copies ?? []);
+        receipt = await callSurface(surface, row, approved, ctx.descriptor, frozen?.copies ?? []);
       } catch (err) {
         if (STALE_NOT_SENT.includes(err.code)) {
           // receipt.refused keeps the platform's refusal code on the row, where src/economics/quote-results.mjs

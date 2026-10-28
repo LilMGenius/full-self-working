@@ -57,12 +57,19 @@ export async function openFreelancerSurface({ session, fetchJson = fetchApi, tar
       const p = await readProject(ref, { fetchJson });
       return threadOfProject(p, willReply ? await readBidState(session, p) : null);
     },
-    send: async () => unmapped('message'),
-    quote: async () => unmapped('quote'),
+    send: async (ref, { text, authorized } = {}) => {
+      const why = authorizedSend(authorized, { platform: 'freelancer', ref: String(ref), kinds: ['message', 'delivery'], text });
+      return why ? unauthorized(why) : unmapped('message');
+    },
+    quote: async (ref, { text, authorized } = {}) => {
+      const why = authorizedSend(authorized, { platform: 'freelancer', ref: String(ref), kinds: ['quote'], text });
+      return why ? unauthorized(why) : unmapped('quote');
+    },
     // Every bid is refused by name before anything is typed: the balance, the profile steps, the free bids,
     // then the unmapped form (src/platforms/freelancer/bid.mjs bidRefusal).
-    propose: async (ref, { authorized } = {}) => {
-      if (!authorizedSend(authorized)) return unauthorized();
+    propose: async (ref, { text, authorized } = {}) => {
+      const why = authorizedSend(authorized, { platform: 'freelancer', ref: String(ref), kinds: ['proposal'], text });
+      if (why) return unauthorized(why);
       const r = bidRefusal(await readBidState(session, await readProject(ref, { fetchJson })));
       throw new AdapterRefusal(r.code, r.reason);
     },

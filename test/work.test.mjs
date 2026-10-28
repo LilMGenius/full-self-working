@@ -6,7 +6,7 @@ import { crc32, deflateSync } from 'node:zlib';
 import { imageSize, runAcceptance } from '../src/work/accept.mjs';
 import { buildBrief, checkJob, runJob } from '../src/work/run.mjs';
 import { startBlocker, startDue } from '../src/work/start.mjs';
-import { loadRecipe, serviceCatalog, validateRecipe } from '../src/work/recipe.mjs';
+import { listRecipes, loadRecipe, SKILL_SOURCES, serviceCatalog, validateRecipe } from '../src/work/recipe.mjs';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { openLedger } from '../src/core/ledger.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
@@ -14,6 +14,19 @@ import { codexArgs } from '../src/brain/codex.mjs';
 import { deliveryAllowed, startAllowed } from '../src/deal/index.mjs';
 import { openRenderer } from '../src/render/html2png.mjs';
 import { tempDir } from './tmp.mjs';
+
+// runJob resolves every skill its recipe names (resolveSkill); this home holds a stub of each, so the jobs run
+// on a machine without the operator's skills, such as CI.
+const skillHome = tempDir('fsw-skill-home-');
+for (const name of new Set(listRecipes().flatMap((id) => loadRecipe(id).steps.filter((s) => s.skill).map((s) => s.skill)))) {
+  const [ns, skill] = name.includes(':') ? name.split(':') : [null, name];
+  const src = ns ? SKILL_SOURCES[ns] : { kind: 'agents' };
+  const folder = (src.strip && skill.startsWith(src.strip) ? skill.slice(src.strip.length) : skill).toLowerCase();
+  const dir = src.kind === 'agents' ? join(skillHome, '.agents', 'skills', folder) : join(skillHome, '.codex', 'plugins', 'cache', ...src.path, '1.0.0', 'skills', folder);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'SKILL.md'), '---\nname: ' + skill + '\n---\n');
+}
+process.env.FSW_SKILL_HOME = skillHome;
 // A real PNG of the given size (white, 8-bit grey), so the header parser reads what a renderer writes.
 function png(width, height) {
   const chunk = (type, data) => {

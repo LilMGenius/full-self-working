@@ -86,7 +86,7 @@ function instanceWithOutbox() {
 const cli = (instance, ...flags) => spawnSync(process.execPath, ['scripts/approvals-writeback.mjs', '--instance', instance, '--task', 'fsw-test-no-such-task', ...flags], { encoding: 'utf8', windowsHide: true });
 const hashes = (s) => Object.fromEntries(Object.values(ID).map((id) => [id, hash(s.path(id))]));
 
-test('a dry run writes nothing; --apply writes only the changed files and a second --apply writes none', () => {
+test('a dry run writes nothing; --apply writes only the changed files and a second --apply writes none', { skip: process.platform !== 'win32' && 'the write-back reads the scheduled task through PowerShell' }, () => {
   const s = instanceWithOutbox();
   const before = hashes(s);
   const dry = cli(s.instance);
@@ -112,7 +112,7 @@ test('a dry run writes nothing; --apply writes only the changed files and a seco
   assert.equal(cli(s.instance, '--check').status, 0);
 });
 
-test('--check names a row the old code sent after a rollback and writes nothing; --reconcile settles it', () => {
+test('--check names a row the old code sent after a rollback and writes nothing; --reconcile settles it', { skip: process.platform !== 'win32' && 'the write-back reads the scheduled task through PowerShell' }, () => {
   const s = instanceWithOutbox();
   cli(s.instance, '--apply');
   writeFileSync(s.path(ID.approved), JSON.stringify({ ...s.read(ID.approved), status: 'sent', closedAt: AT }, null, 2) + '\n');
@@ -150,7 +150,7 @@ test('a ledger still at version 3 has no outbox, and every mode says so and exit
   assert.equal(cli(instance, '--apply', '--check').status, 2);
 });
 
-test('one unreadable file stops --apply before any file is written, and the run names it', () => {
+test('one unreadable file stops --apply before any file is written, and the run names it', { skip: process.platform !== 'win32' && 'the write-back reads the scheduled task through PowerShell' }, () => {
   const s = instanceWithOutbox();
   writeFileSync(join(s.dir, '20261025-soomgo-00000099.json'), '{"id": "20261025-soomgo-00000099", "status": ');
   const before = hashes(s);
@@ -194,7 +194,7 @@ function instanceWithDuplicates() {
   return { instance, read: (id) => JSON.parse(readFileSync(join(dir, id + '.json'), 'utf8')) };
 }
 
-test('a second file holding an item v0 sent is written sent too, and one whose row is still open is left alone', () => {
+test('a second file holding an item v0 sent is written sent too, and one whose row is still open is left alone', { skip: process.platform !== 'win32' && 'the write-back reads the scheduled task through PowerShell' }, () => {
   const s = instanceWithDuplicates();
   const check = cli(s.instance, '--check');
   assert.equal(check.status, 1);
@@ -238,7 +238,7 @@ test('a row v0 planned itself becomes a d605c5d file: awaiting open, approved ap
   assert.match(v0OnlyFile(v0row('planned', 'message', { payload: { text: 'x' } })).problem, /no thread ref/);
 });
 
-test('--apply writes the file of a planned v0 row, gives the row that id, and a later import finds the row instead of adding one', () => {
+test('--apply writes the file of a planned v0 row, gives the row that id, and a later import finds the row instead of adding one', { skip: process.platform !== 'win32' && 'the write-back reads the scheduled task through PowerShell' }, () => {
   const instance = tempDir('fsw-writeback-v0-');
   const dir = join(instance, 'operator', 'approvals');
   const l = openLedger(join(instance, 'ledger.sqlite'));
@@ -312,7 +312,7 @@ test('the id of a written v0 file goes onto its row only while the row keeps its
   assert.deepEqual(got.map((g) => [g.approval_id, g.id === row.id ? g.updated_at === row.updatedAt : true]), [['20261026-soomgo-00000001', true], [null, true]]);
 });
 
-test('the run ends with one line per open file written for a v0-only planned or awaiting row, and none for approved ones', () => {
+test('the run ends with one line per open file written for a v0-only planned or awaiting row, and none for approved ones', { skip: process.platform !== 'win32' && 'the write-back reads the scheduled task through PowerShell' }, () => {
   const instance = tempDir('fsw-writeback-open-');
   const l = openLedger(join(instance, 'ledger.sqlite'));
   const t = l.upsertThread({ platform: 'soomgo', externalId: 'r5', kind: 'request' });

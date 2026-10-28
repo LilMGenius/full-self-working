@@ -78,7 +78,9 @@ test('a kill that fails or never answers during a release is recorded instead of
   const warned = [];
   const warn = (what, err) => warned.push(what + ': ' + err.message);
   const proc = { pid: 42, exitCode: null, signalCode: null };
-  const s = scene([[child(7, 'utility')]]);
+  // pid 7 stays listed for the whole wait: a timer can fire a millisecond before the deadline Date.now() reads,
+  // and one more pass over the list must still find it held.
+  const s = scene(Array.from({ length: 50 }, () => [child(7, 'utility')]));
   const r = await releaseProfile(PROFILE, {
     ...s,
     proc,

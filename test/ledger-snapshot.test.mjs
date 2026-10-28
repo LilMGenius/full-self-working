@@ -89,7 +89,7 @@ test('--restore refuses while a live node process holds the instance lock and re
   assert.ok(!readdirSync(instance).some((f) => f.includes('.replaced-') || f.endsWith('.restore.tmp')));
 });
 
-test('--restore with the supervisor stopped puts the snapshot back and keeps the replaced files', () => {
+test('--restore with the supervisor stopped puts the snapshot back and keeps the replaced files', { skip: process.platform !== 'win32' && 'a restore reads the scheduled task through PowerShell' }, () => {
   const { instance, file, ledger } = liveLedger();
   const out = join(instance, 'snap.sqlite');
   const record = snapshot(file, out);
@@ -151,7 +151,7 @@ test('--restore refuses while the task serving this instance reads Running, even
   assert.equal(restore(out, file, instance, { alive: () => false, task: () => ({ state: 'Running', instance: join(instance, 'elsewhere') }) }).restored, file);
 });
 
-test('the task instance is read from the launcher path task.ps1 registers', () => {
+test('the task instance is read from the launcher path task.ps1 registers', { skip: process.platform !== 'win32' && 'task.ps1 registers a Windows path, which node:path reads only on Windows' }, () => {
   assert.equal(taskInstance('//B //Nologo "C:\\fsw\\instance.local\\run\\fsw-run.vbs"'), 'C:\\fsw\\instance.local');
   assert.equal(taskInstance(''), null);
   assert.equal(taskBlocks({ state: 'Ready', instance: null }, 'C:\\x'), null);

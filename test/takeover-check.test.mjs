@@ -206,7 +206,7 @@ test('the CLI fails a lock whose pid is no live node process', () => {
   assert.deepEqual(r.out.failures, ['the lock names pid 999999, which is not a live node process', 'task fsw-test-no-such-task is missing, expected Running']);
 });
 
-test('the CLI fails a lock held by a live node process that is not the supervisor', () => {
+test('the CLI fails a lock held by a live node process that is not the supervisor', { skip: process.platform !== 'win32' && 'the lock holder and the task are read through PowerShell' }, () => {
   const r = cli(scratch({ lockPid: process.pid }));
   assert.equal(r.out.failures[0].startsWith('the lock names pid ' + process.pid + ', a node process that is not the supervisor: '), true, r.out.failures.join('; '));
 });

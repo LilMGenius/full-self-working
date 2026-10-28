@@ -1,11 +1,18 @@
 #!/usr/bin/env node
 // Validates every recipe in recipes/ and fails when a service the agent delivers has no recipe, a recipe
 // names a service that does not exist or that the operator delivers, or a step names a skill that is not
-// installed on this machine.
+// installed on this machine. A CI runner holds none of the operator's skills (process.env.CI, set by GitHub
+// Actions), so there a step's skill is checked only for a known namespace, and the run says so.
 import { join } from 'node:path';
 import { deliveryOf } from '../src/economics/catalog.mjs';
-import { listRecipes, readRecipeFile, recipeDir, resolveSkill, serviceCatalog } from '../src/work/recipe.mjs';
+import { listRecipes, readRecipeFile, recipeDir, resolveSkill, serviceCatalog, SKILL_SOURCES } from '../src/work/recipe.mjs';
 
+const onCi = process.env.CI === 'true';
+const knownNamespace = (name) => {
+  const ns = /^(?:([a-z0-9-]+):)?[A-Za-z0-9-]+$/.exec(name)?.[1];
+  if (ns === undefined && !/^[A-Za-z0-9-]+$/.test(name)) throw new Error('not a skill name: ' + name);
+  if (ns && !SKILL_SOURCES[ns]) throw new Error('unknown skill namespace ' + ns);
+};
 const problems = [];
 const services = Object.entries(serviceCatalog()).filter(([, def]) => deliveryOf(def) === 'agent').map(([id]) => id);
 const recipes = listRecipes();
@@ -23,7 +30,8 @@ for (const id of recipes) {
   for (const [i, step] of recipe.steps.entries()) {
     if (!step.skill) continue;
     try {
-      resolveSkill(step.skill);
+      if (onCi) knownNamespace(step.skill);
+      else resolveSkill(step.skill);
       skills++;
     } catch (err) {
       problems.push(rel + ': steps[' + i + '].skill: ' + err.message);
@@ -31,5 +39,5 @@ for (const id of recipes) {
   }
 }
 for (const p of problems) console.error('check-recipes: ' + p);
-console.log('check-recipes: ' + recipes.length + ' recipes, ' + skills + ' skill references resolved, ' + problems.length + ' problems');
+console.log('check-recipes: ' + recipes.length + ' recipes, ' + skills + ' skill references ' + (onCi ? 'named (not installed on CI, so not resolved)' : 'resolved') + ', ' + problems.length + ' problems');
 process.exit(problems.length ? 1 : 0);

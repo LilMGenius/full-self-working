@@ -77,7 +77,7 @@ async function busyDaemon(t, { listening, listPipes }) {
   return { work, keeper };
 }
 
-test('a status read that times out while the daemon pipe listens keeps that daemon and starts no second one', async (t) => {
+test('a status read that times out while the daemon pipe listens keeps that daemon and starts no second one', { skip: process.platform !== 'win32' && 'the live daemon is a Windows named pipe' }, async (t) => {
   const { work, keeper } = await busyDaemon(t, { listening: true });
   const r = await keeper.check();
   assert.equal(existsSync(join(work, 'pids')), false, 'no second daemon was started');

@@ -100,7 +100,7 @@ function injected(s, a) {
   };
 }
 
-test('--apply on a scratch repository leaves main, the checkout, its files and the deploy worktree at the old line, and main fast-forwards again', async () => {
+test('--apply on a scratch repository leaves main, the checkout, its files and the deploy worktree at the old line, and main fast-forwards again', { skip: process.platform !== 'win32' && 'the rollback writes back through the scheduled task, read through PowerShell' }, async () => {
   const s = scratch();
   const a = { repo: s.repo, code: s.code, instance: s.instance, old: s.a, from: s.b, task: 'fsw-test-task', 'abort-after-min': '6' };
   const { io, calls } = injected(s, a);

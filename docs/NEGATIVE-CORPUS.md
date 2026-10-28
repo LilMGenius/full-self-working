@@ -4,7 +4,7 @@ What the 2c77326 tree learned about the platforms, the market and its own failur
 
 A row is pending until the phase in its Lands column carries its holder; that phase writes the v0 holder and anchor, flips the row to held, and raises the Phase line. `node scripts/check-negative-corpus.mjs` (part of `npm run check`) fails when a held row's holder file is missing or lacks its anchor, when a row of a phase at or before the Phase line is still pending, or when a row breaks the table shape.
 
-Phase: wp6
+Phase: wp9
 
 | # | Lesson | Kind | Holder | Anchor | Lands | Status | Source |
 |---|---|---|---|---|---|---|---|

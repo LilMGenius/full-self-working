@@ -51,8 +51,6 @@ export const OVERVIEW_MIN = 100;
 
 const FIELDS = ['photo', 'dateOfBirth', 'street', 'unit', 'city', 'region', 'postalCode', 'phone'];
 
-// --- steps ---
-
 const PREFERENCES = { talentMarketplace: /find opportunities myself/i, projectCatalog: /package up my work/i };
 
 function settings(ctx) {

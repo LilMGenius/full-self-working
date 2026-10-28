@@ -182,8 +182,6 @@ export function checkPlan(parts, project, { floorKRW, minKRW = 0, now = new Date
   return { violations: v, totalKRW: total };
 }
 
-// ---- prompts ----
-
 // A board whose descriptor forbids identifying details (contactPolicy.identity "forbidden") gets the
 // profile with the seller's names, companies and employers swapped for neutral words and without project
 // names, so the writer cannot copy one; the facts stay, and past work is described by what was built.

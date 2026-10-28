@@ -15,8 +15,6 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const seoulDay = (d) => new Intl.DateTimeFormat('sv', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
 
-// ---- adapter ----
-
 // 숨고페이 takes 15,000 to 5,000,000 KRW per payment (descriptor splitMechanism).
 export const PAY_REQUEST_RANGE = [15_000, 5_000_000];
 // quote() returns this code when soomgo refused the press because the request already has its quota of quotes.

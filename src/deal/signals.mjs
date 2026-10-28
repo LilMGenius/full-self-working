@@ -2,13 +2,12 @@
 // into deal signals (003 Deal). A status read from a list row has no time of its own; it counts only
 // when fsw quoted the thread or a hire notice in the same read is fresh (src/orders/money.mjs:179-181),
 // which freshHireInBatch carries to advance.
-import { seoulParts } from '../core/clock.mjs';
+import { pad, seoulParts } from '../core/clock.mjs';
 import { classifyNotice } from '../core/notices.mjs';
 
 // A signal older than this is history (the account's past deals), recorded without effect.
 export const MONEY_LOOKBACK_DAYS = 7;
 const DAY_MS = 86_400_000;
-const pad = (n) => String(n).padStart(2, '0');
 
 export const jobIdFor = (platform, externalId) => (platform + '-' + externalId).replace(/[^A-Za-z0-9_-]/g, '_');
 

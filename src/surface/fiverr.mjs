@@ -16,8 +16,8 @@ const unmapped = (what) => {
   throw new AdapterRefusal(UNMAPPED, 'the fiverr ' + what + ' is not mapped from a signed-in recording; nothing was loaded or typed');
 };
 // The token check runs first, so a forged call is refused for its authorization before the unmapped form.
-const write = (kinds, what) => async (ref, { text, authorized } = {}) => {
-  const why = verifyAuthorization(authorized, { platform: 'fiverr', ref: String(ref), kinds, text });
+const write = (kinds, what) => async (ref, args = {}) => {
+  const why = verifyAuthorization(args, { platform: 'fiverr', ref: String(ref), kinds });
   return why ? unauthorized(why) : unmapped(what);
 };
 

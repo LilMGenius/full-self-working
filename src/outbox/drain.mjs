@@ -101,18 +101,18 @@ async function readBack(surface, row) {
 }
 
 // Called only after authorize said send for this row (or the operator approved it); the token binds the write
-// to this row's key and to the exact text sent (src/core/authz.mjs). files: the frozen copies a delivery uploads
-// (freeze below), never the paths its payload names.
+// to this row's key and to every argument the surface receives (src/core/authz.mjs). files: the frozen copies a
+// delivery uploads (freeze below), never the paths its payload names.
 function callSurface(surface, row, approved, descriptor, files) {
   const p = row.payload;
   const text = textOf(row);
-  if (row.kind === 'pay_request') return surface.payRequest(p.threadRef, { amountKRW: p.amountKRW, approved, authorized: approved ? mintAuthorization(row, '') : null });
-  const authorized = mintAuthorization(row, text);
+  const write = (method, args) => surface[method](p.threadRef, { ...args, authorized: mintAuthorization(row, args) });
+  if (row.kind === 'pay_request') return approved ? write('payRequest', { amountKRW: p.amountKRW, approved }) : surface.payRequest(p.threadRef, { amountKRW: p.amountKRW, approved });
   // customer: soomgo observes the quote from its charge for this customer (e8ea6a6, 7b9524e; 003 Surface).
-  if (row.kind === 'quote') return surface.quote(p.threadRef, { amountKRW: p.amountKRW, priceType: p.priceType ?? 'fixed', text, authorized, allowSpendCash: spendsCash(descriptor, p.thread?.kind), customer: p.customer ?? null });
+  if (row.kind === 'quote') return write('quote', { amountKRW: p.amountKRW, priceType: p.priceType ?? 'fixed', text, allowSpendCash: spendsCash(descriptor, p.thread?.kind), customer: p.customer ?? null });
   // The terms authorize judged (proposalTerms): amount in currency, and the delivery period the decision quoted.
-  if (row.kind === 'proposal') return surface.propose(p.threadRef, { text, amountKRW: p.amountKRW, ...proposalTerms(row, descriptor), phases: p.proposal?.phases ?? [], files: p.files ?? [], authorized });
-  return surface.send(p.threadRef, { text, files: row.kind === 'delivery' ? files : [], authorized });
+  if (row.kind === 'proposal') return write('propose', { text, amountKRW: p.amountKRW, ...proposalTerms(row, descriptor), phases: p.proposal?.phases ?? [], files: p.files ?? [] });
+  return write('send', { text, files: row.kind === 'delivery' ? files : [] });
 }
 
 export function signalOf(row, receipt, now) {

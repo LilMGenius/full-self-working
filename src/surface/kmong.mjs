@@ -43,13 +43,14 @@ export async function openKmongSurface({ session, openReader = openProjectReader
     sense: async () => (await a.inbox()).map(inboundOf),
     // kmong has conversations only, so read takes kind message and refuses a request.
     read: async (ref, { willReply = false, kind } = {}) => (readKind(kind, ['message']), threadOf(await a.readThread(ref, { willReply }))),
-    send: async (ref, { text, files = [], authorized } = {}) => {
-      const why = verifyAuthorization(authorized, { platform: 'kmong', ref: String(ref), kinds: ['message', 'delivery'], text });
+    send: async (ref, args = {}) => {
+      const { text, files = [] } = args;
+      const why = verifyAuthorization(args, { platform: 'kmong', ref: String(ref), kinds: ['message', 'delivery'] });
       return why ? unauthorized(why) : receiptOf(await a.send(ref, { text, files, gate: { ok: true } }));
     },
     // kmong has no mapped quote form: a price goes out as a message the loop plans as kind message.
-    quote: async (ref, { text, authorized } = {}) => {
-      const why = verifyAuthorization(authorized, { platform: 'kmong', ref: String(ref), kinds: ['quote'], text });
+    quote: async (ref, args = {}) => {
+      const why = verifyAuthorization(args, { platform: 'kmong', ref: String(ref), kinds: ['quote'] });
       return why ? unauthorized(why) : { observed: false, reason: 'kmong has no mapped quote form; send the price as a message' };
     },
     orders: () => a.orders(),
@@ -71,8 +72,9 @@ export async function openKmongSurface({ session, openReader = openProjectReader
     // project is read first for its title, which the read-back on /seller/proposals matches, and its
     // status; then the projects page module fills the form, reads every field back, submits and looks for
     // the proposal on /seller/proposals. The seller shares this surface's session, which stop() ends.
-    propose: async (ref, { text, amountKRW, phases = [], authorized } = {}) => {
-      const why = verifyAuthorization(authorized, { platform: 'kmong', ref: String(ref), kinds: ['proposal'], text });
+    propose: async (ref, args = {}) => {
+      const { text, amountKRW, phases = [] } = args;
+      const why = verifyAuthorization(args, { platform: 'kmong', ref: String(ref), kinds: ['proposal'] });
       if (why) return unauthorized(why);
       const id = Number(String(ref).replace(/^project:/, ''));
       const reader = await openReader();

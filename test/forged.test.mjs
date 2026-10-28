@@ -57,17 +57,17 @@ test('a surface write without a valid token refuses before any page action and s
   const ledger = openLedger(':memory:');
   ledger.upsertThread({ platform: 'soomgo', externalId: '1', kind: 'message' });
   const before = snapshot(ledger);
-  const forgedMac = { ...tokenFor('soomgo', '1', 'message', TEXT), mac: '00'.repeat(32) };
+  const forgedMac = { ...tokenFor('soomgo', '1', 'message', { text: TEXT }), mac: '00'.repeat(32) };
   const cases = [
     ['missing proof', 'send', { text: TEXT, authorized: undefined }, 'missing authorization'],
     ['the bare verdict of 030', 'send', { text: TEXT, authorized: { verdict: 'send' } }, 'missing authorization'],
-    ['foreign proof: a token for thread 2', 'send', { text: TEXT, authorized: tokenFor('soomgo', '2', 'message', TEXT) }, 'authorization belongs to another outbox row'],
-    ['foreign proof: a token for another platform', 'send', { text: TEXT, authorized: tokenFor('kmong', '1', 'message', TEXT) }, 'authorization belongs to another outbox row'],
-    ['wrong kind: a message token on quote', 'quote', { text: TEXT, amountKRW: 50000, allowSpendCash: true, authorized: tokenFor('soomgo', '1', 'message', TEXT) }, 'authorization belongs to another outbox row'],
-    ['tampered text after authorization', 'send', { text: TEXT + '.', authorized: tokenFor('soomgo', '1', 'message', TEXT) }, 'text changed after authorization'],
+    ['foreign proof: a token for thread 2', 'send', { text: TEXT, authorized: tokenFor('soomgo', '2', 'message', { text: TEXT }) }, 'authorization belongs to another outbox row'],
+    ['foreign proof: a token for another platform', 'send', { text: TEXT, authorized: tokenFor('kmong', '1', 'message', { text: TEXT }) }, 'authorization belongs to another outbox row'],
+    ['wrong kind: a message token on quote', 'quote', { text: TEXT, amountKRW: 50000, allowSpendCash: true, authorized: tokenFor('soomgo', '1', 'message', { text: TEXT }) }, 'authorization belongs to another outbox row'],
+    ['tampered text after authorization', 'send', { text: TEXT + '.', authorized: tokenFor('soomgo', '1', 'message', { text: TEXT }) }, 'the write differs from what was authorized'],
     ['forged signature', 'send', { text: TEXT, authorized: forgedMac }, 'authorization signature does not match'],
     ['pay request without a token', 'payRequest', { amountKRW: 50000, approved: true }, 'missing authorization'],
-    ['pay request not approved', 'payRequest', { amountKRW: 50000, approved: false, authorized: tokenFor('soomgo', '1', 'pay_request') }, 'a pay request needs the operator approval'],
+    ['pay request not approved', 'payRequest', { amountKRW: 50000, approved: false, authorized: tokenFor('soomgo', '1', 'pay_request', { amountKRW: 50000, approved: false }) }, 'a pay request needs the operator approval'],
   ];
   for (const [name, write, args, reason] of cases) {
     const session = spySession();
@@ -78,7 +78,7 @@ test('a surface write without a valid token refuses before any page action and s
   const kmong = spySession();
   const k = await openSurface('kmong', { session: kmong });
   assert.deepEqual(await k.send('1', { text: TEXT, authorized: { verdict: 'send' } }), { observed: false, reason: 'not authorized: missing authorization' });
-  assert.deepEqual(await k.propose('project:7', { text: TEXT, amountKRW: 1000000, authorized: tokenFor('kmong', 'project:7', 'message', TEXT) }), { observed: false, reason: 'not authorized: authorization belongs to another outbox row' });
+  assert.deepEqual(await k.propose('project:7', { text: TEXT, amountKRW: 1000000, authorized: tokenFor('kmong', 'project:7', 'message', { text: TEXT }) }), { observed: false, reason: 'not authorized: authorization belongs to another outbox row' });
   assert.deepEqual(kmong.log, []);
   assert.deepEqual(snapshot(ledger), before);
 });
@@ -89,7 +89,7 @@ test('the four surfaces with unmapped forms refuse a forged write for its author
     const session = shell();
     const s = await openSurface(platform, { session, reader: { close: async () => {} }, open: async () => { throw new Error('no reader may open'); }, fetchJson: async () => { throw new Error('no API call'); } });
     for (const write of ['send', 'quote', 'propose']) {
-      for (const authorized of [undefined, { verdict: 'send' }, tokenFor(platform, '2', write === 'propose' ? 'proposal' : write === 'quote' ? 'quote' : 'message', 'x')]) {
+      for (const authorized of [undefined, { verdict: 'send' }, tokenFor(platform, '2', write === 'propose' ? 'proposal' : write === 'quote' ? 'quote' : 'message', { text: 'x' })]) {
         const r = await s[write]('1', { text: 'x', amountKRW: 1000, authorized });
         assert.equal(r.observed, false, platform + ' ' + write);
         assert.match(r.reason, /^not authorized: (missing authorization|authorization belongs to another outbox row)$/, platform + ' ' + write);
@@ -188,5 +188,25 @@ test('controls: a planned row the drain authorizes sends with its token, and an 
   const sends = surface.calls.filter((c) => c.name === 'send');
   assert.deepEqual(sends.map((c) => [c.ref, c.args.text, c.args.authorized.key]), [['t1', TEXT, row.key], ['t2', finalText, imported.key]]);
   assert.equal(Object.isFrozen(sends[0].args.authorized), true);
-  assert.equal(mintAuthorization(row, TEXT).mac, sends[0].args.authorized.mac, 'one process secret signs every token');
+  const { authorized, ...sent } = sends[0].args;
+  assert.equal(mintAuthorization(row, sent).mac, authorized.mac, 'the token signs exactly the arguments the surface received');
 });
+
+test('a token signs every argument the surface sends: another amount, file list or proposal term is refused before any page action', async () => {
+  const quote = { amountKRW: 50000, priceType: 'fixed', text: TEXT, allowSpendCash: true, customer: '고객A' };
+  const cases = [
+    ['soomgo', 'quote', 'quote', quote, { ...quote, amountKRW: 9000000 }],
+    ['soomgo', 'send', 'delivery', { text: TEXT, files: ['C:/send/0/a.png'] }, { text: TEXT, files: ['C:/send/0/a.png', 'C:/elsewhere/b.png'] }],
+    ['soomgo', 'payRequest', 'pay_request', { amountKRW: 50000, approved: true }, { amountKRW: 5000000, approved: true }],
+    ['kmong', 'propose', 'proposal', { text: TEXT, amountKRW: 1000000, phases: [{ title: 'a' }] }, { text: TEXT, amountKRW: 1000000, phases: [{ title: 'a' }, { title: 'b' }] }],
+  ];
+  for (const [platform, write, kind, signedArgs, sent] of cases) {
+    const session = spySession();
+    const surface = await openSurface(platform, { session });
+    const ref = kind === 'proposal' ? 'project:7' : '1';
+    const r = await surface[write](ref, { ...sent, authorized: tokenFor(platform, ref, kind, signedArgs) });
+    assert.deepEqual(r, { observed: false, reason: 'not authorized: the write differs from what was authorized' }, platform + ' ' + write);
+    assert.deepEqual(session.log, [], platform + ' ' + write + ': no page action');
+  }
+});
+

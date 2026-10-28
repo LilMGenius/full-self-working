@@ -7,7 +7,7 @@ import { openKmongConversation } from '../src/platforms/kmong/conversation.mjs';
 import { openSoomgo } from '../src/platforms/soomgo/adapter.mjs';
 import { openSurface } from '../src/surface/index.mjs';
 import { readRecording, recordSession, replaySession } from '../src/surface/recorder.mjs';
-import { tokenFor } from './helpers/surface.mjs';
+import { signed } from './helpers/surface.mjs';
 import { tempDir } from './tmp.mjs';
 
 // A driver stand-in: extractors answer by function name and every action is logged.
@@ -106,7 +106,7 @@ test('a soomgo send with the drain token returns the receipt the page showed', a
   s.fill = async (t, v) => { typed = v; };
   s.click = async () => { items = [{ kind: 'text', outbound: true, text: typed, time: '오전 10:00' }]; typed = ''; };
   const surface = await openSurface('soomgo', { session: s });
-  assert.deepEqual(await surface.send('5', { text: '안녕하세요', authorized: tokenFor('soomgo', '5', 'message', '안녕하세요') }), { observed: true, text: '안녕하세요', snippet: '안녕하세요' });
+  assert.deepEqual(await surface.send('5', signed('soomgo', '5', 'message', { text: '안녕하세요' })), { observed: true, text: '안녕하세요', snippet: '안녕하세요' });
 });
 
 test('sense maps soomgo chats and requests and kmong inbox rows to Inbound, opening nothing', async () => {

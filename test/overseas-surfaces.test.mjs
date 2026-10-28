@@ -7,7 +7,7 @@ import { openLedger } from '../src/core/ledger.mjs';
 import { step } from '../src/loop/index.mjs';
 import { hasSurface, openSurface } from '../src/surface/index.mjs';
 import { BID_NOT_TYPED, FORM_UNMAPPED, openFreelancerSurface } from '../src/surface/freelancer.mjs';
-import { scriptedSurface, tokenFor } from './helpers/surface.mjs';
+import { scriptedSurface, signed } from './helpers/surface.mjs';
 import { readRecording, replaySession } from '../src/surface/recorder.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { outboundItem } from '../src/brain/respond.mjs';
@@ -68,7 +68,7 @@ test('freelancer read gives one inbound message from the full description and re
 test('freelancer send and quote refuse by name before anything reaches the session', async () => {
   const session = fakeSession(null);
   const s = await openFreelancerSurface({ session, fetchJson: fakeApi([]).fetchJson, targets: TARGETS });
-  for (const [write, kind] of [['send', 'message'], ['quote', 'quote']]) await assert.rejects(s[write]('7', { text: 'x', amountKRW: 1000, authorized: tokenFor('freelancer', '7', kind, 'x') }), { code: FORM_UNMAPPED });
+  for (const [write, kind] of [['send', 'message'], ['quote', 'quote']]) await assert.rejects(s[write]('7', signed('freelancer', '7', kind, { text: 'x', amountKRW: 1000 })), { code: FORM_UNMAPPED });
   assert.deepEqual(session.calls, []);
 });
 
@@ -212,7 +212,7 @@ test('every wishket write throws APPLY_UNMAPPED before the project reader is ope
   assert.equal(APPLY_UNMAPPED, 'FSW_WISHKET_APPLY_UNMAPPED');
   let opened = 0;
   const s = await openWishketSurface({ open: async () => ((opened += 1), fakeReader([])) });
-  for (const [write, args] of Object.entries(WISHKET_WRITES)) await assert.rejects(s[write]('1', { ...args, authorized: tokenFor('wishket', '1', WRITE_KIND[write], args.text) }), { code: APPLY_UNMAPPED });
+  for (const [write, args] of Object.entries(WISHKET_WRITES)) await assert.rejects(s[write]('1', signed('wishket', '1', WRITE_KIND[write], args)), { code: APPLY_UNMAPPED });
   assert.equal(opened, 0, 'no browser was launched for a refused write');
   assert.deepEqual(NOT_TYPED, [APPLY_UNMAPPED]);
   await s.stop();
@@ -249,7 +249,7 @@ test('upwork and fiverr open on the operator session, probe their login routes, 
     session.calls.length = 0;
     assert.deepEqual(await s.sense(), [], platform);
     await assert.rejects(s.read('1', { kind: 'request' }), { code });
-    for (const [write, args] of Object.entries(WISHKET_WRITES)) await assert.rejects(s[write]('1', { ...args, authorized: tokenFor(platform, '1', WRITE_KIND[write], args.text) }), { code });
+    for (const [write, args] of Object.entries(WISHKET_WRITES)) await assert.rejects(s[write]('1', signed(platform, '1', WRITE_KIND[write], args)), { code });
     assert.deepEqual(session.calls, [], platform + ': nothing reached the session after the login probe');
     const { NOT_TYPED } = await import('../src/surface/' + platform + '.mjs');
     assert.deepEqual(NOT_TYPED, [code]);
@@ -294,7 +294,7 @@ const replayed = async (entries) => {
   const session = replaySession(entries);
   return { session, surface: await openFreelancerSurface({ session, fetchJson: fakeApi([project(7)]).fetchJson, targets: TARGETS }) };
 };
-const SEND = tokenFor('freelancer', '7', 'proposal', 'x');
+const BID = { text: 'x', amountKRW: 100000, amount: 80, currency: 'USD', periodDays: 5 };
 
 test('a freelancer bid is refused by name before anything is typed: balance, then steps, then free bids, then the unmapped form', async () => {
   const cases = [
@@ -305,7 +305,7 @@ test('a freelancer bid is refused by name before anything is typed: balance, the
   ];
   for (const [entries, code, reason] of cases) {
     const { session, surface } = await replayed(entries);
-    await assert.rejects(surface.propose('7', { text: 'x', amountKRW: 100000, amount: 80, currency: 'USD', periodDays: 5, authorized: SEND }), (err) => err.code === code && reason.test(err.message));
+    await assert.rejects(surface.propose('7', signed('freelancer', '7', 'proposal', BID)), (err) => err.code === code && reason.test(err.message));
     assert.ok(BID_NOT_TYPED.includes(code), code + ' is listed for the drain as not typed');
     assert.equal(session.remaining(), 0, code + ': the gate was read and nothing else was called');
   }

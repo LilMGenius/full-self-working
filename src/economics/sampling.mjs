@@ -12,8 +12,9 @@
 // that engine; config.market.categoriesPerRun.<platform> (else the descriptor's, else all) bounds one
 // run, stalest first, and the rest keep the samples the day carries; config.market.cadence.<platform>
 // (else the descriptor's, else day) puts a platform in the daily market job or the hourly slice.
-import { existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { writeAtomic } from '../core/atomic.mjs';
 import { dayKey } from '../core/clock.mjs';
 import { ensureDir } from '../core/instance.mjs';
 import { loadDescriptor, MARKET_CADENCES, MARKET_ENGINES } from '../platforms/registry.mjs';
@@ -65,12 +66,6 @@ const readSamples = (file) => (existsSync(file) ? readFileSync(file, 'utf8').spl
 function previousSamples(dir, day) {
   const file = readdirSync(dir).filter((f) => /^samples-\d{8}\.jsonl$/.test(f) && f < 'samples-' + day + '.jsonl').sort().at(-1);
   return file ? readSamples(join(dir, file)) : [];
-}
-
-function writeAtomic(file, body) {
-  const tmp = file + '.' + process.pid + '.tmp';
-  writeFileSync(tmp, body);
-  renameSync(tmp, file);
 }
 
 // samplers: {[platform]: () => Promise<{sample(session, targets, {now, fx}), engines?}>};

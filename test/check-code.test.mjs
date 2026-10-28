@@ -56,6 +56,8 @@ test('a quote inside a regex literal does not hide the code after it', () => {
     // A division that opens a continued line, after a name and after a closing paren.
     'src/a/e.mjs': "export function part() {}\nconst value = 8; const q = value\n / part() / 2;\n",
     'src/a/f.mjs': "export function piece() {}\nconst value = 8; const q = (value)\n / piece() / 2;\n",
+    // A regex after an arrow.
+    'src/a/g.mjs': "export function tested() {}\nconst matches = (s) => /'/.test(s); tested(matches);\n",
   };
-  assert.deepEqual(deadExports(files).map((d) => d.file + ' ' + d.name + (d.internal ? ' internal' : '')).sort(), ['src/a/c.mjs used internal', 'src/a/d.mjs half internal', 'src/a/e.mjs part internal', 'src/a/f.mjs piece internal', 'src/a/r.mjs active internal']);
+  assert.deepEqual(deadExports(files).map((d) => d.file + ' ' + d.name + (d.internal ? ' internal' : '')).sort(), ['src/a/c.mjs used internal', 'src/a/d.mjs half internal', 'src/a/e.mjs part internal', 'src/a/f.mjs piece internal', 'src/a/g.mjs tested internal', 'src/a/r.mjs active internal']);
 });

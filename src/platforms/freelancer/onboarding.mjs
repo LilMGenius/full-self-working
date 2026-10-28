@@ -4,7 +4,7 @@
 // profile; every typed text passes the outbound gate as kind profile first. Bids and deposits are never
 // part of onboarding.
 import { Needs, clickMatch, gated, googleSignIn, needs, pathOf, readIdentity, sleep, typeInto, waitFor, walkWizard } from '../onboarding.mjs';
-import { periodOf } from '../wishket/onboarding.mjs';
+import { periodOf } from '../wishket/profile-plan.mjs';
 
 export const START = 'https://www.freelancer.com/new-freelancer/skills';
 const BASE = '/new-freelancer/';

@@ -9,7 +9,7 @@
 // own decisions and are never published or committed. Carried from 2c77326 less applyToProject (080, 088).
 import { createHash } from 'node:crypto';
 import { createPacingGuard } from '../../browser/driver.mjs';
-import { dayKey } from '../../core/clock.mjs';
+import { dayKey, pad } from '../../core/clock.mjs';
 import { openRenderer } from '../../render/html2png.mjs';
 import { loadDescriptor } from '../registry.mjs';
 import { ChallengeError, challengeOf, squash, toInt } from '../kit.mjs';
@@ -27,7 +27,6 @@ export const APPLY_UNMAPPED = 'FSW_WISHKET_APPLY_UNMAPPED';
 
 const detailError = (message) => Object.assign(new Error(message), { code: 'FSW_WISHKET_PROJECT_DETAIL' });
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const pad = (n) => String(n).padStart(2, '0');
 
 // 2026년 10월 30일 or 2026.10.23. as YYYY-MM-DD; null for anything else (계약 체결 이후, 즉시 시작).
 export function dateOf(text) {

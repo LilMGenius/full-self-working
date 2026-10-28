@@ -1,9 +1,8 @@
 // The supervisor's jobs and the Seoul marks they run on (docs/DESIGN.md, Scheduling). A job is due when
 // the Seoul period its newest mark opened has no recorded run, so a missed mark runs once on catch-up
 // and a run inside the same period never repeats, however many ticks land in it.
-import { dayKey, hourKey, nextMark, seoulParts } from '../core/clock.mjs';
+import { dayKey, hourKey, nextMark, pad, seoulParts } from '../core/clock.mjs';
 
-const pad = (n) => String(n).padStart(2, '0');
 const MINUTE = 60_000;
 
 // every: slot5 (each 5-minute mark), hour (minute 0), day (at HH:MM).

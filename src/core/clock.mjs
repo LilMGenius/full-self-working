@@ -11,7 +11,7 @@ const fmt = new Intl.DateTimeFormat('en-CA', {
   timeZoneName: 'longOffset',
 });
 
-const pad = (n, w = 2) => String(n).padStart(w, '0');
+export const pad = (n, w = 2) => String(n).padStart(w, '0');
 
 export function seoulParts(date = new Date()) {
   const d = date instanceof Date ? date : new Date(date);

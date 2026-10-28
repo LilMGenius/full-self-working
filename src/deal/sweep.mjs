@@ -4,7 +4,7 @@
 // status the operator gave it. 040's orders job runs it every 5-minute tick (pattern of
 // queueDeliveries, src/orders/delivery.mjs:57-84).
 import { loadDescriptor } from '../platforms/registry.mjs';
-import { deliveryEffects, handOverEffect, payRequestEffect } from './advance.mjs';
+import { deliveryEffects, handOverEffect, payRequestEffect } from './effects.mjs';
 import { nextPart } from './levels.mjs';
 
 export function sweep(ledger, { instance }) {

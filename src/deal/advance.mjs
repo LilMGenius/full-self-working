@@ -7,9 +7,10 @@
 import { transaction } from '../core/tx.mjs';
 import { answeredServices, catalogServicesFor, operatorDelivered } from '../economics/catalog.mjs';
 import catalog from '../economics/services.json' with { type: 'json' };
-import { deliveryText } from './delivery-text.mjs';
-import { nextPart, paymentKind, paymentLevelMet, settled } from './levels.mjs';
-import { MONEY_LOOKBACK_DAYS, fresh, jobIdFor, minuteKey } from './signals.mjs';
+import { OPERATOR_START_LEVEL, caseEffect, deliveryEffects, handOverEffect, makesFiles, notifyEffect, payRequestEffect } from './effects.mjs';
+import { nextPart, paymentLevelMet, settled } from './levels.mjs';
+import { findJob, isLive, moneyKey, quotesOf, settleOrWrite } from './match.mjs';
+import { MONEY_LOOKBACK_DAYS, jobIdFor } from './signals.mjs';
 
 // 003 Deal signal types, amended 2026-10-25 15:40.
 export const SIGNAL_TYPES = ['quote_observed', 'ordered', 'order_cancelled', 'hired', 'hire_cancelled', 'pay_requested', 'paid', 'confirmed', 'remitted', 'pay_cancelled', 'run_started', 'run_accepted', 'run_failed', 'handoff_done', 'delivery_observed', 'revision_requested', 'permission_granted', 'permission_conditional', 'permission_refused', 'review', 'expired'];
@@ -27,28 +28,6 @@ export class DealError extends Error {
   }
 }
 
-const baseName = (f) => String(f).split(/[\\/]/).pop();
-const newest = (jobs) => [...jobs].sort((a, b) => String(a.deliveredAt ?? a.startedAt ?? '').localeCompare(String(b.deliveredAt ?? b.startedAt ?? ''))).at(-1) ?? null;
-
-// soomgo quotes on the request (its own thread) and talks in a chat whose row names the request; the
-// quotes of a chat are its own plus its request's (src/orders/money.mjs:92-98).
-function quotesOf(ledger, platform, thread, requestId, status) {
-  const own = ledger.listQuotes({ threadId: thread.id, status });
-  const req = requestId ? ledger.listThreads({ platform }).find((t) => t.kind === 'request' && t.externalId === String(requestId)) : null;
-  return req && req.id !== thread.id ? [...own, ...ledger.listQuotes({ threadId: req.id, status })].sort((a, b) => a.id - b.id) : own;
-}
-
-// The job of a thread: one opened on it, or the one opened on the request a soomgo chat names. The chat
-// then becomes the job's thread, since the deposit, the files and the balance all go through it.
-export function findJob(ledger, platform, thread, requestId) {
-  const own = newest(ledger.listJobs({ platform }).filter((j) => j.threadId === thread.id));
-  if (own || !requestId) return own;
-  const req = ledger.listThreads({ platform }).find((t) => t.kind === 'request' && t.externalId === String(requestId));
-  const job = req ? newest(ledger.listJobs({ platform }).filter((j) => j.threadId === req.id)) : null;
-  if (!job) return null;
-  return ledger.upsertJob({ id: job.id, threadId: thread.id, meta: { ...(job.meta ?? {}), requestThreadId: req.id } });
-}
-
 function move(ledger, out, job, to, patch = {}) {
   const from = job.status ?? null;
   const next = ledger.upsertJob({ ...patch, id: job.id, status: to });
@@ -61,72 +40,6 @@ function move(ledger, out, job, to, patch = {}) {
 
 function refuse(ledger, out, signal, job, reason) {
   ledger.addEvent({ kind: 'deal.refused', platform: signal.platform, ref: job?.id ?? null, payload: { type: signal.type, jobId: job?.id ?? null, status: job?.status ?? null, reason } });
-}
-
-const notifyEffect = (title, body, dedupeKey) => ({ type: 'notify', note: { kind: 'order', title, body, dedupeKey } });
-const caseEffect = (c) => ({ type: 'record_case', case: c });
-
-// The operator item that asks for the next part through the platform's own request (src/orders/requests.mjs:36-52).
-export function payRequestEffect({ job, thread, part, descriptor, paidBeforeKRW, rest, why }) {
-  return {
-    type: 'plan_outbox',
-    item: {
-      platform: job.platform, threadId: thread.id, jobId: job.id, kind: 'pay_request',
-      payload: {
-        text: descriptor.name + ' payment request: ' + part.amountKRW + ' KRW, ' + part.label,
-        amountKRW: part.amountKRW, part: part.label + (part.of ? ' (' + (part.index + 1) + ' of ' + part.of + ')' : ''), rest, paidBeforeKRW,
-        service: job.service, thread: { kind: thread.kind, stage: 'post_order' },
-        reason: why + ': request ' + part.label + ' of ' + part.amountKRW + ' KRW through ' + descriptor.name + ' for job ' + job.id + ' (total ' + job.priceKRW + ' KRW)',
-      },
-    },
-  };
-}
-
-// The operator steps of the last run (its recipe's user-handoff steps) with what the operator recorded
-// for each; a step recorded for an earlier run is not done for this one. Only a step that produces files is
-// recorded; one that produces none is confirmed in the delivery approval, which waits for the operator.
-function handoffState(job) {
-  const run = job.meta?.lastRun;
-  const done = job.meta?.handoffs ?? {};
-  return (run?.handoffs ?? []).map((h) => ({ ...h, done: done[h.id]?.runAt === run.at ? done[h.id] : null }));
-}
-const makesFiles = (h) => Boolean(h.produces?.length);
-
-// The delivery item and, on a split platform, the balance request (src/orders/delivery.mjs:57-84, split
-// into two operator items: the files wait in readiness until the balance is recorded). Nothing is planned
-// while an operator step of the run is unrecorded, and the delivery carries the files each step recorded.
-export function deliveryEffects(ledger, { job, descriptor, config }) {
-  const run = job.meta?.lastRun;
-  const thread = job.threadId ? ledger.getThread(job.threadId) : null;
-  if (!run?.ok || !thread || !Array.isArray(run.files)) return [];
-  const steps = handoffState(job);
-  const recorded = steps.filter(makesFiles);
-  if (recorded.some((h) => !h.done)) return [];
-  const confirm = steps.filter((h) => !makesFiles(h));
-  const files = [...run.files, ...recorded.flatMap((h) => h.done.files)];
-  const stepNote = (recorded.length ? '; operator steps recorded: ' + recorded.map((h) => h.id + ' (' + (h.done.files.length ? h.done.files.length + ' files' : 'not applicable') + ')').join(', ') : '')
-    + (confirm.length ? '; confirm before approving that you did: ' + confirm.map((h) => h.id + ' (' + h.ask + ')').join('; ') : '');
-  const msgs = ledger.threadMessages(thread.id);
-  const language = thread.language ?? job.meta?.language ?? 'ko';
-  const effects = [{
-    type: 'plan_outbox',
-    item: {
-      platform: job.platform, threadId: thread.id, jobId: job.id, kind: 'delivery',
-      payload: {
-        text: deliveryText({ language, files: files.map(baseName) }), files, captures: run.captures ?? [], runAt: run.at, service: job.service,
-        review: run.review ?? { verdict: 'error', findings: [{ severity: 'blocker', file: null, detail: 'no review ran' }] },
-        handoffs: steps.map((h) => (makesFiles(h) ? { id: h.id, output: h.output, at: h.done.at, files: h.done.files } : { id: h.id, output: h.output, confirm: h.ask })),
-        thread: { kind: thread.kind, stage: 'post_order', lastInboundText: msgs.filter((m) => m.direction === 'in').at(-1)?.body ?? '', language: thread.language ?? null, recentOutbound: msgs.filter((m) => m.direction === 'out').slice(-10).map((m) => m.body ?? '') },
-        reason: 'acceptance passed for job ' + job.id + stepNote + '; review the ' + files.length + ' deliverables and ' + (run.captures ?? []).length + ' QA captures before approving',
-      },
-    },
-  }];
-  if (descriptor.milestones === 'multi_pay') {
-    const payments = ledger.jobPayments(job.id);
-    const part = nextPart(job, payments, config, descriptor, { rest: true });
-    if (part) effects.push(payRequestEffect({ job, thread, part, descriptor, paidBeforeKRW: payments.reduce((s, p) => s + p.amountKRW, 0), rest: true, why: 'delivery ready' }));
-  }
-  return effects;
 }
 
 // The hire or the escrowed order: the newest sent quote becomes accepted (a quote made outside fsw is
@@ -163,50 +76,6 @@ function accept(ledger, out, { signal, thread, descriptor, config }) {
   return { quote, job };
 }
 
-const linked = (ledger, jobId, event) => new Set(ledger.listMoneyEvents({ jobId, event }).map((e) => e.paymentId).filter(Boolean));
-
-// Which payment a notice stands for or settles, or the payment row it writes (src/orders/money.mjs:137-164).
-function settleOrWrite(ledger, { platform, job, signal, key }) {
-  const payments = ledger.jobPayments(job.id);
-  const ev = signal.evidence ?? {};
-  if (signal.type === 'paid' || signal.type === 'ordered') {
-    const paidLinks = linked(ledger, job.id, signal.type);
-    const match = payments.find((p) => !paidLinks.has(p.id) && p.amountKRW === signal.amountKRW);
-    if (match) return { paymentId: match.id, note: 'matches payment ' + match.id + ' written from a later notice' };
-  } else {
-    const links = linked(ledger, job.id, signal.type);
-    const open = payments.find((p) => !links.has(p.id));
-    if (open) return { paymentId: open.id, note: signal.type + ' settles payment ' + open.id };
-  }
-  if (!(signal.amountKRW > 0)) return { paymentId: null, note: 'no amount readable in the notice; no payment row written' };
-  const paid = payments.reduce((s, p) => s + p.amountKRW, 0);
-  let priceKRW = job.priceKRW;
-  if (!(priceKRW > 0)) {
-    priceKRW = signal.amountKRW;
-    ledger.upsertJob({ id: job.id, priceKRW });
-  }
-  const p = ledger.addPayment({ jobId: job.id, kind: paymentKind(priceKRW, paid, signal.amountKRW), amountKRW: signal.amountKRW, channel: platform, receivedAt: signal.at ?? undefined, evidence: { key, event: signal.type, text: ev.text ?? null, at: signal.at, source: ev.source ?? null } });
-  return { paymentId: p.id, note: 'payment ' + p.id + ' (' + p.kind + ') written', written: p };
-}
-
-function moneyKey(ledger, signal, thread, live) {
-  // Parsed evidence (an order row, a review row) names its own key; a notice is keyed by its minute.
-  if (typeof signal.evidence?.key === 'string' && signal.evidence.key) return signal.evidence.key + (live ? '' : ':history');
-  const base = signal.platform + ':' + thread.externalId + ':';
-  // A client leaves one review per job, so the operator's hand entry of it is keyed by the job: entered
-  // again a minute later it is the same review (a correction, see correctReview), never a second one.
-  if (signal.type === 'review' && signal.evidence?.source === 'operator' && signal.jobId) return base + 'review:operator:' + signal.jobId;
-  if (signal.type === 'hired') return base + 'hired#' + ledger.listMoneyEvents({ threadId: thread.id, event: 'hire_cancelled' }).length + (live ? '' : ':history');
-  if (signal.type === 'hire_cancelled') return base + 'hire_cancelled#' + ledger.listMoneyEvents({ threadId: thread.id, event: 'hired' }).length;
-  return base + signal.type + ':' + (minuteKey(signal.at) ?? 'undated');
-}
-
-function isLive(ledger, signal, thread, now) {
-  const ev = signal.evidence ?? {};
-  if (ev.source === 'row-status' && signal.type === 'hired') return quotesOf(ledger, signal.platform, thread, ev.requestId, 'sent').length > 0 || ev.freshHireInBatch === true;
-  return fresh(signal.at, now);
-}
-
 // A delivered job closes when settled; so does a job the operator delivers (handed over below), whose full
 // payment and the platform's confirmation are the evidence the sessions took place, and whose close time
 // is recorded as its delivery (src/orders/delivery.mjs:166-190 at 206d360).
@@ -224,15 +93,6 @@ function close(ledger, out, job, descriptor, now) {
     note: 'portfolio permission ' + (job.meta?.portfolio?.permission ?? 'pending'),
   }), { type: 'sync_portfolio' });
   return closed;
-}
-
-// The payment an operator-delivered job waits for before the operator starts.
-export const OPERATOR_START_LEVEL = 'deposit';
-
-// The operator's schedule-the-sessions item: the balance request, approved with fsw approve when the
-// sessions are done, so the balance and the close follow the usual flow. sweep re-derives it.
-export function handOverEffect({ job, thread, part, descriptor, paidBeforeKRW }) {
-  return payRequestEffect({ job, thread, part, descriptor, paidBeforeKRW, rest: true, why: 'deposit received for ' + job.service + ' job ' + job.id + '; schedule the sessions with the client in the ' + descriptor.name + ' chat and teach them, then approve this item' });
 }
 
 // An operator-delivered job (a lesson) runs no recipe. Once its deposit is recorded it moves to

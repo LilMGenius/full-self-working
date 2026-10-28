@@ -33,6 +33,37 @@ const lineOf = (text, index) => text.slice(0, index).split('\n').length;
 const resolveFrom = (file, spec) => (spec.startsWith('.') ? normalize(join(dirname(file), spec)).split('\\').join('/') : null);
 const imported = (list) => list.split(',').map((s) => s.trim().split(/\s+as\s+/)[0].split(/\s*:\s*/)[0].trim()).filter(Boolean);
 
+// The text with comments and the contents of string and template literals blanked (a template's ${...} parts stay
+// code), so a name counts as used in its file only where code names it. Regex literals are left as they are.
+function codeOnly(text) {
+  let out = '';
+  const stack = [];
+  let i = 0;
+  const blank = (s) => s.replace(/[^\n]/g, ' ');
+  while (i < text.length) {
+    const c = text[i];
+    const two = text.slice(i, i + 2);
+    if (stack.at(-1) === 'tpl') {
+      if (c === '\\') { out += '  '; i += 2; continue; }
+      if (c === '`') { stack.pop(); out += c; i++; continue; }
+      if (two === '${') { stack.push('expr'); out += two; i += 2; continue; }
+      out += blank(c); i++; continue;
+    }
+    if (two === '//') { const end = text.indexOf('\n', i); const stop = end < 0 ? text.length : end; out += blank(text.slice(i, stop)); i = stop; continue; }
+    if (two === '/*') { const end = text.indexOf('*/', i + 2); const stop = end < 0 ? text.length : end + 2; out += blank(text.slice(i, stop)); i = stop; continue; }
+    if (c === "'" || c === '"') {
+      let j = i + 1;
+      while (j < text.length && text[j] !== c && text[j] !== '\n') j += text[j] === '\\' ? 2 : 1;
+      out += c + blank(text.slice(i + 1, j)) + (text[j] === c ? c : ''); i = text[j] === c ? j + 1 : j; continue;
+    }
+    if (c === '`') { stack.push('tpl'); out += c; i++; continue; }
+    if (c === '{' && stack.length) stack.push('{');
+    if (c === '}' && stack.length) { const top = stack.pop(); if (top === 'expr') { out += c; i++; continue; } }
+    out += c; i++;
+  }
+  return out;
+}
+
 export function exportsOf(text) {
   const out = new Set();
   for (const re of EXPORT_RES) for (const m of text.matchAll(re)) out.add(m[1]);
@@ -73,7 +104,7 @@ export function deadExports(files, allow = ALLOW) {
     if (whole.has(file) || file.startsWith('test/') || file.startsWith('bin/')) continue;
     for (const name of exportsOf(text)) {
       if (used.get(file)?.has(name) || allow.some((a) => a.file.test(file) && a.name === name)) continue;
-      const inFile = text.split(new RegExp('(?<![\\w$])' + name.replace(/\$/g, '\\$') + '(?![\\w$])')).length - 1;
+      const inFile = codeOnly(text).split(new RegExp('(?<![\\w$])' + name.replace(/\$/g, '\\$') + '(?![\\w$])')).length - 1;
       out.push({ file, name, internal: inFile > 1 });
     }
   }

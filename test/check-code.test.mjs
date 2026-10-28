@@ -36,3 +36,13 @@ test('a bare catch, a catch holding a short comment and a promise catch returnin
   ].join('\n');
   assert.deepEqual(silentCatches('src/x.mjs', text).map((c) => c.line), [1, 2, 4, 5]);
 });
+
+test('a name that appears in a comment or a string is no use: such an export is reported unused, not internal', () => {
+  const files = {
+    'src/a/old.mjs': "// unused is no longer called\nexport function unused() {}\nexport const label = 'unused';\nexport const tpl = `calls ${1} unused`;\n",
+    'src/b/user.mjs': "import { label, tpl } from '../a/old.mjs';\nexport const go = () => [label, tpl];\n",
+    'src/b/entry.mjs': "import { go } from './user.mjs';\ngo();\n",
+  };
+  assert.deepEqual(deadExports(files).map((d) => d.file + ' ' + d.name + (d.internal ? ' internal' : '')), ['src/a/old.mjs unused']);
+});
+

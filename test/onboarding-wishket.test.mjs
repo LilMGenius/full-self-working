@@ -5,9 +5,8 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { openLedger } from '../src/core/ledger.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
-import {
-  STEPS, careerEntries, desiredSkills, gateTexts, introCopy, isSignedOut, parseStackResult, pendingIdentity, periodOf, pickPortfolio, planList, portfolioCandidates, prizeEntries, sameCompany, skillCandidates, writePace,
-} from '../src/platforms/wishket/onboarding.mjs';
+import { STEPS, isSignedOut, pendingIdentity, writePace } from '../src/platforms/wishket/onboarding.mjs';
+import { careerEntries, desiredSkills, gateTexts, introCopy, parseStackResult, periodOf, pickPortfolio, planList, portfolioCandidates, prizeEntries, sameCompany, skillCandidates } from '../src/platforms/wishket/profile-plan.mjs';
 
 const instance = {
   business: { company: '예시상호 (Example Co)', bizRegNo: '000-00-00000' },

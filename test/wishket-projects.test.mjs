@@ -15,7 +15,8 @@ import {
   budgetOf, descriptionBudget, detailUrl, listQuery, openProjectReader, parseListCard, parseProjectDetail, requestedItems,
 } from '../src/platforms/wishket/projects.mjs';
 import { boardDrop, needsJudgement, projectFloorKRW, projectMemory, rankProjects, scoreProject } from '../src/projects/score.mjs';
-import { buildCriticPrompt, buildProposalPrompt, draftProposal, proposalPolicy, usedToday } from '../src/projects/draft.mjs';
+import { draftProposal, proposalPolicy, usedToday } from '../src/projects/draft.mjs';
+import { buildCriticPrompt, buildProposalPrompt } from '../src/projects/prompt.mjs';
 
 const NOW = new Date('2026-10-25T03:00:00Z'); // 12:00 Seoul
 const CHROME = process.env.FSW_CHROME ?? DEFAULT_CHROME;

@@ -6,7 +6,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { gaps } from './takeover-check.mjs';
 
@@ -28,7 +28,7 @@ export function tickTimes(instance, since, until) {
   }
 }
 
-if (process.argv[1] && pathToFileURL(realpathSync(process.argv[1])).href === import.meta.url) {
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   let a;
   try {
     a = parseArgs({ options: { instance: { type: 'string' }, since: { type: 'string' }, until: { type: 'string' } } }).values;

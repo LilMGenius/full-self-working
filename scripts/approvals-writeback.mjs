@@ -21,7 +21,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { FINAL_FILE, KIND_OF as IMPORT_KIND, OPEN_ROW, SENT_FILE, STATUS_OF, importApprovals } from '../src/core/approvals-import.mjs';
 import { dayKey } from '../src/core/clock.mjs';
@@ -330,7 +330,7 @@ export function writeback(instance, mode = 'dry', guard = {}) {
   return { lines, exit: 0 };
 }
 
-if (process.argv[1] && pathToFileURL(realpathSync(process.argv[1])).href === import.meta.url) {
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { values: a } = parseArgs({ options: { instance: { type: 'string' }, apply: { type: 'boolean', default: false }, check: { type: 'boolean', default: false }, reconcile: { type: 'boolean', default: false }, task: { type: 'string', default: 'fsw-supervisor' } } });
   if (!a.instance || [a.apply, a.check, a.reconcile].filter(Boolean).length > 1) {
     console.error('usage: approvals-writeback.mjs --instance <instance> [--apply | --check | --reconcile] [--task fsw-supervisor]');

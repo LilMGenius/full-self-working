@@ -16,7 +16,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { pidAlive } from '../src/supervisor/lock.mjs';
 import { STUCK_POLLS } from '../src/supervisor/run.mjs';
@@ -227,7 +227,7 @@ export function read(a, now = Date.now(), { commandLine = commandLineOf } = {}) 
 
 export const OPTIONS = { repo: { type: 'string' }, code: { type: 'string' }, instance: { type: 'string' }, since: { type: 'string' }, expect: { type: 'string' }, version: { type: 'string' }, from: { type: 'string' }, 'gap-min': { type: 'string', default: '8' }, moves: { type: 'string', default: '0' }, restarts: { type: 'string', default: '0' }, imports: { type: 'string', default: '0' }, takeovers: { type: 'string' }, task: { type: 'string', default: 'fsw-supervisor' } };
 
-if (process.argv[1] && pathToFileURL(realpathSync(process.argv[1])).href === import.meta.url) {
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   let a;
   try {
     a = parseArgs({ options: OPTIONS }).values;

@@ -5,7 +5,8 @@
 // `profile.x` and `business.x`. A key whose example value is null means "use the built-in default".
 // Platform entries (config.platforms.<id>) are keyed by id, so their option names are listed in
 // PLATFORM_KEYS and the example must show each on at least one platform.
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { defaultsOf, loadSchema, undocumentedKeys } from '../src/core/config.mjs';
 import { exampleDir, readJson, repoRoot } from '../src/core/instance.mjs';
@@ -106,7 +107,7 @@ export function checkExample(root = repoRoot) {
   return [...missingKeys(reads, loadExample()), ...undocumentedKeys().map((key) => ({ file: 'src/core/config.schema.json', root: 'schema', key }))];
 }
 
-if (import.meta.url === `file:///${process.argv[1].replace(/\\/g, '/')}`) {
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const missing = checkExample();
   for (const m of missing) console.error(`check-example: ${m.file} reads ${m.root}.${m.key}, which examples/instance lacks`);
   if (missing.length) process.exit(1);

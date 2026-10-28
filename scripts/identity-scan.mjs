@@ -5,9 +5,9 @@
 // (003 Decisions, identity scan). Prints term indexes, never terms; exit 1 on any other hit.
 // node scripts/identity-scan.mjs <repo> [<branch>]   (FSW_INSTANCE names the instance)
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { readFileSync, realpathSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { loadInstance } from '../src/core/instance.mjs';
 import { identityNames, namePattern } from '../src/policy/gate.mjs';
 
@@ -32,7 +32,7 @@ export function scan(texts, terms) {
   return { hits, allowed, lines };
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const repo = process.argv[2];
   const branch = process.argv[3] ?? 'HEAD';
   const terms = identityTerms(loadInstance());

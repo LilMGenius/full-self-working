@@ -203,4 +203,4 @@ export function main(argv) {
 
 // An installed skill is often a link to its source folder; Node resolves import.meta.url through the link while argv keeps
 // the link path, so both sides are compared as real paths or a call through the link exits 0 having done nothing.
-if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) process.exitCode = main(process.argv.slice(2));
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = main(process.argv.slice(2));

@@ -5,7 +5,8 @@
 // extractor whose answer changed shape, before a send path uses it. --write-baseline merges the
 // recording's shapes into the baseline instead; shapes hold keys and types, never page text.
 // Exit 0 without drift, 1 with drift, 2 on a usage error or when there is no recording.
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { instanceDir, repoRoot } from '../src/core/instance.mjs';
@@ -46,4 +47,4 @@ export function main(argv) {
   return drift.length ? 1 : 0;
 }
 
-if (process.argv[1] && import.meta.url === 'file:///' + process.argv[1].replace(/\\/g, '/')) process.exitCode = main(process.argv.slice(2));
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = main(process.argv.slice(2));

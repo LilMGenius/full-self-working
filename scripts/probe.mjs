@@ -12,7 +12,8 @@
 // minute before the next one, so it never shares the BrowserSkill extension with a poll; --now skips the
 // wait. --record writes every call to <instance>/qa/surfaces/<platform>/<day>/. Exit 0 when the operation
 // ran, 1 when it failed or was refused, 2 on a usage error.
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { dayKey, nextMark } from '../src/core/clock.mjs';
@@ -207,4 +208,4 @@ export async function probe(argv, { now = () => new Date(), sleep = (ms) => new 
   return code;
 }
 
-if (process.argv[1] && import.meta.url === 'file:///' + process.argv[1].replace(/\\/g, '/')) process.exitCode = await probe(process.argv.slice(2));
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = await probe(process.argv.slice(2));

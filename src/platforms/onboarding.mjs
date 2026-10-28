@@ -5,7 +5,6 @@ import { existsSync, readFileSync } from 'node:fs';
 import { gateOutbound } from '../policy/gate.mjs';
 import { challengeOf } from './kit.mjs';
 
-export const STATES = ['done', 'filled', 'needs-operator', 'unmapped'];
 export const result = (step, state, detail = '') => ({ step, state, detail });
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -350,6 +349,7 @@ export async function googleSignIn(session, { button, framed = false, email, tim
     const path = await session.evaluate(() => location.pathname);
     if (!SIGN_IN_PATH.test(path)) return path;
     const open = (await bsk.tabList({ scope: 'all' })).tabs.some((t) => t.tab_id === tab.tab_id && /accounts\.google\.com\/(?:signin|v3)/.test(t.url));
+    // A Continue button that is gone or the tab that closed meanwhile leaves the loop to read the path again.
     if (open) await inTab(() => [...document.querySelectorAll('button')].find((b) => /^(Continue|계속)$/.test(b.innerText.trim()))?.click()).catch(() => null);
   }
   throw new Error('the site still shows its sign-in page after the Google account was picked');

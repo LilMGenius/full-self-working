@@ -205,6 +205,7 @@ export async function openSession(name, { platform = name, pacing, settleMs = 60
       return { path: out, sourceWidth: shot.width, sourceHeight: shot.height };
     },
     async stop() {
+      // cleanup: a transfer the daemon already released or lost needs nothing more
       for (const id of staged.splice(0)) await call('transfer.release', { transfer_id: id }).catch(() => {});
       return session.stop();
     },

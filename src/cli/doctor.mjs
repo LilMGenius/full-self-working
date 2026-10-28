@@ -196,6 +196,7 @@ export async function runChecks(ctx = {}) {
     } catch (err) {
       push(result('FAIL', name, `${err.code ?? 'error'}: ${err.message}`));
     } finally {
+      // cleanup: the check already recorded its result, and a session that will not stop changes none of it
       if (adapter) await adapter.stop().catch(() => {});
     }
   }

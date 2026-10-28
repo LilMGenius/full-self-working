@@ -38,14 +38,16 @@ export async function openSoomgoSurface({ session, sleep } = {}) {
     // Chats first, then requests: one list page each, nothing opened.
     sense: async () => [...(await a.inbox()).map(inboundOfChat), ...(await a.requests()).map(inboundOfRequest)],
     read: async (ref, { willReply = false, kind } = {}) => (readKind(kind) === 'request' ? threadOfRequest(await a.readRequest(ref)) : threadOfChat(await a.readThread(ref, { willReply }))),
-    send: async (ref, { text, files = [], authorized } = {}) => {
-      const why = verifyAuthorization(authorized, { platform: 'soomgo', ref: String(ref), kinds: ['message', 'delivery'], text });
+    send: async (ref, args = {}) => {
+      const { text, files = [] } = args;
+      const why = verifyAuthorization(args, { platform: 'soomgo', ref: String(ref), kinds: ['message', 'delivery'] });
       return why ? unauthorized(why) : receiptOf(await a.send(ref, { text, files, gate: { ok: true } }));
     },
     // A request soomgo calls full took no quote and no cash, so it is thrown for the drain to mark the row
     // stale (its STALE_NOT_SENT list) instead of an unobserved press.
-    quote: async (ref, { amountKRW, priceType = 'fixed', text, authorized, allowSpendCash = false, customer = null } = {}) => {
-      const why = verifyAuthorization(authorized, { platform: 'soomgo', ref: String(ref), kinds: ['quote'], text });
+    quote: async (ref, args = {}) => {
+      const { amountKRW, priceType = 'fixed', text, allowSpendCash = false, customer = null } = args;
+      const why = verifyAuthorization(args, { platform: 'soomgo', ref: String(ref), kinds: ['quote'] });
       if (why) return unauthorized(why);
       const r = await a.quote(ref, { amountKRW, priceType, text, gate: { ok: true }, allowSpendCash, customer });
       if (r.code === REQUEST_FULL) throw new AdapterRefusal(r.code, r.reason);
@@ -53,8 +55,9 @@ export async function openSoomgoSurface({ session, sleep } = {}) {
     },
     // A payment request is operator only (003): approved stays the flag, and the token proves the drain minted it
     // for an approved pay_request row of this thread.
-    payRequest: async (ref, { amountKRW, approved = false, authorized } = {}) => {
-      const why = approved === true ? verifyAuthorization(authorized, { platform: 'soomgo', ref: String(ref), kinds: ['pay_request'], text: '' }) : 'a pay request needs the operator approval';
+    payRequest: async (ref, args = {}) => {
+      const { amountKRW, approved = false } = args;
+      const why = approved === true ? verifyAuthorization(args, { platform: 'soomgo', ref: String(ref), kinds: ['pay_request'] }) : 'a pay request needs the operator approval';
       return why ? unauthorized(why) : receiptOf(await a.payRequest(ref, { amountKRW, approved }));
     },
     // soomgo has no order list: a hire is a chat row (Inbound.hired, from sense) and its 숨고페이 notices, so

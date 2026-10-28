@@ -1,14 +1,7 @@
 // Runs one non-interactive `codex exec` turn with a JSON output schema and returns the parsed last message.
-//
-// Invocation measured 2026-10-25 on the operator machine (codex-cli 0.164.0, gpt-6.1-sol, effort low,
-// trivial schema {ok: boolean}, two sequential rounds a b c a b c, every run answered {"ok":true}):
-//   (a) plain user config: 30.3 s and 21.5 s, because six SessionStart, four UserPromptSubmit and two
-//       Stop hooks plus plugins and MCP servers load on every turn (40.7k tokens).
-//   (b) --ignore-user-config with openai_base_url on the opencodex proxy: 7.6 s and 8.0 s, and every turn
-//       first logs a failed websocket upgrade (426 Upgrade Required) before falling back to HTTP.
-//   (c) --ignore-user-config with an inline provider on the same proxy and supports_websockets=false:
-//       5.2 s and 4.9 s, no failed upgrade; cpa/claude-opus-5-5 also answered through the proxy.
-// (c) is the default. FSW_CODEX_PROXY=none falls back to (a) when the proxy is not running.
+// A turn runs with --ignore-user-config on an inline provider at the local proxy with websockets off, the fastest
+// of the invocations measured (docs/NEGATIVE-CORPUS.md row 68); FSW_CODEX_PROXY=none falls back to the plain user
+// config when the proxy is not running.
 import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -27,10 +20,9 @@ export class CodexError extends Error {
   }
 }
 
-// Arguments for one turn. `proxyUrl: null` runs with the plain user config (variant a).
-// --ignore-user-config also drops [windows] sandbox, and without it codex 0.164.0 on Windows runs a
-// workspace-write turn read-only (its banner says "sandbox: read-only" and every write is "blocked by
-// policy"; measured 2026-10-25), so a writing turn names the Windows sandbox itself.
+// Arguments for one turn. `proxyUrl: null` runs with the plain user config.
+// --ignore-user-config also drops [windows] sandbox, so a writing turn names the Windows sandbox itself
+// (docs/NEGATIVE-CORPUS.md row 46).
 // images: files attached to the prompt (--image), for a turn that may not open files itself.
 // network: a workspace-write turn may reach the internet while its writes stay sandboxed; a read-only turn
 // never gets the network.

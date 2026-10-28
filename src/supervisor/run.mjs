@@ -91,9 +91,8 @@ export function writeState(instance, state) {
 // One pass: every due job in schedule order, each isolated. A job that ran, failed or is not wired has
 // had its turn for the period; the period's failure stays in the events for the digest, and the next
 // period tries again.
-// A platform whose poll keeps failing is invisible while the daemon itself stays healthy: the browser
-// extension stalled for 25 minutes on 2026-10-25 and every tick failed quietly. After STUCK_POLLS failed
-// polls in a row (half an hour of 5 minute ticks) the operator hears once, with the newest error.
+// A platform whose poll keeps failing is invisible while the daemon itself stays healthy (docs/NEGATIVE-CORPUS.md
+// row 35). After STUCK_POLLS failed polls in a row (half an hour of 5 minute ticks) the operator hears once, with the newest error.
 export const STUCK_POLLS = 6;
 
 async function reportStuckPolls(instance, state, summary, now) {

@@ -1,7 +1,7 @@
 // The supervisor's jobs and the Seoul marks they run on (docs/DESIGN.md, Scheduling). A job is due when
 // the Seoul period its newest mark opened has no recorded run, so a missed mark runs once on catch-up
 // and a run inside the same period never repeats, however many ticks land in it.
-import { dayKey, hourKey, nextMark, pad, seoulParts } from '../core/clock.mjs';
+import { dayKey, hourKey, nextMark, pad, seoulParts, toMinutes } from '../core/clock.mjs';
 
 const MINUTE = 60_000;
 
@@ -36,11 +36,6 @@ export const JOBS = [
   { id: 'digest', every: 'day', at: '09:00' },
 ];
 
-const minutesOf = (hm) => {
-  const [h, m] = String(hm).split(':').map(Number);
-  return h * 60 + m;
-};
-
 // Key of the Seoul period whose mark is the newest at or before now. A day job marked at HH:MM
 // shifts the instant back by HH:MM first, so 08:59 still belongs to yesterday's 09:00 period; Seoul has
 // kept one offset without daylight saving since 1988, so a shift of absolute time is a wall-clock shift.
@@ -48,7 +43,7 @@ export function periodKey(job, now = new Date()) {
   const t = (now instanceof Date ? now : new Date(now)).getTime();
   if (job.every === 'slot5') return hourKey(new Date(t)) + pad(Math.floor(seoulParts(new Date(t)).minute / 5) * 5);
   if (job.every === 'hour') return hourKey(new Date(t));
-  const shifted = new Date(t - minutesOf(job.at ?? '00:00') * MINUTE);
+  const shifted = new Date(t - toMinutes(job.at ?? '00:00') * MINUTE);
   if (job.every === 'day') return dayKey(shifted);
   throw new RangeError(`job ${job.id} has an unknown cadence ${job.every}`);
 }

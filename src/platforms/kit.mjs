@@ -1,6 +1,6 @@
 // Shared by the platform adapters and parsers: the refusal error, snippets that never carry a phone or
 // account number, and Seoul timestamps from the short date forms marketplaces print.
-import { pad } from '../core/clock.mjs';
+import { pad, seoulParts } from '../core/clock.mjs';
 
 // An adapter declining an operation that would break a rule (opening an unread thread, spending cash
 // without permission) or that it cannot complete safely; code names the rule.
@@ -30,9 +30,7 @@ export const toInt = (text) => {
 
 export const seoulIso = (y, mo, d, h = 0, mi = 0) => `${y}-${pad(mo)}-${pad(d)}T${pad(h)}:${pad(mi)}:00+09:00`;
 
-export function seoulYear(now = new Date()) {
-  return Number(new Intl.DateTimeFormat('en', { timeZone: 'Asia/Seoul', year: 'numeric' }).format(now));
-}
+export const seoulYear = (now = new Date()) => seoulParts(now).year;
 
 export const lines = (text) => String(text ?? '').split(/\n/).map((l) => l.trim()).filter(Boolean);
 

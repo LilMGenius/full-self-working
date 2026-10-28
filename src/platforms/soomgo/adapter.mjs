@@ -4,6 +4,7 @@
 // reply in the same tick. Writes take an already gated text; quote() also needs allowSpendCash and
 // reports the 숨고캐시 cost read from the page before it presses send.
 import { openSession } from '../../browser/driver.mjs';
+import { nowSeoul } from '../../core/clock.mjs';
 import { loadDescriptor } from '../registry.mjs';
 import { AdapterRefusal, squash } from '../kit.mjs';
 import { cashSpend, parseCampaigns, parseCash, parseCashHistory, parseChats, parseChatThread, parseProfile, parseRequestDetail, parseRequests, quoteCharge } from './parse.mjs';
@@ -12,8 +13,6 @@ import { readServices } from './services.mjs';
 
 const BASE = 'https://soomgo.com';
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-
-const seoulDay = (d) => new Intl.DateTimeFormat('sv', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
 
 // 숨고페이 takes 15,000 to 5,000,000 KRW per payment (descriptor splitMechanism).
 export const PAY_REQUEST_RANGE = [15_000, 5_000_000];
@@ -250,7 +249,7 @@ export async function openSoomgo({ session, sleep = wait } = {}) {
     // 충전/사용 내역 and each smart quote campaign with its daily budget from /instant-match.
     async spend({ now = new Date() } = {}) {
       await load(`${BASE}/mypage/cash-dashboard`);
-      const today = cashSpend(parseCashHistory(await s.evaluate(pageText)), seoulDay(now));
+      const today = cashSpend(parseCashHistory(await s.evaluate(pageText)), nowSeoul(now).ymd);
       await load(`${BASE}/instant-match`);
       return { today, campaigns: parseCampaigns(await s.evaluate(pageCampaignLinks)) };
     },

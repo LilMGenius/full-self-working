@@ -6,7 +6,7 @@
 // come through the ledger's own listOutbox (003 Ledger v4), and a copy below version 4 has no outbox.
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { openLedger } from '../src/core/ledger.mjs';
 
@@ -68,7 +68,7 @@ export function sinceMark(ledger, m) {
   return { ticks, events, messagesOut, quotes, outboxMoves };
 }
 
-if (process.argv[1] && pathToFileURL(realpathSync(process.argv[1])).href === import.meta.url) {
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { values: a } = parseArgs({ options: { ledger: { type: 'string' }, mark: { type: 'string' }, 'since-mark': { type: 'string' }, ticks: { type: 'string' } } });
   if (!a.ledger || !(a.mark || (a['since-mark'] && a.ticks != null))) {
     console.error('usage: rehearsal-effects.mjs --ledger <copy> --mark <file> | --ledger <copy> --since-mark <file> --ticks <n>');

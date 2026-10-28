@@ -13,7 +13,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, existsSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { pidAlive } from '../src/supervisor/lock.mjs';
 
@@ -132,7 +132,7 @@ export function restore(snap, to, instance, { alive = pidAlive, task = () => rea
   return { restored: to, kept, sha256: record.sha256 };
 }
 
-if (process.argv[1] && pathToFileURL(realpathSync(process.argv[1])).href === import.meta.url) {
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { values: a } = parseArgs({ options: { ledger: { type: 'string' }, out: { type: 'string' }, verify: { type: 'string' }, check: { type: 'string' }, against: { type: 'string' }, restore: { type: 'string' }, to: { type: 'string' }, instance: { type: 'string' }, task: { type: 'string', default: 'fsw-supervisor' } } });
   let findings = [];
   let report;

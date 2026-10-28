@@ -6,9 +6,9 @@
 // The live ledger and the approval files are only read. Prints a JSON summary; exit 0 when every check
 // holds, 1 naming the first that does not, 2 on a usage error.
 import { DatabaseSync } from 'node:sqlite';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { openLedger } from '../src/core/ledger.mjs';
 import { importApprovals } from '../src/core/approvals-import.mjs';
@@ -46,7 +46,7 @@ export async function rehearse({ ledger, approvals, old, out }) {
   return { copy, before, after: { version }, import: { first, second }, outbox, oldOpen: { version: oldVersion }, failures };
 }
 
-if (import.meta.url === 'file:///' + process.argv[1]?.replace(/\\/g, '/')) {
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   let args;
   try {
     args = parseArgs({ options: { ledger: { type: 'string' }, approvals: { type: 'string' }, old: { type: 'string' }, out: { type: 'string' } } }).values;

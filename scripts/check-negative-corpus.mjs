@@ -2,7 +2,8 @@
 // Keeps docs/NEGATIVE-CORPUS.md tied to what holds each lesson: a held gate, test or note row names a
 // file that exists and contains its anchor; a row whose phase is at or before the Phase line is held; a
 // note without a holder file names its source. Prints one line per problem; exit 1 on any.
-import { existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { repoRoot } from '../src/core/instance.mjs';
 
@@ -38,7 +39,7 @@ export function checkCorpus(text, { root = repoRoot } = {}) {
   return problems;
 }
 
-if (import.meta.url === 'file:///' + process.argv[1]?.replace(/\\/g, '/')) {
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const problems = checkCorpus(readFileSync(join(repoRoot, 'docs', 'NEGATIVE-CORPUS.md'), 'utf8'));
   for (const p of problems) console.error('check-negative-corpus: ' + p);
   if (problems.length) process.exit(1);

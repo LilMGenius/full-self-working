@@ -25,7 +25,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 import { existsSync, readFileSync, realpathSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { pidAlive } from '../src/supervisor/lock.mjs';
 
@@ -185,7 +185,7 @@ export async function runRollback(a, io) {
 
 export const OPTIONS = { repo: { type: 'string' }, code: { type: 'string' }, instance: { type: 'string' }, old: { type: 'string' }, from: { type: 'string' }, task: { type: 'string', default: 'fsw-supervisor' }, 'abort-after-min': { type: 'string', default: '6' }, apply: { type: 'boolean', default: false } };
 
-if (process.argv[1] && pathToFileURL(realpathSync(process.argv[1])).href === import.meta.url) {
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   let a;
   try {
     a = parseArgs({ options: OPTIONS }).values;

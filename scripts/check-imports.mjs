@@ -4,7 +4,7 @@
 // src/browser counting as platforms), and fails a forbidden edge, a module the table does not list, and
 // a file-level import cycle. Prints file:line and the edge; exit 1 on any problem. A phase that adds a
 // module adds its row here in the same change.
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -126,7 +126,7 @@ export function checkImports(root) {
   return problems;
 }
 
-if (process.argv[1] && import.meta.url === 'file:///' + process.argv[1].replace(/\\/g, '/')) {
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
   const problems = checkImports(root);
   for (const p of problems) console.error('check-imports: ' + p);

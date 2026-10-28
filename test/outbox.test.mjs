@@ -470,7 +470,7 @@ test('read-back after an interrupted send ignores an older bubble with the same 
 function pressedSoomgoSession({ cost = 990, sendDisabled = false } = {}) {
   const form = { priceValue: '', textValue: '' };
   const detail = () => ({ url: 'https://soomgo.com/requests/received/r1?from=request_list', service: '웹 개발', pairs: [], customerText: '', form: { priceInput: true, priceValue: form.priceValue, priceTypes: ['총 비용', '시간 당'], selectedPriceType: '총 비용', textarea: true, textValue: form.textValue, textMaxChars: 1000, fileInput: true, saveTemplateChecked: false, sendLabel: cost.toLocaleString('en') + ' 캐시로 견적 보내기', sendDisabled } });
-  const answers = { pageRequestDetail: detail, pageText: () => '충전/사용 내역' };
+  const answers = { pageRequestDetail: detail, pageText: () => '충전/사용 내역', pageCloseNotice: () => null };
   return {
     loads: 0,
     guard: { beforeLoad: async () => {}, beforeAction: () => {}, beforeMessage: () => {} },

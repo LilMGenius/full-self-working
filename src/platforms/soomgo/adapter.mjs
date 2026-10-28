@@ -8,7 +8,7 @@ import { nowSeoul } from '../../core/clock.mjs';
 import { loadDescriptor } from '../registry.mjs';
 import { AdapterRefusal, squash } from '../kit.mjs';
 import { cashSpend, parseCampaigns, parseCash, parseCashHistory, parseChats, parseChatThread, parseProfile, parseRequestDetail, parseRequests, quoteCharge } from './parse.mjs';
-import { pageCampaignLinks, pageChatThread, pageChats, pageLogin, pageOpenChat, pageOpenPayDialog, pagePayDialog, pageRequestDetail, pageRequests, pageScrollChats, pageText } from './page.mjs';
+import { pageCampaignLinks, pageChatThread, pageChats, pageCloseNotice, pageLogin, pageOpenChat, pageOpenPayDialog, pagePayDialog, pageRequestDetail, pageRequests, pageScrollChats, pageText } from './page.mjs';
 import { readServices } from './services.mjs';
 
 const BASE = 'https://soomgo.com';
@@ -29,6 +29,11 @@ export async function openSoomgo({ session, sleep = wait } = {}) {
   const load = async (url) => {
     here = new URL(url).pathname;
     return s.navigate(url);
+  };
+  // An announcement modal over the page takes the focus every typed write needs (pageCloseNotice), so each
+  // write closes it after its page loads and before it types.
+  const closeNotice = async () => {
+    if (await s.evaluate(pageCloseNotice)) await sleep(800);
   };
 
   const listChats = async ({ pages = 0, until } = {}) => {
@@ -99,6 +104,7 @@ export async function openSoomgo({ session, sleep = wait } = {}) {
       if (!f.priceInput || !f.textarea || !f.sendButton) return { sent: false, observed: false, pressed: false, reason: 'quote form incomplete', form: f };
       if (detail.quoteCostKRW == null) return { sent: false, observed: false, pressed: false, reason: 'quote cost not readable from the send button' };
       if (before.form.saveTemplateChecked) return { sent: false, observed: false, pressed: false, reason: '자주 쓰는 견적에 추가 is checked; refusing to change templates' };
+      await closeNotice();
       const wanted = priceType === 'hourly' ? 'price-hourly' : 'price-total';
       if (before.form.selectedPriceType !== (priceType === 'hourly' ? '시간 당' : '총 비용')) await s.click(`[data-fsw=${wanted}]`);
       // The price input reformats with thousand separators as it types, which fill() cannot follow.
@@ -164,6 +170,7 @@ export async function openSoomgo({ session, sleep = wait } = {}) {
       const { page } = await openChat(id, { willReply: true });
       if (!page.composer.found || page.composer.disabled) return { sent: false, observed: false, reason: 'composer unavailable' };
       if (!dryRun) s.guard.beforeMessage();
+      await closeNotice();
       await s.fill('[data-fsw=composer]', text);
       if (files.length) await s.setFiles('input.file-input-hidden[type=file]', files);
       const typed = await s.evaluate(pageChatThread);
@@ -201,6 +208,7 @@ export async function openSoomgo({ session, sleep = wait } = {}) {
       if (!dryRun && approved !== true) return { sent: false, observed: false, reason: '숨고페이 요청 asks the customer for money; it needs an approved operator item' };
       const { page: before } = await openChat(id, { willReply: !dryRun });
       const priorNotices = parseChatThread({ id: String(id), items: before.items }).notices.length;
+      await closeNotice();
       if (!(await s.evaluate(pageOpenPayDialog))) return { sent: false, observed: false, reason: 'the chat header has no 숨고페이 요청 button' };
       await wait(3000);
       const opened = await s.evaluate(pagePayDialog);

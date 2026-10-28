@@ -155,6 +155,17 @@ export function pageText() {
   return document.body.innerText;
 }
 
+// An announcement modal soomgo opens over a page (서비스 점검 사전 안내, read 2026-10-29 on every request
+// page) holds focus, so no field under it can be typed into. One that shows and holds no field, only buttons,
+// is closed by its 닫기 button; a modal with a field, such as the 숨고페이 dialog, is never touched.
+export function pageCloseNotice() {
+  const modal = [...document.querySelectorAll('.modal.show')].find((m) => m.getBoundingClientRect().height > 0 && !m.querySelector('input:not([type=checkbox]), textarea, select'));
+  const close = modal && [...modal.querySelectorAll('button')].find((b) => b.innerText.trim() === '닫기');
+  if (!close) return null;
+  close.click();
+  return modal.innerText.split('\n')[0].trim();
+}
+
 // The smart quote campaign links on /instant-match, as href and text only.
 export function pageCampaignLinks() {
   return [...document.querySelectorAll('a[href^="/instant-match/"]')].map((a) => ({ href: a.getAttribute('href'), text: a.innerText }));

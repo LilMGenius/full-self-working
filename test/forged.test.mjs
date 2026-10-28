@@ -6,14 +6,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { mintAuthorization } from '../src/core/authz.mjs';
+import { verifyAuthorization } from '../src/core/authz.mjs';
 import { exampleDir, loadInstance } from '../src/core/instance.mjs';
 import { openLedger, outboxKey } from '../src/core/ledger.mjs';
 import { drain, plan, resolve, setStatus } from '../src/outbox/index.mjs';
 import { loadDescriptor } from '../src/platforms/registry.mjs';
 import { authorize } from '../src/policy/authorize.mjs';
 import { openSurface } from '../src/surface/index.mjs';
-import { scriptedSurface, tokenFor } from './helpers/surface.mjs';
+import { scriptedSurface, signed, tokenFor } from './helpers/surface.mjs';
 import { tempDir } from './tmp.mjs';
 
 const NOON = new Date('2026-10-20T12:00:00+09:00');
@@ -188,8 +188,7 @@ test('controls: a planned row the drain authorizes sends with its token, and an 
   const sends = surface.calls.filter((c) => c.name === 'send');
   assert.deepEqual(sends.map((c) => [c.ref, c.args.text, c.args.authorized.key]), [['t1', TEXT, row.key], ['t2', finalText, imported.key]]);
   assert.equal(Object.isFrozen(sends[0].args.authorized), true);
-  const { authorized, ...sent } = sends[0].args;
-  assert.equal(mintAuthorization(row, sent).mac, authorized.mac, 'the token signs exactly the arguments the surface received');
+  assert.equal(verifyAuthorization(sends[0].args, { platform: 'kmong', ref: 't1', kinds: ['message'] }), 'authorization already used', 'the scripted surface consumed the token when it sent');
 });
 
 test('a token signs every argument the surface sends: another amount, file list or proposal term is refused before any page action', async () => {
@@ -208,5 +207,17 @@ test('a token signs every argument the surface sends: another amount, file list 
     assert.deepEqual(r, { observed: false, reason: 'not authorized: the write differs from what was authorized' }, platform + ' ' + write);
     assert.deepEqual(session.log, [], platform + ' ' + write + ': no page action');
   }
+});
+
+
+test('a token is single-use: the same token submitted a second time is refused before any page action', async () => {
+  const session = spySession();
+  const surface = await openSurface('soomgo', { session });
+  const args = signed('soomgo', '1', 'quote', { amountKRW: 50000, priceType: 'fixed', text: TEXT, allowSpendCash: true, customer: '고객A' });
+  await surface.quote('1', args);
+  const afterFirst = session.log.length;
+  assert.ok(afterFirst > 0, 'the first use reaches the page');
+  assert.deepEqual(await surface.quote('1', args), { observed: false, reason: 'not authorized: authorization already used' });
+  assert.equal(session.log.length, afterFirst, 'the second use reaches no page');
 });
 

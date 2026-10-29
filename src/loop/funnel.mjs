@@ -14,12 +14,15 @@ import { quoteSendTimes } from '../economics/quote-results.mjs';
 export const OTHER_HIRED = ['hired'];
 // The hire_status words for a hire that ended (src/deal/signals.mjs): a hire of another pro that ended.
 export const ENDED_HIRE = ['customer_cancelled', 'rejected'];
+// The line soomgo writes into a chat when the customer leaves it (src/core/notices.mjs NOISE_NOTICES); a chat
+// whose newest line is it was closed by the customer, which ends our quote on it as lost.
+const LEFT_RE = /님이\s*채팅방을\s*나갔습니다/;
 
 // Any other non-null value is unknown: recorded with unknown: true, told to the operator once per value, and
 // counted as nothing until a recorded page says what it means.
 const stateOf = (ib) => {
   const other = ib.otherProHired ?? null;
-  return { opened: ib.quote?.opened === true, hiredUs: ib.status === 'hired', hiredOther: OTHER_HIRED.includes(other), otherStatus: other, otherUnknown: other != null && !OTHER_HIRED.includes(other) && !ENDED_HIRE.includes(other) };
+  return { opened: ib.quote?.opened === true, hiredUs: ib.status === 'hired', hiredOther: OTHER_HIRED.includes(other), left: LEFT_RE.test(String(ib.preview ?? '')), otherStatus: other, otherUnknown: other != null && !OTHER_HIRED.includes(other) && !ENDED_HIRE.includes(other) };
 };
 
 // The fsw quote a chat row stands for: the newest quote on the request thread the row names (soomgo quotes on
@@ -60,11 +63,12 @@ export function recordFunnel(ledger, { platform, inbound, rows, now, refundHours
     if (next.hiredUs && !prev?.hiredUs) changes.push('quote.hired_us');
     if (next.hiredOther && !prev?.hiredOther) changes.push('quote.hired_other');
     if (!next.hiredOther && prev?.hiredOther) changes.push('quote.hired_other_cancelled');
+    if (next.left && !prev?.left) changes.push('quote.left');
     if (next.otherUnknown && next.otherStatus !== (prev?.otherStatus ?? null)) changes.push('quote.other_status');
     if (prev && !changes.length && prev.otherStatus === next.otherStatus) continue;
-    const { otherUnknown, unread, ...rest } = next;
+    const { otherUnknown, unread, left, ...rest } = next;
     // unread stays on the record once seen, and only then, so a record written before it keeps its shape.
-    const state = { ...rest, ...(unread || prev?.unread ? { unread: true } : {}) };
+    const state = { ...rest, ...(unread || prev?.unread ? { unread: true } : {}), ...(left || prev?.left ? { left: true } : {}) };
     transaction(ledger, () => {
       for (const kind of changes) ledger.addEvent({ kind, platform, ref: String(ib.ref), at: now.toISOString(), payload: { ...link, firstSeen: prev === null, otherStatus: next.otherStatus, ...(kind === 'quote.other_status' ? { unknown: true } : {}), rowQuote: { priceKRW: ib.quote.priceKRW ?? null, unit: ib.quote.unit ?? null } } });
       ledger.upsertThread({ platform, externalId: String(ib.ref), kind: 'message', meta: { ...(ledger.getThread(row.id).meta ?? {}), funnel: { ...state, quoteId: link.quoteId, seenAt: prev?.seenAt ?? now.toISOString() } } });

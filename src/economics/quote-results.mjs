@@ -7,7 +7,7 @@ import { listDescriptors, loadDescriptor } from '../platforms/registry.mjs';
 
 export const QUOTE_RESULTS = ['won', 'lost', 'expired', 'refused', 'superseded', 'open'];
 // The events src/loop/funnel.mjs writes from the soomgo chat list.
-export const FUNNEL_EVENTS = ['quote.opened', 'quote.unread', 'quote.hired_us', 'quote.hired_other', 'quote.hired_other_cancelled', 'quote.other_status'];
+export const FUNNEL_EVENTS = ['quote.opened', 'quote.unread', 'quote.hired_us', 'quote.hired_other', 'quote.hired_other_cancelled', 'quote.other_status', 'quote.left'];
 const DAY_MS = 86_400_000;
 const HOUR_MS = 3_600_000;
 
@@ -97,16 +97,18 @@ export function chatActs(ledger, cut) {
   const opened = new Set();
   const unread = new Set();
   const hiredOther = new Set();
-  const rows = ledger.db.prepare("SELECT kind, payload, at FROM events WHERE kind IN ('quote.opened', 'quote.unread', 'quote.hired_other', 'quote.hired_other_cancelled') ORDER BY at, id").all();
+  const left = new Set();
+  const rows = ledger.db.prepare("SELECT kind, payload, at FROM events WHERE kind IN ('quote.opened', 'quote.unread', 'quote.hired_other', 'quote.hired_other_cancelled', 'quote.left') ORDER BY at, id").all();
   for (const e of rows) {
     const id = JSON.parse(e.payload ?? '{}').quoteId;
     if (id == null || Date.parse(e.at) > cut) continue;
     if (e.kind === 'quote.opened') opened.add(id);
     else if (e.kind === 'quote.unread') unread.add(id);
+    else if (e.kind === 'quote.left') left.add(id);
     else if (e.kind === 'quote.hired_other') hiredOther.add(id);
     else hiredOther.delete(id);
   }
-  return { opened, unread, hiredOther };
+  return { opened, unread, hiredOther, left };
 }
 
 // expireAfterDays Infinity turns the age rule off (an instance without priceLearning settings). A platform that
@@ -135,16 +137,18 @@ export function quoteResults(ledger, { asOf, expireAfterDays }) {
     if (at > cut) continue;
     // A customer who hired another pro decided this quote: lost at once, never aged or superseded. Accepted stays
     // won whatever the chat showed before the hire.
+    // A customer who left the chat ended it the same way (soomgo 2026-10-28: read the quote, then left).
     const lostToOther = q.status === 'sent' && acts.hiredOther.has(q.id);
+    const lostLeft = q.status === 'sent' && !lostToOther && acts.left.has(q.id);
     // A quote still sent on a thread whose deal moved on was passed over for another quote of that deal: it is
     // neither won nor lost, and it never ages into expired.
-    const superseded = q.status === 'sent' && !lostToOther && decided.has(q.threadId);
-    const pending = q.status === 'sent' && !lostToOther && !superseded;
+    const superseded = q.status === 'sent' && !lostToOther && !lostLeft && decided.has(q.threadId);
+    const pending = q.status === 'sent' && !lostToOther && !lostLeft && !superseded;
     const refundHours = pending && !acts.opened.has(q.id) && acts.unread.has(q.id) ? refundWindow(q.platform) : undefined;
     const unread = refundHours != null && cut - at >= refundHours * HOUR_MS;
     const aged = pending && (unread || cut - at >= expireAfterDays * DAY_MS);
-    const result = q.status === 'accepted' ? 'won' : q.status === 'declined' || lostToOther ? 'lost' : q.status === 'expired' || aged ? 'expired' : superseded ? 'superseded' : 'open';
-    out.push({ source: 'quote', id: q.id, threadId: q.threadId, platform: q.platform, service: q.service ?? src?.payload?.service ?? null, at: sent, amountKRW: q.amountKRW, costKRW: q.costKRW ?? 0, result, aged, cause: lostToOther ? 'hired_other' : unread ? 'unread' : null, opened: acts.opened.has(q.id), index: priceIndex(q.amountKRW, src?.payload?.decision?.quote?.pricing) });
+    const result = q.status === 'accepted' ? 'won' : q.status === 'declined' || lostToOther || lostLeft ? 'lost' : q.status === 'expired' || aged ? 'expired' : superseded ? 'superseded' : 'open';
+    out.push({ source: 'quote', id: q.id, threadId: q.threadId, platform: q.platform, service: q.service ?? src?.payload?.service ?? null, at: sent, amountKRW: q.amountKRW, costKRW: q.costKRW ?? 0, result, aged, cause: lostToOther ? 'hired_other' : lostLeft ? 'left' : unread ? 'unread' : null, opened: acts.opened.has(q.id), index: priceIndex(q.amountKRW, src?.payload?.decision?.quote?.pricing) });
   }
   // A send the platform refused before the client saw it (the drain's STALE_NOT_SENT): no quote row exists.
   for (const r of ledger.listOutbox({ kinds: ['quote'], statuses: ['stale'] })) {

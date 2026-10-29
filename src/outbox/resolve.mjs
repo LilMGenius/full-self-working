@@ -37,6 +37,16 @@ export function resolve(ledger, approvalId, { approve, editedText, reason } = {}
   const operator = { resolvedAt: new Date().toISOString(), finalText: approve ? edited ?? draft : null, edited: approve && edited !== null && edited !== draft, resolutionReason: reason ?? null, ...(approve && delivery ? { filesHash: filesHash(row.payload.files ?? []) } : {}) };
   const done = setStatus(ledger, row.id, { from, to: approve ? 'approved' : 'rejected', operator });
   if (!done) throw resolved();
+  // A send the operator found never went out leaves its thread unanswered, so the read that planned it no
+  // longer settles the thread: the next poll decides it again (soomgo 2026-10-29, a customer's question waited
+  // behind a refused chat quote).
+  if (!approve && from === 'unobserved' && row.threadId != null) {
+    const t = ledger.getThread(row.threadId);
+    if (t?.meta?.settled) {
+      const { settled, ...meta } = t.meta;
+      ledger.upsertThread({ platform: t.platform, externalId: t.externalId, kind: t.kind, meta });
+    }
+  }
   return done;
 }
 

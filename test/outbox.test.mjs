@@ -144,10 +144,14 @@ test('settleSent closes an unobserved pressed quote once, and refuses any other 
   assert.throws(() => settleSent(s.ledger, waiting.approvalId, { now: NOON }), { code: 'FSW_OUTBOX_RESOLVED' });
   assert.equal(s.ledger.getOutbox(r2.id).status, 'awaiting_operator');
   assert.throws(() => settleSent(s.ledger, waiting.approvalId, { costKRW: 9.5 }), RangeError);
-  const r3 = plan(s.ledger, { platform: 'soomgo', threadId: s.thread('r3', 'request').id, kind: 'quote', payload: quotePayload({ costKRW: 100 }) });
+  const t3 = s.thread('r3', 'request');
+  s.ledger.upsertThread({ platform: 'soomgo', externalId: 'r3', kind: 'request', meta: { settled: { at: 'x', by: 'decide', key: 'k' }, stage: 'pre_order' } });
+  const r3 = plan(s.ledger, { platform: 'soomgo', threadId: t3.id, kind: 'quote', payload: quotePayload({ costKRW: 100 }) });
   await s.run(scriptedSurface({ receipts: { quote: [{ observed: false, reason: 'unconfirmed' }] } }));
   const rejected = resolve(s.ledger, s.ledger.getOutbox(r3.id).approvalId, { approve: false, reason: 'not sent' });
   assert.equal(rejected.status, 'rejected');
+  // A send found never to have gone out leaves the thread to be decided again on the next poll.
+  assert.deepEqual(s.ledger.getThread(t3.id).meta, { stage: 'pre_order' });
 });
 
 test('draft mode screens a planned row to awaiting_operator with an approval id and calls no surface', async () => {

@@ -148,3 +148,13 @@ test('an unopened poll inside the window of the observed send time is no unread 
   assert.equal(quoteResults(s.ledger, { asOf, expireAfterDays: 14 })[0].cause, 'unread');
 });
 
+
+test('a customer who read the quote and left the chat ends it as lost, once', () => {
+  const s = setup();
+  const leftRow = { preview: '김고객 님이 채팅방을 나갔습니다.', quote: { priceKRW: 300000, unit: 'total', opened: true } };
+  s.poll([chat('c1', leftRow)]);
+  s.poll([chat('c1', leftRow)], later(5));
+  assert.deepEqual(s.events().map((e) => [e.kind, e.quoteId]), [['quote.opened', s.quote.id], ['quote.left', s.quote.id]]);
+  const r = quoteResults(s.ledger, { asOf: later(10), expireAfterDays: 30 }).find((x) => x.id === s.quote.id);
+  assert.deepEqual([r.result, r.cause], ['lost', 'left']);
+});

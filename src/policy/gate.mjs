@@ -176,6 +176,13 @@ export function gateOutbound(item, ctx = {}) {
       }
     } else if (!priceRow) add(warnings, 'price.no_row', 'no price row for this service');
   }
+  // A priced chat answer carries the amount line code appends (priceLine of src/brain/respond.mjs), and every
+  // won figure in it is that amount or one of its split parts, so the buyer never reads a price code did not set.
+  if (item.kind === 'message' && typeof item.amountKRW === 'number') {
+    const allowed = new Set([item.amountKRW, ...(item.decision?.quote?.split?.parts ?? []).map((p) => p.amountKRW)]);
+    const figures = [...text.matchAll(/(\d{1,3}(?:,\d{3})+|\d+)\s*원/g)].map((m) => Number(m[1].replace(/,/g, '')));
+    for (const f of figures.filter((x) => !allowed.has(x))) add(violations, 'price.text', f.toLocaleString('en') + ' KRW in the reply is not the quoted ' + item.amountKRW.toLocaleString('en') + ' KRW or a split part; write no amount, the quote line is added below the reply');
+  }
 
   // claims
   const profile = instance.profile ?? {};

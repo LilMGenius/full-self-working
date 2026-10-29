@@ -154,7 +154,7 @@ export function authorize(item, ctx) {
   // 4. Price row and cash. A proposal answering a buyer request on a bidding board (U8.11 of wp8) is priced
   // by code like a quote and meets the same price rules; kmong's enterprise proposals (thread kind project,
   // decision.quote null) are priced by their own planner and keep their verdicts.
-  const priced = item.kind === 'quote' || (item.kind === 'proposal' && (Boolean(d?.quote) || item.thread?.kind === 'request'));
+  const priced = item.kind === 'quote' || (item.kind === 'message' && Boolean(d?.quote)) || (item.kind === 'proposal' && (Boolean(d?.quote) || item.thread?.kind === 'request'));
   if (priced) {
     if (!approved && (!priceRow || priceRow.viable === false)) operator.push(rule('price.row', item.kind + ' without a viable price row for ' + (d?.service ?? 'unknown service')));
     // A customer who states a budget under the service's cost floor gets no cash quote: the floor would

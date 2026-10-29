@@ -518,11 +518,14 @@ test('a paid quote with a positive value is planned and its verdict recorded, a 
   const thin = setup();
   const r2 = await thin.run('soomgo', scriptedSurface({ sense: [request('r2')], threads: requestPage }), { runCodex: codexWith(paidQuote('strong')), priceTable: [{ ...ROW, costFloorKRW: 299000 }] });
   assert.deepEqual([r2.threads.parked, thin.ledger.listOutbox().length, thin.events('thread.skipped').at(-1).reason], [1, 0, 'gate: value.negative']);
-  // A quote in a soomgo chat costs no cash and asks no fit, so the gate leaves it alone.
+  // A quote in a soomgo chat costs no cash and asks no fit, so the gate leaves it alone. No platform maps a
+  // quote form inside a chat, so it goes out as a message whose last line code writes from the priced amount.
   const c = setup();
   const cs = scriptedSurface({ sense: [inbound('soomgo', 'c1', { service: '웹 개발' })], threads: (ref) => chat('soomgo', ref, '웹 개발 견적 부탁드립니다') });
   await c.run('soomgo', cs, { runCodex: codexWith(decision({ intent: 'quote_request', reply: QUOTE_TEXT, quote: { amountKRW: 300000, scope: ['랜딩 페이지 1개'], deliveryDays: 7, priceType: 'fixed', complexity: 1 } })) });
-  assert.deepEqual([c.ledger.listOutbox().map((x) => x.kind), c.events('quote.judged').length], [['quote'], 0]);
+  assert.deepEqual([c.ledger.listOutbox().map((x) => x.kind), c.events('quote.judged').length], [['message'], 0]);
+  const chatItem = c.ledger.listOutbox()[0].payload;
+  assert.equal(chatItem.text.split('\n').at(-1).startsWith('견적 금액: ' + chatItem.amountKRW.toLocaleString('en') + '원'), true);
 });
 
 // A paid request quote planned before the value gate existed carries no verdict on its payload. Unapproved, the drain

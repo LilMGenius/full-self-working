@@ -181,7 +181,11 @@ function foreignTerms(thread, amountKRW, fx) {
 
 export function outboundItem(thread, decision, text, { descriptor = null, fx = null } = {}) {
   const answer = biddingBoard(descriptor) ? 'proposal' : 'quote';
-  const kind = thread.kind === 'request' ? answer : decision.quote ? 'quote' : 'message';
+  // A quote form answers a buyer request; inside a chat no platform maps one, so a priced chat answer is a
+  // message whose amount line code appends (priceLine), and the gate prices it like a quote (soomgo
+  // 2026-10-29: a chat quote reached the request-page quote form and was refused before typing).
+  const kind = thread.kind === 'request' ? answer : 'message';
+  if (kind === 'message' && typeof decision.quote?.amountKRW === 'number') text = String(text ?? '') + '\n\n' + priceLine(decision.quote, decision.language);
   const amountKRW = decision.quote?.amountKRW;
   const foreign = kind === 'proposal' && needsFx(thread, descriptor) ? foreignTerms(thread, amountKRW, fx) : {};
   // decision rides on the item so the loop stores it in the outbox payload and authorize reads its rules.
@@ -190,6 +194,15 @@ export function outboundItem(thread, decision, text, { descriptor = null, fx = n
     costKRW: thread.kind === 'request' ? thread.quoteCostKRW ?? null : 0, serviceLabel: thread.serviceLabel ?? null,
     attachments: [], thread: gateThread(thread), decision,
   };
+}
+
+// The amount line of a priced chat answer, written by code from the priced quote and its split, so the buyer
+// reads only a price the code set.
+export function priceLine(quote, language) {
+  const won = (n) => n.toLocaleString('en') + (language === 'en' ? ' KRW' : '원');
+  const parts = quote.split?.mechanism === 'multi_pay' ? quote.split.parts ?? [] : [];
+  if (language === 'en') return 'Quote: ' + won(quote.amountKRW) + (parts.length ? ' (' + parts.map((p) => p.label_en + ' ' + won(p.amountKRW)).join(', ') + ')' : '');
+  return '견적 금액: ' + won(quote.amountKRW) + (parts.length ? ' (' + parts.map((p) => p.label_ko + ' ' + won(p.amountKRW)).join(', ') + ')' : '');
 }
 
 const SYSTEM_DECISION = Object.freeze({

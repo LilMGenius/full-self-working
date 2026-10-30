@@ -1,40 +1,60 @@
 # full-self-working
 
-fsw runs your freelance storefront on online marketplaces while you do other work. It answers inquiries and buyer requests, sends quotes priced from what comparable sellers charge, builds the paid work with a coding agent once the payment is in, and learns from every win, loss and correction. It runs on one Windows computer you own, through the Chrome you are already signed in to, and the repository holds nothing about you: your profile, accounts, ledger and customer threads stay in one folder git never tracks.
+fsw는 크몽·숨고 같은 외주 플랫폼에서 문의에 답하고, 견적을 보내고, 결제된 작업을 만들어 납품하는 외주 대행 에이전트다. 내 컴퓨터 한 대에서, 이미 로그인해 둔 내 Chrome으로 움직이고, 내 프로필·계정·거래 기록은 git이 추적하지 않는 폴더 하나에만 둔다.
 
-Today the whole loop, from the first message to the delivery, runs on kmong and soomgo. For wishket, fiverr and freelancer.com fsw reads market prices and fills in the seller onboarding from your profile, and for upwork the onboarding.
+> **지금은 운영을 멈췄다 (2026-10-30).** 10월 25일부터 30일까지 숨고 견적 23건을 보내고 캐시 119,470원을 썼지만 고용과 매출은 0이었다. 사람이 직접 답했으면 딸 수 있던 문의를 기계 같은 답장으로 놓쳤고, 수준 미달인 크몽 서비스 11개와 위시켓 포트폴리오는 내렸다. 다시 켤 때는 모든 답장·견적·서비스 등록을 운영자가 승인하는 `draft` 모드에서 시작한다.
 
-## A day with fsw
+## 자율 등급
 
-- Every five minutes it reads the inbox and request list of each platform you set to draft or auto, decides each new item, and sends what your rules allow or queues it for you.
-- At 00:00 Seoul time it samples competitors' prices, rebuilds the price table, re-ranks your portfolio and redraws the kmong gig images whose top items changed.
-- At 09:00 it writes a digest of the day before and notifies you.
-- A paid job runs through the recipe for its service (a landing page, a logo, a data crawl and so on), passes the recipe's acceptance checks and a review by a model from another family (Claude for work GPT built, GPT for work Claude built), and waits for you to approve the delivery.
+자동차 자율주행은 SAE J3016이 정한 0~5단계로 나눈다. 테슬라 FSD(Supervised)는 사람이 계속 지켜봐야 하는 2단계다. fsw도 같은 잣대로 자기 위치를 적어 둔다.
 
-What needs you is one command away. `fsw` here is `node bin/fsw.mjs`, run from the repository folder.
+| 단계 | 자율주행 (SAE J3016) | fsw로 옮기면 | 위치 |
+|---|---|---|---|
+| 0 | 자동화 없음: 사람이 모두 운전 | 사람이 문의 확인, 답장, 견적, 작업, 납품을 다 한다 | |
+| 1 | 운전자 보조: 조향이나 속도 하나를 돕는다 | fsw가 문의를 읽고 답장·견적 초안을 쓰고, 보낼지는 사람이 매번 정한다 | ◀ **지금 목표로 할 곳** |
+| 2 | 부분 자동: 둘 다 돕지만 사람이 계속 감시 | 정해진 서비스에서는 fsw가 직접 보내고, 사람이 모든 발송을 지켜본다 | |
+| 3 | 조건부 자동: 정해진 조건에서 차가 운전, 요청하면 사람이 넘겨받음 | 한 채널·한 서비스에서 fsw가 수주와 납품까지 하고, 막히면 사람을 부른다 | |
+| 4 | 고도 자동: 정해진 영역에서 사람 없이 운전 | 국내 플랫폼에서 문의부터 입금 확인까지 사람 없이 돈다 | ◀ 처음 설계한 목표 |
+| 5 | 완전 자동: 모든 도로·조건 | 어느 플랫폼, 어느 서비스든 사람 없이 돈다 | |
+
+**실측 위치: 0단계보다 못함.** 4단계를 목표로 만들었지만 실제로는 사람이 하는 것보다 늦고(문의 몇 시간 뒤에 답), 틀린 방향으로 갔다(자기 메시지에 답하기, 팝업에 막힌 발송, 수준 미달 서비스 이미지). 자율주행으로 치면 사람보다 늦게 가고 역주행한 차다. 그래서 1단계, 초안을 쓰고 사람이 보내는 데서 다시 시작한다. 다음 단계로 올라가는 기준은 커밋 수가 아니라 그 단계에서 실제로 받은 입금이다.
+
+## 로드맵
+
+1. **크몽·숨고**: 서비스 페이지와 견적 문구를 운영자와 함께 다듬어 첫 유료 수주를 만든다. 크몽은 고객이 먼저 찾아오는 서비스 판매, 숨고는 견적마다 캐시가 드니 하루 상한을 작게 둔다.
+2. **위시켓·김과외**: 크몽·숨고에서 수주가 반복되면 넓힌다.
+3. **해외 플랫폼 (보류)**: upwork, fiverr, freelancer.com, wishket 해외 공고는 국내에서 수주가 증명된 뒤에 다시 본다. 시세 읽기와 가입 정보 채우기 코드는 남아 있지만 돈이 드는 입찰은 막혀 있다.
+
+## 하루 흐름 (켜져 있을 때)
+
+- 5분마다 켜 둔 플랫폼의 문의함과 요청 목록을 읽고, 새 항목마다 무엇을 할지 정해 규칙이 허락하는 것은 보내고 나머지는 운영자 승인 대기열에 둔다.
+- 매일 00:00(서울)에 같은 서비스를 파는 다른 판매자의 가격을 모아 가격표를 다시 만든다.
+- 매일 09:00에 전날 요약을 남기고 알린다.
+- 결제된 작업은 서비스별 작업 순서(랜딩페이지, 로고, 데이터 수집 등)대로 만들고, 다른 회사 모델의 검토를 거친 뒤 운영자 승인을 기다린다.
+
+운영자가 할 일은 명령 하나로 볼 수 있다. 아래 `fsw`는 저장소 폴더에서 `node bin/fsw.mjs`를 뜻한다.
 
 ```
-fsw approve list                  # what waits for you: drafts, deliveries, payment requests
-fsw approve <id>                  # send it as written
-fsw approve <id> --text "..."     # send your edit instead
-fsw approve <id> --reject         # drop it
-fsw deal <jobId> permission granted   # the client allowed portfolio use
-fsw status                        # ledger counts, the last tick, the enabled platforms
-fsw settings                      # every choice with its value, default and meaning
+fsw approve list                  # 나를 기다리는 것: 답장 초안, 납품, 결제 요청
+fsw approve <id>                  # 쓰인 그대로 보내기
+fsw approve <id> --text "..."     # 내가 고친 글로 보내기
+fsw approve <id> --reject         # 버리기
+fsw status                        # 기록 개수, 마지막 실행, 켜진 플랫폼
+fsw settings                      # 모든 설정과 기본값, 뜻
 ```
 
-## Modes and limits
+## 모드와 한도
 
-Each platform runs in one of three modes: `observe` reads only, `draft` plans every outbound item for your approval, and `auto` sends what the policy allows. Every message, quote and proposal passes a gate before it leaves: the platform's contact and payment rules, the price range fsw set for that service, claims your profile cannot back, and filler that reads as machine-written. A platform that charges per quote is capped per day. A platform's mode, cash cap and the services it answers there are choices you make before it acts, and `fsw doctor` warns until you have made them.
+플랫폼마다 세 모드 중 하나로 돈다. `observe`는 읽기만 하고, `draft`는 모든 발송을 운영자 승인에 넘기고, `auto`는 규칙이 허락하는 것을 직접 보낸다. 모든 메시지·견적·제안은 나가기 전에 검사를 거친다: 플랫폼의 연락처·결제 규칙, 서비스별 가격 범위, 프로필로 증명할 수 없는 주장, 기계가 쓴 티가 나는 문장. 견적마다 돈이 드는 플랫폼은 하루 한도가 있다. 크몽 서비스 페이지와 이미지, 위시켓 포트폴리오 같은 판매 페이지는 운영자가 직접 보고 승인한 것만 올린다.
 
-## Setup
+## 설치
 
-You need:
+필요한 것:
 
-- Windows, since the scheduled task and the notifications use it, and Git.
-- Node.js 24 or newer.
-- Google Chrome with BrowserSkill, the browser extension and local service fsw drives Chrome through. The omo plugin for Codex ([LazyCodex](https://github.com/code-yeongyu/lazycodex)) sets it up, and you enable the extension in Chrome once.
-- The [Codex CLI](https://github.com/openai/codex), signed in with `codex login`. By default fsw calls it through [opencodex](https://github.com/lidge-jun/opencodex), a local proxy that also lets codex reach Claude and other providers; `fsw doctor` checks the proxy and says how to call codex directly when you run none.
+- Windows와 Git (예약 실행과 알림이 Windows 기능을 쓴다)
+- Node.js 24 이상
+- Google Chrome과 BrowserSkill 확장. Codex용 omo 플러그인([LazyCodex](https://github.com/code-yeongyu/lazycodex))이 설치해 주고, Chrome에서 확장을 한 번 켜면 된다.
+- `codex login`으로 로그인한 [Codex CLI](https://github.com/openai/codex)
 
 ```
 git clone https://github.com/LilMGenius/full-self-working.git
@@ -43,24 +63,15 @@ npm ci
 node bin/fsw.mjs init
 ```
 
-`init` creates your instance folder, `instance.local/`, from placeholder files and prints the remaining steps:
+`init`이 내 정보를 담을 `instance.local/` 폴더를 만들고 남은 단계를 알려 준다.
 
-1. Draft your profile from any mix of files, folders and links about your work (a CV as PDF or text, notes, repository folders, your GitHub page): `node bin/fsw.mjs profile build cv.pdf notes.md https://github.com/<you>`. Read the draft and its review notes, fix what is wrong, then run `node bin/fsw.mjs profile accept`. Every claim in the profile cites the source it came from.
-2. Fill `instance.local/business.json` (company, registration number, e-mail, payout account). Then make your choices: `node bin/fsw.mjs settings` lists every setting with its meaning, and `node bin/fsw.mjs settings set <key> <value>` changes one, for example `settings set platforms.soomgo.mode draft`. Paid work built on the default GPT model needs `jobs.review.model` set to a model of another family your codex reaches, or each delivery comes to you unreviewed.
-3. Sign in in Chrome to each platform you enabled, then run `node bin/fsw.mjs doctor`, which checks Node, Chrome, BrowserSkill, Codex and your instance and prints the fix for anything missing.
-4. When doctor passes, `node bin/fsw.mjs schedule install` registers the task that starts fsw at logon and checks every hour on the hour that it runs. To watch one pass right away, run `node bin/fsw.mjs tick --once`.
+1. 이력서, 메모, 저장소 폴더, GitHub 주소처럼 내 작업을 보여 주는 자료로 프로필 초안을 만든다: `node bin/fsw.mjs profile build cv.pdf notes.md https://github.com/<나>`. 초안과 검토 메모를 읽고 틀린 곳을 고친 뒤 `node bin/fsw.mjs profile accept`로 확정한다. 프로필의 모든 주장은 출처를 단다.
+2. `instance.local/business.json`에 사업자 정보와 정산 계좌를 넣고, `node bin/fsw.mjs settings`로 설정을 고른다. 처음에는 모든 플랫폼을 `draft`로 둔다: `node bin/fsw.mjs settings set platforms.soomgo.mode draft`.
+3. Chrome에서 켤 플랫폼에 로그인한 뒤 `node bin/fsw.mjs doctor`를 돌린다. 빠진 것이 있으면 고칠 방법을 알려 준다.
+4. doctor가 통과하면 `node bin/fsw.mjs schedule install`로 로그온 때 fsw가 켜지게 등록한다. 한 번만 돌려 보려면 `node bin/fsw.mjs tick --once`.
 
-## Dependencies
+## 더 보기
 
-One npm package, ajv, which `fsw settings` uses to check a change against the settings schema. The ledger is SQLite through Node's built-in `node:sqlite`.
-
-## Why it works this way
-
-fsw drives your own signed-in Chrome on your own machine instead of a hosted browser, lets the model write the words while code sets the price, sends every outbound item through one queue that reads each send back on the page, and has a model from another family review paid work before you approve it. Every model turn runs through the Codex CLI, inside its sandbox. [docs/DESIGN.md](docs/DESIGN.md#decisions) gives the reason and the evidence for each choice.
-
-## More
-
-- [docs/DESIGN.md](docs/DESIGN.md) describes the modules, the ledger and the contracts between them.
-- [docs/NEGATIVE-CORPUS.md](docs/NEGATIVE-CORPUS.md) lists what the first build learned about the marketplaces, and what keeps each lesson from being learned twice.
-- `src/platforms/descriptors/` holds each marketplace's fee, payment and contact rules as data.
-- [AGENTS.md](AGENTS.md) is the guide for changing the code: the layout, the commands and the rules every change keeps.
+- [docs/DESIGN.md](docs/DESIGN.md): 모듈, 기록 장부, 모듈 사이의 약속과 각 설계 선택의 이유
+- [docs/NEGATIVE-CORPUS.md](docs/NEGATIVE-CORPUS.md): 플랫폼과 실패에서 배운 것, 그리고 같은 실수를 다시 못 하게 막는 장치
+- [AGENTS.md](AGENTS.md): 코드를 고치는 에이전트를 위한 안내

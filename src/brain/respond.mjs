@@ -197,12 +197,13 @@ export function outboundItem(thread, decision, text, { descriptor = null, fx = n
 }
 
 // The amount line of a priced chat answer, written by code from the priced quote and its split, so the buyer
-// reads only a price the code set.
+// reads only a price the code set. It is a sentence a person would write: a labelled 'Quote: ...' line read
+// as a receipt from a bot (soomgo, 2026-10-29).
 export function priceLine(quote, language) {
   const won = (n) => n.toLocaleString('en') + (language === 'en' ? ' KRW' : '원');
   const parts = quote.split?.mechanism === 'multi_pay' ? quote.split.parts ?? [] : [];
-  if (language === 'en') return 'Quote: ' + won(quote.amountKRW) + (parts.length ? ' (' + parts.map((p) => p.label_en + ' ' + won(p.amountKRW)).join(', ') + ')' : '');
-  return '견적 금액: ' + won(quote.amountKRW) + (parts.length ? ' (' + parts.map((p) => p.label_ko + ' ' + won(p.amountKRW)).join(', ') + ')' : '');
+  if (language === 'en') return 'The price is ' + won(quote.amountKRW) + (parts.length ? ', paid as ' + parts.map((p) => p.label_en + ' ' + won(p.amountKRW)).join(' and ') : '') + '.';
+  return '금액은 ' + won(quote.amountKRW) + '입니다.' + (parts.length ? ' ' + parts.map((p) => p.label_ko + ' ' + won(p.amountKRW)).join(', ') + '으로 나눠 받습니다.' : '');
 }
 
 const SYSTEM_DECISION = Object.freeze({

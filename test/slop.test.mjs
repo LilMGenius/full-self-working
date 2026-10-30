@@ -24,6 +24,14 @@ test('placeholders and AI self-reference are floor findings', () => {
   assert.deepEqual(rules('저는 AI 언어 모델입니다'), ['floor:ai_self_reference']);
 });
 
+// 2026-10-29 soomgo: a reply said it had not opened the reference link the customer sent; a person opens it.
+test('a reply confessing it never opened what the customer sent is a floor finding', () => {
+  assert.deepEqual(rules('링크 내용은 아직 확인하지 못해 기본 범위로 견적드립니다'), ['floor:unread_confession']);
+  assert.deepEqual(rules('보내주신 파일을 열어보지 못했습니다'), ['floor:unread_confession']);
+  assert.deepEqual(rules("I haven't checked the link yet"), ['floor:unread_confession']);
+  assert.deepEqual(rules('보내주신 페이지 확인했습니다. 이 정도 구성이면 가능합니다'), []);
+});
+
 test('reflex findings warn on hype, stacked exclamations, emoji bullets and vanity metrics', () => {
   const found = rules('최고의 품질!!\n✅ 빠른 응답\n만족도 100% 10,000+ 고객\nA seamless experience');
   for (const r of ['reflex:hype_ko', 'reflex:stacked_exclamation', 'reflex:emoji_bullet', 'reflex:vanity_metric', 'reflex:hype_en']) assert.ok(found.includes(r), r);

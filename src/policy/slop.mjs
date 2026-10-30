@@ -1,6 +1,7 @@
 // Deterministic copy lint. Floor findings block an outbound item; reflex findings warn.
 // Rules come from the repository slop gate (AGENTS.md): no em dashes, no middle-dot enumerations,
-// no placeholders, no AI self-reference, and a reflex list of hype and vanity phrasing.
+// no placeholders, no AI self-reference, no confession that the customer's material went unread, and a
+// reflex list of hype and vanity phrasing.
 
 const FLOOR = [
   { rule: 'em_dash', re: /[\u2014\u2015]/g },
@@ -8,6 +9,8 @@ const FLOOR = [
   { rule: 'middle_dot', re: /(?<=\p{L}[ ]?)\u00B7(?=[ ]?\p{L})/gu },
   { rule: 'placeholder', re: /lorem ipsum|\bTODO\b|\bTBD\b|\bXXX\b|\{\{[^}]*\}\}|\[(?:이름|성함|회사명|고객명|날짜|금액|연락처|name|company|client)\]/giu },
   { rule: 'ai_self_reference', re: /\bas an AI\b|\bI(?: am|'m) an AI\b|AI 언어 ?모델|인공지능으로서|AI로서|언어 모델로서/giu },
+  // A person opens what the customer sent before answering; saying it was not read marks the reply as a bot's.
+  { rule: 'unread_confession', re: /확인하지 못(?:했|해|하여|한 채)|열어 ?보지 못|\b(?:haven't|have not|did not|didn't|couldn't|could not)(?: yet)? (?:checked|check|opened|open|looked at|look at)\b/giu },
 ];
 
 const HYPE_KO = ['혁신적인', '최고의', '압도적인', '완벽한', '획기적인', '차별화된', '원스톱'];

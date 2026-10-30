@@ -525,7 +525,8 @@ test('a paid quote with a positive value is planned and its verdict recorded, a 
   await c.run('soomgo', cs, { runCodex: codexWith(decision({ intent: 'quote_request', reply: QUOTE_TEXT, quote: { amountKRW: 300000, scope: ['랜딩 페이지 1개'], deliveryDays: 7, priceType: 'fixed', complexity: 1 } })) });
   assert.deepEqual([c.ledger.listOutbox().map((x) => x.kind), c.events('quote.judged').length], [['message'], 0]);
   const chatItem = c.ledger.listOutbox()[0].payload;
-  assert.equal(chatItem.text.split('\n').at(-1).startsWith('견적 금액: ' + chatItem.amountKRW.toLocaleString('en') + '원'), true);
+  // A sentence a person would write, never a receipt label (2026-10-29: '견적 금액: ...' read as a bot).
+  assert.equal(chatItem.text.split('\n').at(-1), '금액은 300,000원입니다. 선금 150,000원, 잔금 150,000원으로 나눠 받습니다.');
 });
 
 // A paid request quote planned before the value gate existed carries no verdict on its payload. Unapproved, the drain

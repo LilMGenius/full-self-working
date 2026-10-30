@@ -1,16 +1,17 @@
 // fsw listings: build <service> writes a 크몽 gig spec and its images under the instance for review;
-// render redraws the images of a written spec; check runs its checks again; publish submits it through
-// the listing surface. The code lives in src/listings/gig.mjs; the supervisor runs src/listings/watch.mjs.
+// render redraws the images of a written spec; check runs its checks again; approve records that the
+// operator saw this exact draft; publish submits an approved draft through the listing surface. The code
+// lives in src/listings/gig.mjs; the supervisor runs src/listings/watch.mjs.
 import { loadInstance } from '../core/instance.mjs';
 import { openLedger } from '../core/ledger.mjs';
-import { build, publish, readSpec, render } from '../listings/gig.mjs';
+import { approve, build, publish, readSpec, render } from '../listings/gig.mjs';
 
-const USAGE = 'usage: fsw listings build|render <service> [--refresh-proofs] | check <service> | publish <service> [--no-submit] [--replace-images]';
+const USAGE = 'usage: fsw listings build|render <service> [--refresh-proofs] | check|approve <service> | publish <service> [--no-submit] [--replace-images]';
 
 export async function run(argv, ctx = {}) {
   const [cmd, service, ...rest] = argv;
   const log = ctx.log ?? console.log;
-  if (!['build', 'render', 'publish', 'check'].includes(cmd) || !service) {
+  if (!['build', 'render', 'publish', 'check', 'approve'].includes(cmd) || !service) {
     console.error(USAGE);
     return { exitCode: 2 };
   }
@@ -30,6 +31,11 @@ export async function run(argv, ctx = {}) {
       for (const v of violations) log('  ' + v.field + ' [' + v.rule + '] ' + v.detail);
       log('listings: ' + service + ' ' + (violations.length ? violations.length + ' violations' : 'passes every check'));
       return { exitCode: violations.length ? 1 : 0, violations };
+    }
+    if (cmd === 'approve') {
+      const r = approve(service, { instance });
+      log('listings: approved the ' + service + ' draft as it is now (' + r.fingerprint.slice(0, 12) + ')');
+      return { exitCode: 0, ...r };
     }
     const ledger = openLedger(instance.paths.ledger);
     try {

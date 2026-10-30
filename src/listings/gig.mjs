@@ -6,6 +6,7 @@
 // capture, and the main card shots per service, a matter of taste), job media come from the portfolio, and
 // work samples the agent made for a service sit in listings/_samples/<service>/samples.json.
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { isAbsolute, join, relative } from 'node:path';
 import { logEvent } from '../core/log.mjs';
 import { dayKey } from '../core/clock.mjs';
@@ -150,7 +151,38 @@ export function readSpec(instance, service) {
 // The category ids a gig's edit URL needs, from gig.json.
 const categoryIdsOf = (gig) => (gig?.rootCategoryId && gig?.subCategoryId ? { root: gig.rootCategoryId, sub: gig.subCategoryId, third: gig.thirdCategoryId ?? null } : null);
 
+// A seller page carries the operator's name and face, so it goes up only as the operator saw it: approve
+// records a hash of the spec file and every image it names, and publish refuses any other bytes. A build or
+// render rewrites the spec, so each new draft waits for a new approval (measured 2026-10-31: eleven gigs
+// went on sale with images the founder judged unfit to carry his name).
+export const approvalFile = (instance, service) => join(listingsDir(instance), service, 'approved.json');
+
+function specFingerprint(instance, service) {
+  const file = specFile(instance, service);
+  if (!existsSync(file)) throw new ListingError('FSW_LISTING_NO_SPEC', 'no spec for ' + service + '; run fsw listings build ' + service);
+  const bytes = readFileSync(file);
+  const { images = {} } = JSON.parse(bytes);
+  const dir = join(listingsDir(instance), service);
+  const hash = createHash('sha256').update(bytes);
+  for (const f of [images.main, ...(images.detail ?? []), ...(images.video ?? [])].filter(Boolean)) hash.update(f).update(readFileSync(join(dir, f)));
+  return hash.digest('hex');
+}
+
+export function approve(service, { instance }) {
+  const record = { fingerprint: specFingerprint(instance, service), at: new Date().toISOString() };
+  writeJson(approvalFile(instance, service), record);
+  return record;
+}
+
+function assertApproved(instance, service) {
+  const approved = readJson(approvalFile(instance, service));
+  if (approved?.fingerprint !== specFingerprint(instance, service)) {
+    throw new ListingError('FSW_LISTING_UNAPPROVED', 'the ' + service + ' draft differs from what the operator approved; review its images and run fsw listings approve ' + service);
+  }
+}
+
 export async function publish(service, { instance, adapter, log = console.log, ledger, submit = true, replaceImages = [] } = {}) {
+  assertApproved(instance, service);
   const { spec, violations } = readSpec(instance, service);
   if (violations.length) throw new ListingError('FSW_LISTING_BLOCKED', 'the ' + service + ' spec fails its checks', { violations });
   const own = !adapter;

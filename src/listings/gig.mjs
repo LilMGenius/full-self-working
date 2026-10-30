@@ -5,6 +5,8 @@
 // (src/listings/proofs.mjs): the page captures are instance data (listings/proofs.json: the pages to
 // capture, and the main card shots per service, a matter of taste), job media come from the portfolio, and
 // work samples the agent made for a service sit in listings/_samples/<service>/samples.json.
+// Known gap: a gig is still one per catalog service (gig.json per service), while AGENTS.md sets one broad
+// gig per field; the restart replaces this shape with one listing per field.
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { isAbsolute, join, relative } from 'node:path';
